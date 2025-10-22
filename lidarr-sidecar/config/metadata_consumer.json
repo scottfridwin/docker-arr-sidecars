@@ -1,0 +1,28 @@
+{
+    "enable": true,
+    "name": "Kodi (XBMC) / Emby",
+    "fields": [
+        {
+            "name": "artistMetadata",
+            "value": true
+        },
+        {
+            "name": "albumMetadata",
+            "value": true
+        },
+        {
+            "name": "artistImages",
+            "value": true
+        },
+        {
+            "name": "albumImages",
+            "value": true
+        }
+    ],
+    "implementationName": "Kodi (XBMC) / Emby",
+    "implementation": "XbmcMetadata",
+    "configContract": "XbmcMetadataSettings",
+    "infoLink": "https://wiki.servarr.com/lidarr/supported#xbmcmetadata",
+    "tags": [],
+    "id": 1
+}
