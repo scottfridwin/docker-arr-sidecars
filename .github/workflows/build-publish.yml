@@ -45,4 +45,4 @@ jobs:
             -t ${{ env.imageRepository }}:${{ env.version }} \
             -t ${{ env.imageRepository }}:latest \
             -t ${{ env.imageRepository }}:${{ github.sha }} \
-            -f Dockerfile .
+            -f lidarr-sidecar/Dockerfile .
