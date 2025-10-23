@@ -244,7 +244,7 @@ ProcessImport() {
             issues="$(get_state "permissionIssues")"
             echo -e "Permission or ownership issues detected:\n${issues}" >"${importDir}/IMPORT_STATUS.txt"
         else
-            local destDir="${AUTOIMPORT_STAGING_DIR}/${targetName}"
+            local destDir="${AUTOIMPORT_SHARED_PATH}/${targetName}"
             mv "${importDir}" "${destDir}"
             log "DEBUG :: Moved '${importDir}' to '${destDir}'"
             NotifyArrForImport "${destDir}"
@@ -282,7 +282,6 @@ log "DEBUG :: AUTOIMPORT_GROUP=${AUTOIMPORT_GROUP:-}"
 log "DEBUG :: AUTOIMPORT_IMPORT_MARKER=${AUTOIMPORT_IMPORT_MARKER}"
 log "DEBUG :: AUTOIMPORT_INTERVAL=${AUTOIMPORT_INTERVAL}"
 log "DEBUG :: AUTOIMPORT_SHARED_PATH=${AUTOIMPORT_SHARED_PATH}"
-log "DEBUG :: AUTOIMPORT_STAGING_DIR=${AUTOIMPORT_STAGING_DIR}"
 log "DEBUG :: AUTOIMPORT_TAGS=${AUTOIMPORT_TAGS}"
 log "DEBUG :: AUTOIMPORT_WORK_DIR=${AUTOIMPORT_WORK_DIR}"
 
@@ -300,10 +299,6 @@ if [[ ! -d "${AUTOIMPORT_DROP_DIR}" ]]; then
 fi
 if [[ ! -d "${AUTOIMPORT_SHARED_PATH}" ]]; then
     log "ERROR :: AUTOIMPORT_SHARED_PATH '${AUTOIMPORT_SHARED_PATH}' does not exist"
-    exit 1
-fi
-if [[ ! -d "${AUTOIMPORT_STAGING_DIR}" ]]; then
-    log "ERROR :: AUTOIMPORT_STAGING_DIR '${AUTOIMPORT_STAGING_DIR}' does not exist"
     exit 1
 fi
 if [[ ! -d "${AUTOIMPORT_WORK_DIR}" ]]; then
