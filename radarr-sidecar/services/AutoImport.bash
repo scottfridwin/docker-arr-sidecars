@@ -182,7 +182,7 @@ CheckPermissions() {
 
         local perms group
         perms=$(stat -c "%A" "${item}" 2>/dev/null || echo "----------")
-        group=$(stat -c "%G" "${item}" 2>/dev/null || echo "unknown")
+        group=$(stat -c "%g" "${item}" 2>/dev/null || echo "0")
 
         local group_perms="${perms:4:3}" # characters 5-7 (group perms)
         local issue=""
