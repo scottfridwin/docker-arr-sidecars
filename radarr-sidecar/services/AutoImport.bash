@@ -134,7 +134,7 @@ GetMovies() {
 
     if [[ "${refreshNeeded}" == true ]]; then
         # Make API request using your helper (populates arrApiResponse)
-        ArrApiRequest "GET" "/api/v3/movie"
+        ArrApiRequest "GET" "movie"
 
         local response
         response="$(get_state "arrApiResponse")"
