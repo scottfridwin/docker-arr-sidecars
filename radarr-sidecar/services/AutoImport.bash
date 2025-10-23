@@ -193,7 +193,7 @@ CheckPermissions() {
         fi
 
         # Check group rw permissions
-        if [[ "${group_perms}" != *"r"* || "${group_perms}" != *"w"* ]]; then
+        if [[ "${group_perms}" != *r* || "${group_perms}" != *w* ]]; then
             [[ -n "${issue}" ]] && issue+=", "
             issue+="missing group rw perms"
         fi
@@ -202,10 +202,10 @@ CheckPermissions() {
         if [[ -n "${issue}" ]]; then
             local entry="${item} :: ${issue}"
             bad_files+=("${entry}")
-            report+="${entry}\n"
+            report+="${entry}"$'\n'
             log "WARNING :: ${entry}"
         fi
-    done < <(find "${path}" -mindepth 1)
+    done < <(find "${path}" -mindepth 1 2>/dev/null)
 
     local returnCode=0
     if ((${#bad_files[@]} > 0)); then
