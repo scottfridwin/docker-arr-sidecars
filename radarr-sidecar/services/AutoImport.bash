@@ -268,7 +268,11 @@ log "DEBUG :: AUTOIMPORT_WORK_DIR=${AUTOIMPORT_WORK_DIR}"
 
 ### Validation ###
 
-# Nothing to validate
+if [[ -z "${AUTOIMPORT_GROUP:-}" ]]; then
+    log "ERROR :: AUTOIMPORT_GROUP environment variable is not set. This variable is required for permission checks."
+    setUnhealthy
+    exit 1
+fi
 
 ### Main ###
 
