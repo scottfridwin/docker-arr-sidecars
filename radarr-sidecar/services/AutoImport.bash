@@ -164,6 +164,9 @@ NotifyArrForImport() {
     # $1 -> folder path containing audio files for *arr to import
     local importPath="${1}"
 
+    # Remove the import status file if it exists
+    rm -rf "${importPath}/IMPORT_STATUS.txt"
+
     ArrApiRequest "POST" "command" "{\"name\":\"DownloadedMoviesScan\", \"path\":\"${importPath}\"}"
 
     log "INFO :: Sent notification to ${ARR_NAME} to import from path: ${importPath}"
