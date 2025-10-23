@@ -1,0 +1,63 @@
+# Use latest Alpine as base
+FROM alpine:latest
+
+# Install system dependencies
+RUN apk add --no-cache \
+    bash \
+    curl \
+    jq \
+    python3-dev \
+    uv
+
+# Install Python packages
+RUN uv pip install --system --upgrade --no-cache-dir --break-system-packages \
+    yq
+
+# Copy all scripts and config files
+COPY sonarr-sidecar/ /app/
+COPY shared/ /app/
+RUN chmod +x /app/entrypoint.sh
+
+# Set working directory
+WORKDIR /app
+
+### Variable defaults ###
+
+# General settings
+ENV UMASK=0002
+ENV LOG_LEVEL=INFO
+
+# Application details
+ENV ARR_NAME=sonarr
+ENV ARR_CONFIG_PATH=/sonarr/config.xml
+ENV ARR_SUPPORTED_API_VERSIONS=v3,v1
+ENV ARR_HOST=sonarr
+ENV ARR_PORT=
+
+# AutoConfig settings
+ENV AUTOCONFIG_MEDIAMANAGEMENT=false
+ENV AUTOCONFIG_MEDIAMANAGEMENT_JSON=/app/config/mediamanagement.json
+ENV AUTOCONFIG_HOST=false
+ENV AUTOCONFIG_HOST_JSON=/app/config/host.json
+ENV AUTOCONFIG_CUSTOMFORMAT=false
+ENV AUTOCONFIG_CUSTOMFORMAT_JSON=/app/config/customformat.json
+ENV AUTOCONFIG_UI=false
+ENV AUTOCONFIG_UI_JSON=/app/config/ui.json
+ENV AUTOCONFIG_QUALITYPROFILE=false
+ENV AUTOCONFIG_QUALITYPROFILE_JSON=/app/config/qualityprofile.json
+ENV AUTOCONFIG_NAMING=false
+ENV AUTOCONFIG_NAMING_JSON=/app/config/naming.json
+
+# AutoImport settings
+ENV AUTOIMPORT_CACHE_HOURS=1
+ENV AUTOIMPORT_DROP_DIR=/drop
+ENV AUTOIMPORT_DOWNLOADCLIENT_NAME=sonarr-sidecar
+#ENV AUTOIMPORT_GROUP= #Needs to be unset
+ENV AUTOIMPORT_IMPORT_MARKER=import-
+ENV AUTOIMPORT_INTERVAL=5m
+ENV AUTOIMPORT_SHARED_PATH=/sidecar-import
+ENV AUTOIMPORT_TAGS=autoimport
+ENV AUTOIMPORT_WORK_DIR=/work
+
+# Entrypoint
+CMD ["bash", "/app/entrypoint.sh"]

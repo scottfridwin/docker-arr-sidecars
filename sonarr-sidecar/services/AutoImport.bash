@@ -107,55 +107,55 @@ EOF
     log "TRACE :: Exiting AddDownloadClient..."
 }
 
-# Gets the list of movies in the Radarr database and caches it to a file
-GetMovies() {
-    log "TRACE :: Entering GetMovies..."
+# Gets the list of series in the Sonarr database and caches it to a file
+GetSeries() {
+    log "TRACE :: Entering GetSeries..."
 
-    local moviesPathsCacheFile="${AUTOIMPORT_WORK_DIR}/moviepaths"
+    local seriesPathsCacheFile="${AUTOIMPORT_WORK_DIR}/seriepaths"
     local cacheAgeSeconds=$((AUTOIMPORT_CACHE_HOURS * 3600))
     local refreshNeeded=false
 
     # If cache missing, mark for refresh
-    if [[ ! -f "${moviesPathsCacheFile}" ]]; then
-        log "DEBUG :: Movie cache not found, will refresh..."
+    if [[ ! -f "${seriesPathsCacheFile}" ]]; then
+        log "DEBUG :: Series cache not found, will refresh..."
         refreshNeeded=true
     else
         # Calculate file age
         local currentTime fileModTime
         currentTime=$(date +%s)
-        fileModTime=$(stat -c %Y "${moviesPathsCacheFile}" 2>/dev/null || echo 0)
+        fileModTime=$(stat -c %Y "${seriesPathsCacheFile}" 2>/dev/null || echo 0)
         local age=$((currentTime - fileModTime))
 
         if ((age > cacheAgeSeconds)); then
-            log "DEBUG :: Movie cache older than ${AUTOIMPORT_CACHE_HOURS}h, refreshing..."
+            log "DEBUG :: Series cache older than ${AUTOIMPORT_CACHE_HOURS}h, refreshing..."
             refreshNeeded=true
         fi
     fi
 
     if [[ "${refreshNeeded}" == true ]]; then
         # Make API request using your helper (populates arrApiResponse)
-        ArrApiRequest "GET" "movie"
+        ArrApiRequest "GET" "series"
 
         local response
         response="$(get_state "arrApiResponse")"
 
         if [[ -z "${response}" || "${response}" == "null" ]]; then
-            log "ERROR :: Failed to fetch movie list from ${ARR_NAME} API"
+            log "ERROR :: Failed to fetch series list from ${ARR_NAME} API"
             setUnhealthy
             exit 1
         fi
 
-        # Extract movie paths and update cache
-        jq -r '.[].path' <<<"${response}" >"${moviesPathsCacheFile}"
-        log "INFO :: Movie cache refreshed with $(wc -l <"${moviesPathsCacheFile}") entries"
+        # Extract series paths and update cache
+        jq -r '.[].path' <<<"${response}" >"${seriesPathsCacheFile}"
+        log "INFO :: Series cache refreshed with $(wc -l <"${seriesPathsCacheFile}") entries"
     fi
 
     # Load cache contents into memory and store in state
-    local moviePaths
-    moviePaths="$(<"${moviesPathsCacheFile}")"
-    set_state "moviePaths" "${moviePaths}"
+    local seriesPaths
+    seriesPaths="$(<"${seriesPathsCacheFile}")"
+    set_state "seriesPaths" "${seriesPaths}"
 
-    log "TRACE :: Exiting GetMovies..."
+    log "TRACE :: Exiting GetSeries..."
 }
 
 # Notify *arr to import the specified path
@@ -167,7 +167,7 @@ NotifyArrForImport() {
     # Remove the import status file if it exists
     rm -rf "${importPath}/IMPORT_STATUS.txt"
 
-    ArrApiRequest "POST" "command" "{\"name\":\"DownloadedMoviesScan\", \"path\":\"${importPath}\"}"
+    ArrApiRequest "POST" "command" "{\"name\":\"DownloadedSeriesScan\", \"path\":\"${importPath}\"}"
 
     log "INFO :: Sent notification to ${ARR_NAME} to import from path: ${importPath}"
     log "TRACE :: Exiting NotifyArrForImport..."
@@ -234,12 +234,12 @@ ProcessImport() {
     targetName="${targetName#" "}"                            # trim leading space if any
 
     log "INFO :: Processing flagged import folder: ${dirName}"
-    GetMovies
-    local moviePaths="$(get_state "moviePaths")"
+    GetSeries
+    local seriesPaths="$(get_state "seriesPaths")"
 
     # Try to find exact match
     local matchPath
-    matchPath="$(echo "$moviePaths" | grep -F "/$targetName" || true)"
+    matchPath="$(echo "$seriesPaths" | grep -F "/$targetName" || true)"
 
     if [[ -n "$matchPath" ]]; then
         log "DEBUG :: Match found: ${targetName} -> ${matchPath}"
@@ -255,7 +255,7 @@ ProcessImport() {
         fi
     else
         log "DEBUG :: No match found for '${targetName}'"
-        echo "No matching movie directory found in ${ARR_NAME} for '$targetName'." >"${importDir}/IMPORT_STATUS.txt"
+        echo "No matching series directory found in Radarr for '$targetName'." >"${importDir}/IMPORT_STATUS.txt"
 
         # rename to remove import tag so it's not retried
         local newDir="${AUTOIMPORT_DROP_DIR}/${targetName}"
