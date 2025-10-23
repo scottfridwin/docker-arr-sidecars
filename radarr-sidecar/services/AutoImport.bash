@@ -249,7 +249,7 @@ ProcessImport() {
             echo -e "Permission or ownership issues detected:\n${issues}" >"${importDir}/IMPORT_STATUS.txt"
         else
             local destDir="${AUTOIMPORT_SHARED_PATH}/${targetName}"
-            mv "${importDir}" "${destDir}"
+            mv "${importDir}" "${destDir}" 2>/dev/null
             log "DEBUG :: Moved '${importDir}' to '${destDir}'"
             NotifyArrForImport "${destDir}"
         fi
