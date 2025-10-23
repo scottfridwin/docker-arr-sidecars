@@ -235,6 +235,73 @@ verifyArrApiAccess() {
     log "TRACE :: Exiting verifyArrApiAccess..."
 }
 
+updateArrConfig() {
+    log "TRACE :: Entering updateConfig..."
+    local jsonFile="${1}"
+    local apiPath="${2}"
+    local settingName="${3}"
+
+    if [ -z "${jsonFile}" ] || [ ! -f "${jsonFile}" ]; then
+        log "ERROR :: JSON config file not set or not found: ${jsonFile}"
+        setUnhealthy
+        exit 1
+    fi
+
+    log "INFO :: Configuring ${ARR_NAME} ${settingName} Settings"
+
+    # Load JSON file
+    local jsonData
+    jsonData=$(<"${jsonFile}")
+
+    # Determine whether it's an array or an object
+    local jsonType
+    jsonType=$(jq -r 'if type=="array" then "array" else "object" end' <<<"${jsonData}")
+
+    if [[ "${jsonType}" == "array" ]]; then
+        log "DEBUG :: Detected JSON array, sending one PUT per element..."
+        local length
+        length=$(jq 'length' <<<"${jsonData}")
+
+        log "TRACE :: Getting existing resources at ${apiPath}"
+        ArrApiRequest "GET" "${apiPath}"
+        local response="$(get_state "arrApiResponse")"
+
+        for ((i = 0; i < length; i++)); do
+            local id item exists
+            item=$(jq -c ".[$i]" <<<"${jsonData}")
+            id=$(jq -r ".[$i].id" <<<"${jsonData}")
+
+            if [[ -z "${id}" || "${id}" == "null" ]]; then
+                log "ERROR :: Element $((i + 1)) has no 'id' property."
+                setUnhealthy
+                exit 1
+            fi
+
+            exists=$(jq --arg id "$id" 'map(select(.id == ($id|tonumber))) | length' <<<"${response}")
+            if ((exists > 0)); then
+                local url="${apiPath}/${id}"
+                log "TRACE :: Updating existing element (id=${id}) at ${url}"
+                ArrApiRequest "PUT" "${url}" "${item}"
+            else
+                log "TRACE :: Resource id=${id} not found; creating new entry via POST"
+                ArrApiRequest "POST" "${apiPath}" "${item}"
+            fi
+        done
+    else
+        log "DEBUG :: Detected JSON object, sending single PUT..."
+        ArrApiRequest "PUT" "${apiPath}" "${jsonData}"
+    fi
+
+    # Read the JSON file and send it via ArrApiRequest
+    local jsonData
+    jsonData=$(<"${jsonFile}") # load JSON into a variable
+
+    ArrApiRequest "PUT" "${apiPath}" "${jsonData}"
+    log "INFO :: Successfully updated ${ARR_NAME} ${settingName}"
+
+    log "TRACE :: Exiting updateConfig..."
+}
+
 # Normalizes a string by replacing smart quotes and normalizing spaces
 normalize_string() {
     # $1 -> the string to normalize
