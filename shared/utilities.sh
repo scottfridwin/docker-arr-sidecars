@@ -104,13 +104,19 @@ ArrApiRequest() {
     local arrApiKey="$(get_state "arrApiKey")"
     local arrApiVersion="$(get_state "arrApiVersion")"
     if [[ -z "$arrUrl" || -z "$arrApiKey" || -z "$arrApiVersion" ]]; then
-        log "INFO :: Need to retrieve arr connection details in order to perform API requests"
+        log "DEBUG :: Need to retrieve arr connection details in order to perform API requests"
         verifyArrApiAccess
     fi
 
     # If method is not GET, ensure *arr isn’t busy
     if [[ "${method}" != "GET" ]]; then
         ArrTaskStatusCheck
+    fi
+
+    if [[ -n "${payload}" ]]; then
+        log "TRACE :: Executing ${ARR_NAME} Api call: method '${method}', url: '${arrUrl}/api/${arrApiVersion}/${path}', payload: ${payload}"
+    else
+        log "TRACE :: Executing ${ARR_NAME} Api call: method '${method}', url: '${arrUrl}/api/${arrApiVersion}/${path}'"
     fi
 
     while true; do
@@ -151,7 +157,7 @@ ArrApiRequest() {
                 statusBody=$(sed '$d' <<<"${statusResponse}")
                 log "DEBUG :: ${ARR_NAME} status request (${arrUrl}/api/${arrApiVersion}/system/status) returned ${statusHttpCode} with body ${statusBody}"
                 if [[ "${httpCode}" -eq "200" ]]; then
-                    log "INFO :: ${ARR_NAME} connectivity restored, retrying previous request..."
+                    log "DEBUG :: ${ARR_NAME} connectivity restored, retrying previous request..."
                     break
                 fi
             done
