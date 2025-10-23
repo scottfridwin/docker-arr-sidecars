@@ -296,13 +296,6 @@ updateArrConfig() {
         ArrApiRequest "PUT" "${apiPath}" "${jsonData}"
     fi
 
-    # Read the JSON file and send it via ArrApiRequest
-    local jsonData
-    jsonData=$(<"${jsonFile}") # load JSON into a variable
-
-    ArrApiRequest "PUT" "${apiPath}" "${jsonData}"
-    log "INFO :: Successfully updated ${ARR_NAME} ${settingName}"
-
     log "TRACE :: Exiting updateConfig..."
 }
 
