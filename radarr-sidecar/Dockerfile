@@ -3,10 +3,11 @@ FROM alpine:latest
 
 # Install system dependencies
 RUN apk add --no-cache \
-    jq \
+    bash \
     curl \
+    jq \
     python3-dev \
-    bash
+    uv
 
 # Install Python packages
 RUN uv pip install --system --upgrade --no-cache-dir --break-system-packages \
