@@ -242,7 +242,7 @@ verifyArrApiAccess() {
     fi
     set_state "arrApiVersion" "${arrApiVersion}"
 
-    log "INFO :: ${ARR_NAME} API access verified (URL: ${arrUrl}, API Version: ${arrApiVersion})"
+    log "DEBUG :: ${ARR_NAME} API access verified (URL: ${arrUrl}, API Version: ${arrApiVersion})"
     log "TRACE :: Exiting verifyArrApiAccess..."
 }
 
@@ -258,7 +258,7 @@ updateArrConfig() {
         exit 1
     fi
 
-    log "INFO :: Configuring ${ARR_NAME} ${settingName} Settings"
+    log "DEBUG :: Configuring ${ARR_NAME} ${settingName} Settings"
 
     # Load JSON file
     local jsonData

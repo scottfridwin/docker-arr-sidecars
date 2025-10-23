@@ -23,17 +23,17 @@ AddTags() {
 
     for tag in "${tags[@]}"; do
         tag=$(echo "${tag}" | xargs) # Trim whitespace
-        log "INFO :: Processing tag: ${tag}"
+        log "DEBUG :: Processing tag: ${tag}"
 
         # Check if tag already exists
         tagCheck=$(echo "${response}" | jq -r --arg TAG "${tag}" '.[] | select(.label==$TAG) | .label')
 
         if [ -z "${tagCheck}" ]; then
-            log "INFO :: Tag not found, creating tag: ${tag}"
+            log "DEBUG :: Tag not found, creating tag: ${tag}"
             ArrApiRequest "POST" "tag" "{\"label\":\"${tag}\"}"
             response="$(get_state "arrApiResponse")"
         else
-            log "INFO :: Tag already exists: ${tag}"
+            log "DEBUG :: Tag already exists: ${tag}"
         fi
     done
     log "TRACE :: Exiting AddTags..."
@@ -267,10 +267,11 @@ ProcessImport() {
 # Loops over all directories in the drop directory to process for import
 ScanDropDirectory() {
     # Find directories starting with import marker
-    log "INFO :: Scanning ${AUTOIMPORT_DROP_DIR} for directories marked with ${AUTOIMPORT_IMPORT_MARKER}"
+    log "INFO :: Scanning ${AUTOIMPORT_DROP_DIR} for directories marked with '${AUTOIMPORT_IMPORT_MARKER}'"
     while IFS= read -r dir; do
         ProcessImport "$dir"
     done < <(find "${AUTOIMPORT_DROP_DIR}" -mindepth 1 -maxdepth 1 -type d -name "${AUTOIMPORT_IMPORT_MARKER}*")
+    log "INFO :: Scan complete"
 }
 
 ###### Script Execution #####
