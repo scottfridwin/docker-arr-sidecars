@@ -216,6 +216,7 @@ verifyArrApiAccess() {
 
     # Check if arrApiVersion is in the supported list
     for ver in "${supported_versions[@]}"; do
+        log "DEBUG :: Attemping connection to \"${arrUrl}/api/${ver}/system/status\"..."
         apiTest="$(curl -s "${arrUrl}/api/${ver}/system/status?apikey=${arrApiKey}" | jq -r .instanceName)"
         if [ -n "${apiTest}" ]; then
             arrApiVersion=${ver}
