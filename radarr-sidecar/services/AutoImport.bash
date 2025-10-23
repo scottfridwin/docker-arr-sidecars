@@ -217,8 +217,8 @@ CheckPermissions() {
         set_state "permissionIssues" "" # clear previous issues
     fi
 
-    log "TRACE :: Exiting CheckPermissions (pass)..."
-    return returnCode
+    log "TRACE :: Exiting CheckPermissions..."
+    return $returnCode
 }
 
 #
