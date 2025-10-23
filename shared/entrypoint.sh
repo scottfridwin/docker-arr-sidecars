@@ -7,12 +7,14 @@ scriptName="entrypoint"
 #### Import shared utilities
 source /app/utilities.sh
 
+# Start with healthy status
+setHealthy
+
 ### Preamble ###
 
 log "INFO :: Starting ${scriptName}"
 
-### Validation ###
-
+log "DEBUG :: UMASK=${UMASK}"
 log "DEBUG :: ARR_NAME=${ARR_NAME}"
 log "DEBUG :: ARR_CONFIG_PATH=${ARR_CONFIG_PATH}"
 log "DEBUG :: ARR_SUPPORTED_API_VERSIONS=${ARR_SUPPORTED_API_VERSIONS}"
@@ -20,14 +22,14 @@ log "DEBUG :: LOG_LEVEL=${LOG_LEVEL}"
 log "DEBUG :: ARR_HOST=${ARR_HOST}"
 log "DEBUG :: ARR_PORT=${ARR_PORT}"
 
-# Start with healthy status
-setHealthy
+### Validation ###
 
 # Validate environment variables
 validateEnvironment
 
 ### Main ###
 
+umask "$UMASK"
 # Run all services
 for script in /app/services/*.bash; do
     bash "$script" &

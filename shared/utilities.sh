@@ -44,6 +44,11 @@ validateEnvironment() {
         setUnhealthy
         exit 1
     }
+    if ! [[ "$UMASK" =~ ^[0-7]{3,4}$ ]]; then
+        log "ERROR :: UMASK value '$UMASK' is invalid. Must be octal (e.g., 0022)"
+        setUnhealthy
+        exit 1
+    fi
     log "TRACE :: Exiting validateEnvironment..."
 }
 

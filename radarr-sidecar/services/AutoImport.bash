@@ -107,7 +107,7 @@ EOF
     log "TRACE :: Exiting AddDownloadClient..."
 }
 
-#
+# Gets the list of movies in the Radarr database and caches it to a file
 GetMovies() {
     log "TRACE :: Entering GetMovies..."
 
@@ -170,6 +170,7 @@ NotifyArrForImport() {
     log "TRACE :: Exiting NotifyArrForImport..."
 }
 
+# Checks the permissions of the provided directory against expected permissions
 CheckPermissions() {
     log "TRACE :: Entering CheckPermissions..."
     local path="${1}"
@@ -221,7 +222,7 @@ CheckPermissions() {
     return $returnCode
 }
 
-#
+# Processes a specified file for import
 ProcessImport() {
     local importDir="${1}"
     local dirName
@@ -245,7 +246,7 @@ ProcessImport() {
             echo -e "Permission or ownership issues detected:\n${issues}" >"${importDir}/IMPORT_STATUS.txt"
         else
             local destDir="${AUTOIMPORT_SHARED_PATH}/${targetName}"
-            mv "${importDir}" "${destDir}"
+            mv --no-preserve=ownership "${importDir}" "${destDir}"
             log "DEBUG :: Moved '${importDir}' to '${destDir}'"
             NotifyArrForImport "${destDir}"
         fi
@@ -260,7 +261,7 @@ ProcessImport() {
     fi
 }
 
-#
+# Loops over all directories in the drop directory to process for import
 ScanDropDirectory() {
     # Find directories starting with import marker
     log "INFO :: Scanning ${AUTOIMPORT_DROP_DIR} for directories marked with ${AUTOIMPORT_IMPORT_MARKER}"

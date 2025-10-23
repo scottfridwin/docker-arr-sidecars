@@ -24,6 +24,7 @@ WORKDIR /app
 ### Variable defaults ###
 
 # General settings
+ENV UMASK=0002
 ENV LOG_LEVEL=INFO
 
 # Application details
