@@ -283,8 +283,9 @@ updateArrConfig() {
                 log "TRACE :: Updating existing element (id=${id}) at ${url}"
                 ArrApiRequest "PUT" "${url}" "${item}"
             else
+                payload=$(jq 'del(.id)' <<<"${item}")
                 log "TRACE :: Resource id=${id} not found; creating new entry via POST"
-                ArrApiRequest "POST" "${apiPath}" "${item}"
+                ArrApiRequest "POST" "${apiPath}" "${payload}"
             fi
         done
     else
