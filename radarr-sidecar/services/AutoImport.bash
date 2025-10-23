@@ -54,6 +54,12 @@ AddDownloadClient() {
     if [ -z "${downloadClientCheck}" ]; then
         log "INFO :: ${AUTOIMPORT_DOWNLOADCLIENT_NAME} client not found, creating it..."
 
+        # Convert comma-separated tags into JSON array
+        local jsonTags
+        IFS=',' read -ra tagArray <<<"${AUTOIMPORT_TAGS}"
+        jsonTags=$(printf '"%s",' "${tagArray[@]}")
+        jsonTags="[${jsonTags%,}]" # remove trailing comma and wrap in [ ]
+
         # Build JSON payload
         payload=$(
             cat <<EOF
@@ -72,7 +78,7 @@ AddDownloadClient() {
   "implementation": "UsenetBlackhole",
   "configContract": "UsenetBlackholeSettings",
   "infoLink": "https://wiki.servarr.com/lidarr/supported#usenetblackhole",
-  "tags": [ ${AUTOIMPORT_TAGS} ]
+  "tags": [ ${jsonTags} ]
 }
 EOF
         )
