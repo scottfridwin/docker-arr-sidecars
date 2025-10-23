@@ -294,6 +294,23 @@ if [[ -z "${AUTOIMPORT_GROUP:-}" ]]; then
     exit 1
 fi
 
+if [[ ! -d "${AUTOIMPORT_DROP_DIR}" ]]; then
+    log "ERROR :: AUTOIMPORT_DROP_DIR '${AUTOIMPORT_DROP_DIR}' does not exist"
+    exit 1
+fi
+if [[ ! -d "${AUTOIMPORT_SHARED_PATH}" ]]; then
+    log "ERROR :: AUTOIMPORT_SHARED_PATH '${AUTOIMPORT_SHARED_PATH}' does not exist"
+    exit 1
+fi
+if [[ ! -d "${AUTOIMPORT_STAGING_DIR}" ]]; then
+    log "ERROR :: AUTOIMPORT_STAGING_DIR '${AUTOIMPORT_STAGING_DIR}' does not exist"
+    exit 1
+fi
+if [[ ! -d "${AUTOIMPORT_WORK_DIR}" ]]; then
+    log "ERROR :: AUTOIMPORT_WORK_DIR '${AUTOIMPORT_WORK_DIR}' does not exist"
+    exit 1
+fi
+
 ### Main ###
 
 # Initalize state object
