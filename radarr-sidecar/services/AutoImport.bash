@@ -66,7 +66,7 @@ AddDownloadClient() {
   "name": "${AUTOIMPORT_DOWNLOADCLIENT_NAME}",
   "fields": [
     {"name": "nzbFolder", "value": "${AUTOIMPORT_SHARED_PATH}"},
-    {"name": "watchFolder", "value": "${AUDIO_SHARED_LIDARR_PATH}"}
+    {"name": "watchFolder", "value": "${AUTOIMPORT_SHARED_PATH}"}
   ],
   "implementationName": "Usenet Blackhole",
   "implementation": "UsenetBlackhole",
