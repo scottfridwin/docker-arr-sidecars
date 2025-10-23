@@ -280,11 +280,14 @@ updateArrConfig() {
             exists=$(jq --arg id "$id" 'map(select(.id == ($id|tonumber))) | length' <<<"${response}")
             if ((exists > 0)); then
                 local url="${apiPath}/${id}"
+                payload="${item}"
                 log "TRACE :: Updating existing element (id=${id}) at ${url}"
-                ArrApiRequest "PUT" "${url}" "${item}"
+                log "TRACE :: Payload: ${payload}"
+                ArrApiRequest "PUT" "${url}" "${payload}"
             else
                 payload=$(jq 'del(.id)' <<<"${item}")
                 log "TRACE :: Resource id=${id} not found; creating new entry via POST"
+                log "TRACE :: Payload: ${payload}"
                 ArrApiRequest "POST" "${apiPath}" "${payload}"
             fi
         done
