@@ -54,11 +54,25 @@ AddDownloadClient() {
     if [ -z "${downloadClientCheck}" ]; then
         log "INFO :: ${AUTOIMPORT_DOWNLOADCLIENT_NAME} client not found, creating it..."
 
-        # Convert comma-separated tags into JSON array
-        local jsonTags
-        IFS=',' read -ra tagArray <<<"${AUTOIMPORT_TAGS}"
-        jsonTags=$(printf '"%s",' "${tagArray[@]}")
-        jsonTags="[${jsonTags%,}]" # remove trailing comma and wrap in [ ]
+        # Get existing tags
+        ArrApiRequest "GET" "tag"
+        local tagsJson
+        tagsJson="$(get_state "arrApiResponse")"
+
+        # Map desired tags to ids
+        IFS=',' read -ra tagNames <<<"${AUTOIMPORT_TAGS}"
+        tagIds=()
+        for t in "${tagNames[@]}"; do
+            t=$(echo "$t" | xargs)
+            id=$(jq -r --arg label "$t" '.[] | select(.label==$label) | .id' <<<"$tagsJson")
+            if [[ -n "$id" && "$id" != "null" ]]; then
+                tagIds+=("$id")
+            fi
+        done
+        tagsArray=$(
+            IFS=,
+            echo "${tagIds[*]}"
+        )
 
         # Build JSON payload
         payload=$(
@@ -78,7 +92,7 @@ AddDownloadClient() {
   "implementation": "UsenetBlackhole",
   "configContract": "UsenetBlackholeSettings",
   "infoLink": "https://wiki.servarr.com/lidarr/supported#usenetblackhole",
-  "tags": [ ${jsonTags} ]
+  "tags": [ ${tagsArray} ]
 }
 EOF
         )
