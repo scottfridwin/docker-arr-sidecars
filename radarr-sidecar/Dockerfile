@@ -5,7 +5,12 @@ FROM alpine:latest
 RUN apk add --no-cache \
     jq \
     curl \
+    python3-dev \
     bash
+
+# Install Python packages
+RUN uv pip install --system --upgrade --no-cache-dir --break-system-packages \
+    yq
 
 # Copy all scripts and config files
 COPY radarr-sidecar/ /app/
