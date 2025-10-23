@@ -2,10 +2,10 @@
 set -euo pipefail
 
 ### Script values
-scriptName="Audio"
+scriptName="DeemixDownloader"
 
-#### Import Functions
-source /app/functions.bash
+#### Import shared utilities
+source /app/utilities.sh
 
 #### Constants
 readonly VARIOUS_ARTIST_ID="89ad4ac3-39f7-470e-963a-56509c546377"

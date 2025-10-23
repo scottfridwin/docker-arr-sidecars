@@ -4,8 +4,8 @@ set -euo pipefail
 ### Script values
 scriptName="AutoConfig"
 
-#### Import Functions
-source /app/functions.bash
+#### Import shared utilities
+source /app/utilities.sh
 
 ### Preamble ###
 
