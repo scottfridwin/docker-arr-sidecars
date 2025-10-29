@@ -1041,12 +1041,10 @@ DownloadProcess() {
             return
         fi
 
-        local deemixQuality=flac
         log "INFO :: Download attempt #${downloadTry} for album \"${deezerAlbumTitle}\""
         (
             cd ${DEEMIX_DIR}
             echo "${DEEMIX_ARL}" | deemix \
-                -b "${deemixQuality}" \
                 -p "${AUDIO_WORK_PATH}/staging" \
                 "https://www.deezer.com/album/${deezerAlbumId}" 2>&1
 
