@@ -1,3 +1,5 @@
+#!/bin/bash
+# SPDX-License-Identifier: GPL-3.0-only
 declare -A LOG_PRIORITY=(["TRACE"]=0 ["DEBUG"]=1 ["INFO"]=2 ["WARNING"]=3 ["ERROR"]=4)
 
 # Logs messages with levels and respects LOG_LEVEL setting

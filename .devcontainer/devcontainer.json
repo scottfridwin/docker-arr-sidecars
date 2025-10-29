@@ -6,7 +6,8 @@
 			"extensions": [
 				"foxundermoon.shell-format@7.2.5",
 				"redhat.vscode-yaml",
-				"ms-python.black-formatter"
+				"ms-python.black-formatter",
+				"DavidAnson.vscode-markdownlint"
 			]
 		}
 	}
