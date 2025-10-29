@@ -630,6 +630,7 @@ SearchProcess() {
             lidarrReleaseTitle=$(GetReleaseTitleDisambiguation "${release_json}")
             lidarrReleaseTrackCount="$(jq -r ".trackCount" <<<"${release_json}")"
             lidarrReleaseForeignId="$(jq -r ".foreignReleaseId" <<<"${release_json}")"
+            set_state "lidarrReleaseInfo" "${release_json}"
             set_state "lidarrReleaseTitle" "${lidarrReleaseTitle}"
             set_state "lidarrReleaseTrackCount" "${lidarrReleaseTrackCount}"
             set_state "lidarrReleaseForeignId" "${lidarrReleaseForeignId}"
@@ -1118,7 +1119,8 @@ DownloadProcess() {
         local lidarrAlbumData="$(get_state "lidarrAlbumData")"
         local lidarrAlbumTitle="$(jq -r ".title" <<<"${lidarrAlbumData}")"
         local lidarrAlbumForeignAlbumId="$(jq -r ".foreignAlbumId" <<<"${lidarrAlbumData}")"
-        local lidarrReleaseForeignId="$(jq -r ".foreignReleaseId" <<<"${lidarrAlbumData}")"
+        local lidarrReleaseInfo="$(get_state "lidarrReleaseInfo")"
+        local lidarrReleaseForeignId="$(jq -r ".foreignReleaseId" <<<"${lidarrReleaseInfo}")"
         shopt -s nullglob
         # TODO: Tag more than just FLAC files if needed
         for file in "${AUDIO_WORK_PATH}"/staging/*.flac; do
