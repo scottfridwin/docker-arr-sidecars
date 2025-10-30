@@ -11,9 +11,12 @@ RUN apk add --no-cache \
     pkgconfig \
     git
 
-# Upgrade pip and install rsgain and its Python dependencies
+# Upgrade pip
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel
-RUN pip install --no-cache-dir rsgain
+
+# Clone and install rsgain
+RUN git clone https://github.com/berteh/rsgain.git /tmp/rsgain
+RUN pip install --no-cache-dir /tmp/rsgain
 
 # ===== Final Stage =====
 FROM alpine:latest
@@ -35,10 +38,13 @@ RUN apk add --no-cache \
     parallel \
     chromaprint \
     curl \
-    bash
+    bash \
+    libsndfile \
+    libebur128
 
-# Copy the rsgain package from the build stage
+# Copy rsgain from build stage (Python packages and CLI)
 COPY --from=build /usr/local/lib/python3.12/site-packages/rsgain* /usr/local/lib/python3.12/site-packages/
+COPY --from=build /usr/local/bin/rsgain /usr/local/bin/rsgain
 
 # Install other Python packages
 RUN pip install --no-cache-dir \
