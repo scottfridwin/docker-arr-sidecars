@@ -1216,8 +1216,9 @@ AddBeetsTags() {
         mkdir -p "${XDG_CONFIG_HOME}"
         beet -v -c "${BEETS_DIR}/beets.yaml" \
             -l "${BEETS_DIR}/beets-library.blb" \
+            -d "$1" import -qCw \
             -S "${lidarrReleaseForeignId}" \
-            -d "$1" import -qCw "$1"
+            "$1"
 
         returnCode=$? # <- captures exit code of subshell
         if [ $returnCode -ne 0 ]; then
