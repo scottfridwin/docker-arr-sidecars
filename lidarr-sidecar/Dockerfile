@@ -1,21 +1,35 @@
 # ===== Final Stage =====
-FROM alpine:latest
+FROM debian:13.1-slim
 
 # Install runtime dependencies
-RUN apk add --no-cache \
-    beets tidyhtml musl-locales musl-locales-lang flac jq ffmpeg imagemagick \
-    opus-tools opustags python3 py3-pip uv parallel chromaprint curl bash xz
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    beets \
+    tidy \
+    locales \
+    flac \
+    jq \
+    ffmpeg \
+    imagemagick \
+    opus-tools \
+    python3 \
+    python3-pip \
+    uv \
+    parallel \
+    chromaprint \
+    curl \
+    bash \
+    xz-utils \
+    rsgain
 
 # Install Python dependencies
-RUN pip install --no-cache-dir --break-system-packages \
-    jellyfish yq pyacoustid requests mutagen deemix langdetect
-
-# Download and install static rsgain
-RUN curl -L -o /tmp/rsgain.tar.xz https://github.com/complexlogic/rsgain/releases/download/v3.6/rsgain-3.6-Linux.tar.xz && \
-    mkdir -p /opt/rsgain && \
-    tar -xf /tmp/rsgain.tar.xz -C /opt/rsgain  &&\
-    ln -s /opt/rsgain/rsgain /usr/local/bin/rsgain && \
-    rm /tmp/rsgain.tar.xz
+RUN pip3 install --no-cache-dir --break-system-packages \
+    jellyfish \
+    yq \
+    pyacoustid \
+    requests \
+    mutagen \
+    deemix \
+    langdetect
 
 # Copy scripts and config
 COPY lidarr-sidecar/ /app/
