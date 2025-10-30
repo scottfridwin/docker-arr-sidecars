@@ -19,6 +19,7 @@ RUN pip install --no-cache-dir --prefer-binary --break-system-packages \
     yq \
     jellyfish \
     pyacoustid \
+    pylast \
     requests \
     mutagen \
     deemix \
