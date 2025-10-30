@@ -17,7 +17,7 @@ RUN pip install --no-cache-dir --upgrade pip setuptools wheel
 # Install Python packages into a custom prefix
 RUN pip install --no-cache-dir --prefix=/install \
     --prefer-binary --break-system-packages \
-    jellyfish yq pyacoustid requests mutagen deemix langdetect
+    jellyfish pyacoustid requests mutagen deemix langdetect
 
 # ===== Final Stage =====
 FROM debian:13.1-slim
@@ -25,21 +25,18 @@ FROM debian:13.1-slim
 # Install runtime dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     beets \
-    tidy \
-    locales \
     flac \
     jq \
     ffmpeg \
-    imagemagick \
-    opus-tools \
     python3 \
     python3-pip \
-    parallel \
     curl \
     bash \
-    xz-utils \
     rsgain
 RUN rm -rf /var/lib/apt/lists/*
+
+# Install Python packages into a custom prefix
+RUN pip install --no-cache-dir --prefer-binary --break-system-packages yq
 
 # Copy Python packages from build stage
 COPY --from=build /install /usr/local
