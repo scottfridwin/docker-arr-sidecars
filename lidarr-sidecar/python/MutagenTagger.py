@@ -3,13 +3,6 @@ import sys
 import os
 from mutagen.id3 import ID3, TXXX, TALB, ID3NoHeaderError
 
-if len(sys.argv) < 5:
-    print(
-        "Usage: tag_mp3.py <file> <album_title> <mb_albumid> <mb_releasegroupid>",
-        file=sys.stderr,
-    )
-    sys.exit(2)
-
 file_path = sys.argv[1]
 album_title = os.environ["ALBUM_TITLE"]
 mb_albumid = os.environ["MB_ALBUMID"]
