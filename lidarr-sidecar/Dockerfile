@@ -36,7 +36,7 @@ RUN pip3 install --no-cache-dir --break-system-packages \
     r128gain \
     deemix \
     langdetect \
-    eyed3
+    "eyed3>=0.9.10"
 
 # Copy all scripts and config files
 COPY lidarr-sidecar/ /app/
