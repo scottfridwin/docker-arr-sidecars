@@ -1,7 +1,24 @@
-# Use latest Alpine as base
+# ===== Build Stage =====
+FROM python:3.12-alpine AS build
+
+# Install build dependencies
+RUN apk add --no-cache \
+    build-base \
+    cmake \
+    libsndfile-dev \
+    libebur128-dev \
+    python3-dev \
+    pkgconfig \
+    git
+
+# Upgrade pip and install rsgain and its Python dependencies
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel
+RUN pip install --no-cache-dir rsgain
+
+# ===== Final Stage =====
 FROM alpine:latest
 
-# Install system dependencies
+# Install runtime dependencies
 RUN apk add --no-cache \
     beets \
     tidyhtml \
@@ -13,39 +30,32 @@ RUN apk add --no-cache \
     imagemagick \
     opus-tools \
     opustags \
-    python3-dev \
-    libc-dev \
+    python3 py3-pip \
     uv \
     parallel \
     chromaprint \
     curl \
     bash
 
-# Install Python and development tools
-RUN apk add --no-cache python3 py3-pip python3-dev libc-dev
+# Copy the rsgain package from the build stage
+COPY --from=build /usr/local/lib/python3.12/site-packages/rsgain* /usr/local/lib/python3.12/site-packages/
 
-# Install Python packages
-RUN pip3 install --no-cache-dir --break-system-packages --upgrade pip setuptools wheel
-
-RUN pip3 install --no-cache-dir --break-system-packages \
+# Install other Python packages
+RUN pip install --no-cache-dir \
     jellyfish \
     yq \
     pyacoustid \
     requests \
     mutagen \
-    rsgain.py \
     deemix \
     langdetect
 
-# Copy all scripts and config files
+# Copy scripts and config
 COPY lidarr-sidecar/ /app/
 COPY shared/ /app/
 RUN chmod +x /app/entrypoint.sh
 
-# Set working directory
 WORKDIR /app
-
-### Variable defaults ###
 
 # General settings
 ENV LOG_LEVEL=INFO
@@ -103,5 +113,4 @@ ENV AUTOCONFIG_METADATA_PROFILE_JSON=/app/config/metadata_profile.json
 ENV AUTOCONFIG_TRACK_NAMING=true
 ENV AUTOCONFIG_TRACK_NAMING_JSON=/app/config/track_naming.json
 
-# Entrypoint
 CMD ["bash", "/app/entrypoint.sh"]
