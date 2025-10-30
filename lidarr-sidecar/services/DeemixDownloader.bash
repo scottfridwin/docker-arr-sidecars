@@ -386,7 +386,7 @@ SetupBeets() {
     log "INFO :: Setting up Beets configuration"
 
     # Copy default config to /tmp
-    local defaultConfigFile="/app/config/beets_config.json"
+    local defaultConfigFile="/app/config/beets_config.yaml"
     if [[ ! -f "${defaultConfigFile}" ]]; then
         log "ERROR :: Default Beets config not found at ${defaultConfigFile}"
         setUnhealthy
