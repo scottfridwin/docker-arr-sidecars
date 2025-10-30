@@ -1145,12 +1145,13 @@ for frame in tags.getall("TXXX"):
 # Remove any existing ALBUM tag
 tags.delall("TALB")
 
-# Set new tags
-tags.add(TXXX(encoding=3, desc="MUSICBRAINZ_ALBUMID", text=mb_albumid))
-tags.add(TXXX(encoding=3, desc="MUSICBRAINZ_RELEASEGROUPID", text=mb_releasegroupid))
-tags.add(TALB(encoding=3, text=album_title))
+# Set new tags (wrap in lists)
+tags.add(TXXX(encoding=3, desc="MUSICBRAINZ_ALBUMID", text=[mb_albumid]))
+tags.add(TXXX(encoding=3, desc="MUSICBRAINZ_RELEASEGROUPID", text=[mb_releasegroupid]))
+tags.add(TALB(encoding=3, text=[album_title]))
 
 tags.save(v2_version=4)
+
 PYTHONCODE
                 "$file" "$lidarrAlbumTitle" "$lidarrReleaseForeignId" "$lidarrAlbumForeignAlbumId"
                 ;;
