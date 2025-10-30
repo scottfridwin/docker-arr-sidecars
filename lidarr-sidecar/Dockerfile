@@ -17,6 +17,7 @@ RUN rm -rf /var/lib/apt/lists/*
 # Install Python packages into a custom prefix
 RUN pip install --no-cache-dir --prefer-binary --break-system-packages \
     yq \
+    beautifulsoup4 \
     jellyfish \
     pyacoustid \
     pylast \

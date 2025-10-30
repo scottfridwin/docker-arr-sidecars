@@ -603,6 +603,7 @@ SearchProcess() {
     set_state "bestMatchTrackDiff" 9999
     set_state "bestMatchNumTracks" 0
     set_state "bestMatchContainsCommentary" "false"
+    set_state "bestMatchLidarrReleaseInfo" ""
     set_state "perfectMatchFound" "false"
 
     # Load title replacement file
@@ -858,6 +859,7 @@ CalculateBestMatch() {
     local bestMatchNumTracks="$(get_state "bestMatchNumTracks")"
     local bestMatchContainsCommentary="$(get_state "bestMatchContainsCommentary")"
 
+    local lidarrReleaseInfo="$(get_state "lidarrReleaseInfo")"
     local lidarrReleaseTrackCount="$(get_state "lidarrReleaseTrackCount")"
     local searchReleaseTitle="$(get_state "searchReleaseTitle")"
     local lidarrReleaseContainsCommentary="$(get_state "lidarrReleaseContainsCommentary")"
@@ -929,6 +931,7 @@ CalculateBestMatch() {
             set_state "bestMatchTrackDiff" "${bestMatchTrackDiff}"
             set_state "bestMatchNumTracks" "${bestMatchNumTracks}"
             set_state "bestMatchContainsCommentary" "${lidarrReleaseContainsCommentary}"
+            set_state "bestMatchLidarrReleaseInfo" "${lidarrReleaseInfo}"
             set_state "perfectMatchFound" "true"
             log "INFO :: Perfect match found :: ${bestMatchTitle} (${bestMatchYear}) with ${bestMatchNumTracks} tracks"
         fi
@@ -948,6 +951,7 @@ CalculateBestMatch() {
             set_state "bestMatchTrackDiff" "${bestMatchTrackDiff}"
             set_state "bestMatchNumTracks" "${bestMatchNumTracks}"
             set_state "bestMatchContainsCommentary" "${lidarrReleaseContainsCommentary}"
+            set_state "bestMatchLidarrReleaseInfo" "${lidarrReleaseInfo}"
         fi
     done
 
@@ -1113,7 +1117,7 @@ DownloadProcess() {
         local lidarrAlbumData="$(get_state "lidarrAlbumData")"
         local lidarrAlbumTitle="$(jq -r ".title" <<<"${lidarrAlbumData}")"
         local lidarrAlbumForeignAlbumId="$(jq -r ".foreignAlbumId" <<<"${lidarrAlbumData}")"
-        local lidarrReleaseInfo="$(get_state "lidarrReleaseInfo")"
+        local lidarrReleaseInfo="$(get_state "bestMatchLidarrReleaseInfo")"
         local lidarrReleaseForeignId="$(jq -r ".foreignReleaseId" <<<"${lidarrReleaseInfo}")"
 
         log "DEBUG :: Title='$lidarrAlbumTitle' AlbumID='$lidarrReleaseForeignId' ReleaseGroupID='$lidarrAlbumForeignAlbumId'"
