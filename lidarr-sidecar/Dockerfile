@@ -19,6 +19,7 @@ RUN apk add --no-cache \
     parallel \
     chromaprint \
     curl \
+    id3v2 \
     bash
 
 # Install atomicparsley from edge/testing

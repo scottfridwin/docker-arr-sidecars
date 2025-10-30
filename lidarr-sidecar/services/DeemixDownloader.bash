@@ -1120,16 +1120,29 @@ DownloadProcess() {
         local lidarrReleaseInfo="$(get_state "lidarrReleaseInfo")"
         local lidarrReleaseForeignId="$(jq -r ".foreignReleaseId" <<<"${lidarrReleaseInfo}")"
         shopt -s nullglob
-        # TODO: Tag more than just FLAC files if needed
-        for file in "${AUDIO_WORK_PATH}"/staging/*.flac; do
-            log "DEBUG :: file $file"
-            [ -f "$file" ] || continue # extra safety in case glob expands to nothing
-            metaflac --set-tag=MUSICBRAINZ_ALBUMID="$lidarrReleaseForeignId" "$file"
-            metaflac --set-tag=MUSICBRAINZ_RELEASEGROUPID="$lidarrAlbumForeignAlbumId" "$file"
-            metaflac --remove-tag=ALBUM "$file"
-            metaflac --set-tag=ALBUM="$lidarrAlbumTitle" "$file"
-            #metaflac --remove-tag=MUSICBRAINZ_TRACKID "$file" # Helps with some matching issues in Lidarr
-            log "DEBUG :: File \"${file}\" tagged with MUSICBRAINZ_ALBUMID=${lidarrReleaseForeignId} and MUSICBRAINZ_RELEASEGROUPID=${lidarrAlbumForeignAlbumId}"
+        for file in "${AUDIO_WORK_PATH}"/staging/*.{flac,mp3,m4a,ogg,opus,wav}; do
+            [ -f "$file" ] || continue
+            log "DEBUG :: Tagging $file"
+            case "${file##*.}" in
+            flac)
+                metaflac --remove-tag=MUSICBRAINZ_ALBUMID \
+                    --remove-tag=MUSICBRAINZ_RELEASEGROUPID \
+                    --remove-tag=ALBUM \
+                    --set-tag=MUSICBRAINZ_ALBUMID="$lidarrReleaseForeignId" \
+                    --set-tag=MUSICBRAINZ_RELEASEGROUPID="$lidarrAlbumForeignAlbumId" \
+                    --set-tag=ALBUM="$lidarrAlbumTitle" "$file"
+                ;;
+            mp3)
+                id3v2 --delete-frames "TXXX:MUSICBRAINZ_ALBUMID" \
+                    --delete-frames "TXXX:MUSICBRAINZ_RELEASEGROUPID" \
+                    --TXXX "MUSICBRAINZ_ALBUMID:$lidarrReleaseForeignId" \
+                    --TXXX "MUSICBRAINZ_RELEASEGROUPID:$lidarrAlbumForeignAlbumId" \
+                    --album "$lidarrAlbumTitle" "$file"
+                ;;
+            *)
+                log "WARN :: Unknown format: $file"
+                ;;
+            esac
         done
         shopt -u nullglob
     fi
