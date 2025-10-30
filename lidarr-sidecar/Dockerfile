@@ -13,9 +13,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     opus-tools \
     python3 \
     python3-pip \
-    uv \
     parallel \
-    chromaprint \
+    chromaprint-tools \
     curl \
     bash \
     xz-utils \
