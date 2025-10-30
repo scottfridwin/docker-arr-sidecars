@@ -11,10 +11,10 @@ RUN pip install --no-cache-dir \
     jellyfish yq pyacoustid requests mutagen deemix langdetect
 
 # Download and install static rsgain
-RUN curl -L -o /tmp/rsgain.tar.xz https://github.com/complexlogic/rsgain/releases/download/v3.6/rsgain-3.6-Linux.tar.xz &&
-    mkdir -p /opt/rsgain &&
-    tar -xf /tmp/rsgain.tar.xz -C /opt/rsgain &&
-    ln -s /opt/rsgain/rsgain /usr/local/bin/rsgain &&
+RUN curl -L -o /tmp/rsgain.tar.xz https://github.com/complexlogic/rsgain/releases/download/v3.6/rsgain-3.6-Linux.tar.xz && \
+    mkdir -p /opt/rsgain && \
+    tar -xf /tmp/rsgain.tar.xz -C /opt/rsgain  &&\
+    ln -s /opt/rsgain/rsgain /usr/local/bin/rsgain && \
     rm /tmp/rsgain.tar.xz
 
 # Copy scripts and config
