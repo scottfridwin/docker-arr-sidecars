@@ -1141,12 +1141,12 @@ DownloadProcess() {
                 log "DEBUG :: Applying eyeD3 tags to: $file"
                 # Remove any existing custom tags
                 eyeD3 --remove-frame TXXX:MUSICBRAINZ_ALBUMID \
-                    --remove-frame TXXX:MUSICBRAINZ_RELEASEGROUPID "$file" >/dev/null 2>&1 || true
+                    --remove-frame TXXX:MUSICBRAINZ_RELEASEGROUPID "$file"
 
                 # Set the new MusicBrainz and album tags
                 eyeD3 --add-frame="TXXX:MUSICBRAINZ_ALBUMID:$lidarrReleaseForeignId" \
                     --add-frame="TXXX:MUSICBRAINZ_RELEASEGROUPID:$lidarrAlbumForeignAlbumId" \
-                    --album "$lidarrAlbumTitle" "$file" >/dev/null 2>&1
+                    --album "$lidarrAlbumTitle" "$file"
                 ;;
             *)
                 log "WARN :: Skipping unsupported format: $file"
