@@ -15,7 +15,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN rm -rf /var/lib/apt/lists/*
 
 # Install Python packages into a custom prefix
-RUN pip install --no-cache-dir --prefer-binary --break-system-packages jellyfish pyacoustid requests mutagen deemix langdetect
+RUN pip install --no-cache-dir --prefer-binary --break-system-packages \
+    yq \
+    jellyfish \
+    pyacoustid \
+    requests \
+    mutagen \
+    deemix \
+    langdetect
 
 # Copy scripts and config
 COPY lidarr-sidecar/ /app/
