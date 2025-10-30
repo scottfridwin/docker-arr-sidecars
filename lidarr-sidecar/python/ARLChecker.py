@@ -3,8 +3,6 @@
 import os
 import sys
 import logging
-from datetime import datetime
-from colorama import Fore, init
 from requests import Session
 
 # ----------------------------
@@ -15,7 +13,6 @@ USER_AGENT = (
 )
 
 # Initialize logging
-init(autoreset=True)
 version = "2.0"
 logging.basicConfig(
     format=f"ARLChecker.py :: v{version} :: %(levelname)s :: %(message)s",
@@ -54,21 +51,19 @@ class DeezerPlatformProvider:
             res.raise_for_status()
             data = res.json()
         except Exception as e:
-            log.error(Fore.RED + f"Error connecting to Deezer: {e}" + Fore.RESET)
+            log.error(f"Error connecting to Deezer: {e}")
             return False
 
         if "error" in data and data["error"]:
-            log.error(
-                Fore.RED + f"Deezer API returned error: {data['error']}" + Fore.RESET
-            )
+            log.error(f"Deezer API returned error: {data['error']}")
             return False
 
         user_id = data.get("results", {}).get("USER", {}).get("USER_ID", 0)
         if user_id == 0:
-            log.error(Fore.RED + "ARL token invalid or expired" + Fore.RESET)
+            log.error("ARL token invalid or expired")
             return False
 
-        log.info(Fore.GREEN + "ARL token is valid" + Fore.RESET)
+        log.info("ARL token is valid")
         return True
 
 
