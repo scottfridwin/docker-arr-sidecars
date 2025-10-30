@@ -33,7 +33,7 @@ RUN pip3 install --no-cache-dir --break-system-packages \
     pyacoustid \
     requests \
     mutagen \
-    rsgain \
+    rsgain.py \
     deemix \
     langdetect
 
