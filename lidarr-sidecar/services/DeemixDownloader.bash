@@ -1245,7 +1245,7 @@ AddBeetsTags() {
         export XDG_CONFIG_HOME="${BEETS_DIR}/.config"
         export HOME="${BEETS_DIR}"
         mkdir -p "${XDG_CONFIG_HOME}"
-        beet -v -c "${BEETS_DIR}/beets.yaml" \
+        beet -c "${BEETS_DIR}/beets.yaml" \
             -l "${BEETS_DIR}/beets-library.blb" \
             -d "$1" import -qCw \
             -S "${lidarrReleaseForeignId}" \
