@@ -22,8 +22,7 @@ RUN apk add --no-cache \
     bash
 
 # Install Python packages
-RUN python3 -m ensurepip &&
-    python3 -m pip install --upgrade pip setuptools wheel
+RUN python3 -m ensurepip && python3 -m pip install --upgrade pip setuptools wheel
 
 RUN uv pip install --system --upgrade --no-cache-dir --break-system-packages \
     jellyfish \
