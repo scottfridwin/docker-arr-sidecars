@@ -697,7 +697,7 @@ SearchProcess() {
             for searchReleaseTitle in "${lidarrReleaseTitleWithDisambiguation}" "${lidarrReleaseTitle}"; do
                 set_state "searchReleaseTitle" "${searchReleaseTitle}"
                 # First search through the artist's Deezer albums to find a match on album title and track count
-                log "DEBUG :: lidarrArtistForeignArtistId: ${lidarrArtistForeignArtistId}"
+                log "DEBUG :: Starting search with searchReleaseTitle: ${searchReleaseTitle}"
                 if [ "${lidarrArtistForeignArtistId}" != "${VARIOUS_ARTIST_ID}" ]; then # Skip various artists
                     perfectMatchFound="$(get_state "perfectMatchFound")"
                     if [ "${perfectMatchFound}" == "false" ]; then
