@@ -1123,37 +1123,7 @@ DownloadProcess() {
                 ;;
             mp3)
                 log "DEBUG :: Applying mutagen tags to mirror FLAC tags: $file"
-                python3 - <<PYTHONCODE
-import sys
-from mutagen.id3 import ID3, TXXX, ID3NoHeaderError, TALB
-
-file = sys.argv[1]
-album_title = sys.argv[2]
-mb_albumid = sys.argv[3]
-mb_releasegroupid = sys.argv[4]
-
-try:
-    tags = ID3(file)
-except ID3NoHeaderError:
-    tags = ID3()
-
-# Remove previous custom MusicBrainz tags
-for frame in tags.getall("TXXX"):
-    if frame.desc in ["MUSICBRAINZ_ALBUMID", "MUSICBRAINZ_RELEASEGROUPID"]:
-        tags.delall("TXXX:" + frame.desc)
-
-# Remove any existing ALBUM tag
-tags.delall("TALB")
-
-# Set new tags (wrap in lists)
-tags.add(TXXX(encoding=3, desc="MUSICBRAINZ_ALBUMID", text=[mb_albumid]))
-tags.add(TXXX(encoding=3, desc="MUSICBRAINZ_RELEASEGROUPID", text=[mb_releasegroupid]))
-tags.add(TALB(encoding=3, text=[album_title]))
-
-tags.save(v2_version=4)
-
-PYTHONCODE
-                "$file" "$lidarrAlbumTitle" "$lidarrReleaseForeignId" "$lidarrAlbumForeignAlbumId"
+                python3 python/MutagenTagger.py "$file" "$album_title" "$mb_albumid" "$mb_releasegroupid"
                 ;;
             *)
                 log "WARN :: Skipping unsupported format: $file"
