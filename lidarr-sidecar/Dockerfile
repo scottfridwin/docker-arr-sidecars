@@ -25,9 +25,9 @@ RUN apk add --no-cache \
 RUN apk add --no-cache python3 py3-pip python3-dev libc-dev
 
 # Install Python packages
-RUN pip3 install --no-cache-dir --upgrade pip setuptools wheel
+RUN pip3 install --no-cache-dir --break-system-packages --upgrade pip setuptools wheel
 
-RUN pip3 install --no-cache-dir \
+RUN pip3 install --no-cache-dir --break-system-packages \
     jellyfish \
     yq \
     pyacoustid \
