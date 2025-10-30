@@ -33,10 +33,9 @@ RUN pip3 install --no-cache-dir --break-system-packages \
     pyacoustid \
     requests \
     mutagen \
-    r128gain \
+    rsgain \
     deemix \
-    langdetect \
-    eyed3
+    langdetect
 
 # Copy all scripts and config files
 COPY lidarr-sidecar/ /app/

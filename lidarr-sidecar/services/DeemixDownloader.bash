@@ -1096,23 +1096,6 @@ DownloadProcess() {
     find "${AUDIO_WORK_PATH}/staging/" -type d -mindepth 1 -maxdepth 1 -exec rm -rf {} \; 2>/dev/null
 
     local returnCode=0
-    # Add ReplayGain tags if enabled
-    if [ "$returnCode" -eq 0 ] && [ "${AUDIO_APPLY_REPLAYGAIN}" == "true" ]; then
-        AddReplaygainTags "${AUDIO_WORK_PATH}/staging"
-        returnCode=$?
-        log "DEBUG :: returnCode=$returnCode"
-    else
-        log "INFO :: Replaygain tagging disabled"
-    fi
-
-    # Add Beets tags if enabled
-    if [ "$returnCode" -eq 0 ] && [ "${AUDIO_APPLY_BEETS}" == "true" ]; then
-        AddBeetsTags "${AUDIO_WORK_PATH}/staging"
-        returnCode=$?
-        log "DEBUG :: returnCode=$returnCode"
-    else
-        log "INFO :: Beets tagging disabled"
-    fi
 
     # Add the MusicBrainz album info to FLAC and MP3 files
     if [ "$returnCode" -eq 0 ]; then
@@ -1138,15 +1121,37 @@ DownloadProcess() {
                     --set-tag=ALBUM="$lidarrAlbumTitle" "$file"
                 ;;
             mp3)
-                log "DEBUG :: Applying eyeD3 tags to: $file"
-                # Remove any existing custom tags
-                eyeD3 --remove-frame TXXX:MUSICBRAINZ_ALBUMID \
-                    --remove-frame TXXX:MUSICBRAINZ_RELEASEGROUPID "$file"
+                log "DEBUG :: Applying mutagen tags to mirror FLAC tags: $file"
+                python3 - <<PYTHONCODE
+import sys
+from mutagen.id3 import ID3, TXXX, ID3NoHeaderError, TALB
 
-                # Set the new MusicBrainz and album tags
-                eyeD3 --add-frame="TXXX:MUSICBRAINZ_ALBUMID:$lidarrReleaseForeignId" \
-                    --add-frame="TXXX:MUSICBRAINZ_RELEASEGROUPID:$lidarrAlbumForeignAlbumId" \
-                    --album "$lidarrAlbumTitle" "$file"
+file = sys.argv[1]
+album_title = sys.argv[2]
+mb_albumid = sys.argv[3]
+mb_releasegroupid = sys.argv[4]
+
+try:
+    tags = ID3(file)
+except ID3NoHeaderError:
+    tags = ID3()
+
+# Remove previous custom MusicBrainz tags
+for frame in tags.getall("TXXX"):
+    if frame.desc in ["MUSICBRAINZ_ALBUMID", "MUSICBRAINZ_RELEASEGROUPID"]:
+        tags.delall("TXXX:" + frame.desc)
+
+# Remove any existing ALBUM tag
+tags.delall("TALB")
+
+# Set new tags
+tags.add(TXXX(encoding=3, desc="MUSICBRAINZ_ALBUMID", text=mb_albumid))
+tags.add(TXXX(encoding=3, desc="MUSICBRAINZ_RELEASEGROUPID", text=mb_releasegroupid))
+tags.add(TALB(encoding=3, text=album_title))
+
+tags.save(v2_version=4)
+PYTHONCODE
+                "$file" "$lidarrAlbumTitle" "$lidarrReleaseForeignId" "$lidarrAlbumForeignAlbumId"
                 ;;
             *)
                 log "WARN :: Skipping unsupported format: $file"
@@ -1154,6 +1159,24 @@ DownloadProcess() {
             esac
         done
         shopt -u nullglob
+    fi
+
+    # Add ReplayGain tags if enabled
+    if [ "$returnCode" -eq 0 ] && [ "${AUDIO_APPLY_REPLAYGAIN}" == "true" ]; then
+        AddReplaygainTags "${AUDIO_WORK_PATH}/staging"
+        returnCode=$?
+        log "DEBUG :: returnCode=$returnCode"
+    else
+        log "INFO :: Replaygain tagging disabled"
+    fi
+
+    # Add Beets tags if enabled
+    if [ "$returnCode" -eq 0 ] && [ "${AUDIO_APPLY_BEETS}" == "true" ]; then
+        AddBeetsTags "${AUDIO_WORK_PATH}/staging"
+        returnCode=$?
+        log "DEBUG :: returnCode=$returnCode"
+    else
+        log "INFO :: Beets tagging disabled"
     fi
 
     # Log Completed Download
@@ -1175,27 +1198,28 @@ DownloadProcess() {
     log "TRACE :: Exiting DownloadProcess..."
 }
 
-# Add ReplayGain tags to audio files in the specified folder
-#TODO: replace with rsgain
+# Add ReplayGain tags to audio files in the specified folder using rsgain
 AddReplaygainTags() {
     log "TRACE :: Entering AddReplaygainTags..."
     # $1 -> folder path containing audio files to be tagged
-    log "INFO :: Adding ReplayGain Tags using r128gain"
     local importPath="${1}"
+    log "INFO :: Adding ReplayGain Tags using rsgain"
 
     local returnCode=0
     (
-        set +e # disable -e temporarily in subshell
-        r128gain -r -c 1 -a "${importPath}" >/dev/null 2>/tmp/r128gain_errors.log
+        set +e # temporarily disable -e in subshell
+        # -r : recursive, -q : quiet, -t : tag files
+        rsgain -r -q -t "${importPath}" #>/dev/null 2>/tmp/rsgain_errors.log
     )
-    returnCode=$? # <- captures exit code of subshell
+    returnCode=$? # capture exit code of subshell
+
     if [ $returnCode -ne 0 ]; then
-        log "WARNING :: r128gain encountered errors while processing $1. See /tmp/r128gain_errors.log for details."
+        log "WARNING :: rsgain encountered errors while processing $importPath. See /tmp/rsgain_errors.log for details."
     fi
 
-    rm -f /tmp/r128gain_errors.log
+    rm -f /tmp/rsgain_errors.log
     log "TRACE :: Exiting AddReplaygainTags..."
-    return ${returnCode}
+    return $returnCode
 }
 
 AddBeetsTags() {
