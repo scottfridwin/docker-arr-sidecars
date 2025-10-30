@@ -1129,6 +1129,7 @@ DownloadProcess() {
 
             case "${file##*.}" in
             flac)
+                log "DEBUG :: Applying metaflac tags to: $file"
                 metaflac --remove-tag=MUSICBRAINZ_ALBUMID \
                     --remove-tag=MUSICBRAINZ_RELEASEGROUPID \
                     --remove-tag=ALBUM \
@@ -1137,6 +1138,7 @@ DownloadProcess() {
                     --set-tag=ALBUM="$lidarrAlbumTitle" "$file"
                 ;;
             mp3)
+                log "DEBUG :: Applying eyeD3 tags to: $file"
                 # Remove any existing custom tags
                 eyeD3 --remove-frame TXXX:MUSICBRAINZ_ALBUMID \
                     --remove-frame TXXX:MUSICBRAINZ_RELEASEGROUPID "$file" >/dev/null 2>&1 || true
