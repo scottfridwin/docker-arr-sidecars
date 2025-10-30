@@ -1105,6 +1105,7 @@ DownloadProcess() {
         local lidarrReleaseInfo="$(get_state "lidarrReleaseInfo")"
         local lidarrReleaseForeignId="$(jq -r ".foreignReleaseId" <<<"${lidarrReleaseInfo}")"
 
+        log "DEBUG :: Title='$lidarrAlbumTitle' AlbumID='$lidarrReleaseForeignId' ReleaseGroupID='$lidarrAlbumForeignAlbumId'"
         shopt -s nullglob
         for file in "${AUDIO_WORK_PATH}"/staging/*.{flac,mp3}; do
             [ -f "$file" ] || continue
