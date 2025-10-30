@@ -49,7 +49,7 @@ fi
 
 while true; do
     log "INFO :: Running ARL Token Check..."
-    if ! python python/ARLChecker.py -c; then
+    if ! python3 python/ARLChecker.py -c; then
         log "ERROR :: ARL token check failed — see Python logs for details"
         setUnhealthy
         exit 1
