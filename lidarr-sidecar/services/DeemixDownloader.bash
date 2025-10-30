@@ -1100,6 +1100,7 @@ DownloadProcess() {
     if [ "$returnCode" -eq 0 ] && [ "${AUDIO_APPLY_REPLAYGAIN}" == "true" ]; then
         AddReplaygainTags "${AUDIO_WORK_PATH}/staging"
         returnCode=$?
+        log "DEBUG :: returnCode=$returnCode"
     else
         log "INFO :: Replaygain tagging disabled"
     fi
@@ -1108,6 +1109,7 @@ DownloadProcess() {
     if [ "$returnCode" -eq 0 ] && [ "${AUDIO_APPLY_BEETS}" == "true" ]; then
         AddBeetsTags "${AUDIO_WORK_PATH}/staging"
         returnCode=$?
+        log "DEBUG :: returnCode=$returnCode"
     else
         log "INFO :: Beets tagging disabled"
     fi
