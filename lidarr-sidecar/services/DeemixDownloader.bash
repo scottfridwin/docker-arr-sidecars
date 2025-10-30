@@ -1123,7 +1123,10 @@ DownloadProcess() {
                 ;;
             mp3)
                 log "DEBUG :: Applying mutagen tags to mirror FLAC tags: $file"
-                python3 python/MutagenTagger.py "$file" "$album_title" "$mb_albumid" "$mb_releasegroupid"
+                export ALBUM_TITLE="$lidarrAlbumTitle"
+                export MB_ALBUMID="$lidarrReleaseForeignId"
+                export MB_RELEASEGROUPID="$lidarrAlbumForeignAlbumId"
+                python3 python/MutagenTagger.py "$file"
                 ;;
             *)
                 log "WARN :: Skipping unsupported format: $file"

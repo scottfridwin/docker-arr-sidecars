@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import sys
+import os
 from mutagen.id3 import ID3, TXXX, TALB, ID3NoHeaderError
 
 if len(sys.argv) < 5:
@@ -10,9 +11,9 @@ if len(sys.argv) < 5:
     sys.exit(2)
 
 file_path = sys.argv[1]
-album_title = sys.argv[2]
-mb_albumid = sys.argv[3]
-mb_releasegroupid = sys.argv[4]
+album_title = os.environ["ALBUM_TITLE"]
+mb_albumid = os.environ["MB_ALBUMID"]
+mb_releasegroupid = os.environ["MB_RELEASEGROUPID"]
 
 try:
     tags = ID3(file_path)
