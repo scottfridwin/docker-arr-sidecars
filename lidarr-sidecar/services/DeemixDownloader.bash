@@ -228,7 +228,7 @@ AddLidarrTags() {
         log "INFO :: Processing tag: ${tag}"
 
         # Check if tag already exists
-        tagCheck=$(echo "${response}" | jq -r --arg TAG "${tag}" '.[] | select(.label==$TAG) | .label')
+        tagCheck=$(jq -r --arg TAG "${tag}" '.[] | select(.label==$TAG) | .label' <<<"${response}")
 
         if [ -z "${tagCheck}" ]; then
             log "INFO :: Tag not found, creating tag: ${tag}"
@@ -309,8 +309,8 @@ GetReleaseTitleDisambiguation() {
     # $1 -> JSON object for a MusicBrainz release
     local release_json="$1"
     local releaseTitle releaseDisambiguation
-    releaseTitle=$(echo "$release_json" | jq -r '.title')
-    releaseDisambiguation=$(echo "$release_json" | jq -r '.disambiguation')
+    releaseTitle="$(jq -r ".title" <<<"${release_json}")"
+    releaseDisambiguation="$(jq -r ".disambiguation" <<<"${release_json}")"
     if [ -z "$releaseDisambiguation" ] || [ "$releaseDisambiguation" == "null" ]; then
         releaseDisambiguation=""
     else
@@ -434,7 +434,7 @@ ProcessLidarrWantedList() {
     local response totalRecords
     ArrApiRequest "GET" "wanted/${listType}?page=1&pagesize=1&sortKey=${searchOrder}&sortDirection=${searchDirection}"
     response="$(get_state "arrApiResponse")"
-    totalRecords=$(echo "$response" | jq -r .totalRecords)
+    totalRecords=$(jq -r .totalRecords <<<"$response")
     log "INFO :: Found ${totalRecords} ${listType} albums"
 
     if ((totalRecords < 1)); then
@@ -505,18 +505,18 @@ SearchProcess() {
 
     # Extract artist and album info
     local lidarrArtistData lidarrArtistName lidarrArtistId lidarrArtistForeignArtistId
-    lidarrArtistData=$(echo "$lidarrAlbumData" | jq -r ".artist")
-    lidarrArtistName=$(echo "$lidarrArtistData" | jq -r ".artistName")
-    lidarrArtistId=$(echo "$lidarrArtistData" | jq -r ".artistMetadataId")
-    lidarrArtistForeignArtistId=$(echo "$lidarrArtistData" | jq -r ".foreignArtistId")
+    lidarrArtistData=$(jq -r ".artist" <<<"$lidarrAlbumData")
+    lidarrArtistName=$(jq -r ".artistName" <<<"$lidarrArtistData")
+    lidarrArtistId=$(jq -r ".artistMetadataId" <<<"$lidarrArtistData")
+    lidarrArtistForeignArtistId=$(jq -r ".foreignArtistId" <<<"$lidarrArtistData")
     set_state "lidarrArtistName" "${lidarrArtistName}"
     set_state "lidarrArtistId" "${lidarrArtistId}"
     set_state "lidarrArtistForeignArtistId" "${lidarrArtistForeignArtistId}"
 
     local lidarrAlbumTitle lidarrAlbumType lidarrAlbumForeignAlbumId
-    lidarrAlbumTitle=$(echo "$lidarrAlbumData" | jq -r ".title")
-    lidarrAlbumType=$(echo "$lidarrAlbumData" | jq -r ".albumType")
-    lidarrAlbumForeignAlbumId=$(echo "$lidarrAlbumData" | jq -r ".foreignAlbumId")
+    lidarrAlbumTitle=$(jq -r ".title" <<<"$lidarrAlbumData")
+    lidarrAlbumType=$(jq -r ".albumType" <<<"$lidarrAlbumData")
+    lidarrAlbumForeignAlbumId=$(jq -r ".foreignAlbumId" <<<"$lidarrAlbumData")
 
     # Check if album was previously marked "not found"
     if [ -f "${AUDIO_DATA_PATH}/notfound/${wantedAlbumId}--${lidarrArtistForeignArtistId}--${lidarrAlbumForeignAlbumId}" ]; then
@@ -526,7 +526,7 @@ SearchProcess() {
 
     # Release date check
     local releaseDate releaseDateClean currentDateClean albumIsNewRelease
-    releaseDate=$(echo "${lidarrAlbumData}" | jq -r ".releaseDate")
+    releaseDate=$(jq -r ".releaseDate" <<<"$lidarrAlbumData")
     releaseDate=${releaseDate:0:10}                                  # YYYY-MM-DD
     releaseDateClean=$(echo "${releaseDate}" | sed -e 's/[^0-9]//g') # YYYYMMDD
 
@@ -542,7 +542,7 @@ SearchProcess() {
     log "INFO :: Starting search for album \"${lidarrAlbumTitle}\" by artist \"${lidarrArtistName}\""
 
     # Extract artist links
-    local deezerArtistUrl=$(echo "${lidarrArtistData}" | jq -r '.links[]? | select(.name=="deezer") | .url')
+    local deezerArtistUrl=$(jq -r '.links[]? | select(.name=="deezer") | .url' <<<"${lidarrArtistData}")
     if [ -z "${deezerArtistUrl}" ]; then
         log "WARNING :: Missing Deezer link for artist ${lidarrArtistName}, skipping..."
         return
@@ -569,9 +569,9 @@ SearchProcess() {
 
     local sorted_releases
     if [ "${AUDIO_PREFER_SPECIAL_EDITIONS}" == "true" ]; then
-        sorted_releases=$(echo "${lidarrAlbumData}" | jq -c "${jq_filter_special}")
+        sorted_releases=$(jq -c "${jq_filter_special}" <<<"${lidarrAlbumData}")
     else
-        sorted_releases=$(echo "${lidarrAlbumData}" | jq -c "${jq_filter_normal}")
+        sorted_releases=$(jq -c "${jq_filter_normal}" <<<"${lidarrAlbumData}")
     fi
 
     # Determine lyric filter for first pass
@@ -601,6 +601,7 @@ SearchProcess() {
     set_state "bestMatchYear" ""
     set_state "bestMatchDistance" 9999
     set_state "bestMatchTrackDiff" 9999
+    set_state "bestMatchNumTracks" 0
     set_state "bestMatchContainsCommentary" "false"
     set_state "perfectMatchFound" "false"
 
@@ -627,13 +628,26 @@ SearchProcess() {
         local releases
         mapfile -t releasesArray < <(jq -c '.[]' <<<"$sorted_releases")
         for release_json in "${releasesArray[@]}"; do
-            lidarrReleaseTitle=$(GetReleaseTitleDisambiguation "${release_json}")
+            lidarrReleaseTitle="$(jq -r ".title" <<<"${release_json}")"
+            lidarrReleaseTitleWithDisambiguation="$(GetReleaseTitleDisambiguation "${release_json}")"
             lidarrReleaseTrackCount="$(jq -r ".trackCount" <<<"${release_json}")"
             lidarrReleaseForeignId="$(jq -r ".foreignReleaseId" <<<"${release_json}")"
             set_state "lidarrReleaseInfo" "${release_json}"
             set_state "lidarrReleaseTitle" "${lidarrReleaseTitle}"
+            set_state "lidarrReleaseTitleWithDisambiguation" "${lidarrReleaseTitleWithDisambiguation}"
             set_state "lidarrReleaseTrackCount" "${lidarrReleaseTrackCount}"
             set_state "lidarrReleaseForeignId" "${lidarrReleaseForeignId}"
+
+            # If a perfect match was already found, only process releases with more tracks
+            perfectMatchFound="$(get_state "perfectMatchFound")"
+            if [ "${perfectMatchFound}" == "true" ]; then
+                local bestMatchNumTracks
+                bestMatchNumTracks="$(get_state "bestMatchNumTracks")"
+                if ((lidarrReleaseTrackCount <= bestMatchNumTracks)); then
+                    log "DEBUG :: Already found a perfect match with ${bestMatchNumTracks} tracks, skipping release \"${lidarrReleaseTitleWithDisambiguation}\" with ${lidarrReleaseTrackCount} tracks"
+                    continue
+                fi
+            fi
 
             # TODO: Enhance this functionality to intelligently handle releases that are expected to have these keywords
             # Ignore instrumental-like releases if configured
@@ -648,8 +662,8 @@ SearchProcess() {
                 if [[ "${lidarrAlbumTitle}" =~ ${keywordPattern} ]]; then
                     log "INFO :: Album \"${lidarrAlbumTitle}\" matched instrumental keyword (${AUDIO_INSTRUMENTAL_KEYWORDS}), skipping..."
                     continue
-                elif [[ "${lidarrReleaseTitle,,}" =~ ${keywordPattern,,} ]]; then
-                    log "INFO :: Release \"${lidarrReleaseTitle}\" matched instrumental keyword (${AUDIO_INSTRUMENTAL_KEYWORDS}), skipping..."
+                elif [[ "${lidarrReleaseTitleWithDisambiguation,,}" =~ ${keywordPattern,,} ]]; then
+                    log "INFO :: Release \"${lidarrReleaseTitleWithDisambiguation}\" matched instrumental keyword (${AUDIO_INSTRUMENTAL_KEYWORDS}), skipping..."
                     continue
                 fi
             fi
@@ -666,8 +680,8 @@ SearchProcess() {
             if [[ "${lidarrAlbumTitle,,}" =~ ${commentaryPattern,,} ]]; then
                 log "DEBUG :: Album \"${lidarrAlbumTitle}\" matched commentary keyword (${AUDIO_COMMENTARY_KEYWORDS})"
                 lidarrReleaseContainsCommentary="true"
-            elif [[ "${lidarrReleaseTitle,,}" =~ ${commentaryPattern,,} ]]; then
-                log "DEBUG :: Release \"${lidarrReleaseTitle}\" matched commentary keyword (${AUDIO_COMMENTARY_KEYWORDS})"
+            elif [[ "${lidarrReleaseTitleWithDisambiguation,,}" =~ ${commentaryPattern,,} ]]; then
+                log "DEBUG :: Release \"${lidarrReleaseTitleWithDisambiguation}\" matched commentary keyword (${AUDIO_COMMENTARY_KEYWORDS})"
                 lidarrReleaseContainsCommentary="true"
             fi
             set_state "lidarrReleaseContainsCommentary" "${lidarrReleaseContainsCommentary}"
@@ -675,41 +689,33 @@ SearchProcess() {
             # Optionally de-prioritize releases that contain commentary tracks
             bestMatchContainsCommentary=$(get_state "bestMatchContainsCommentary")
             if [[ "${AUDIO_DEPRIORITIZE_COMMENTARY_RELEASES}" == "true" && "${lidarrReleaseContainsCommentary}" == "true" && "${bestMatchContainsCommentary}" == "false" ]]; then
-                log "INFO :: Already found a match without commentary. Skipping commentary album ${lidarrReleaseTitle}"
+                log "INFO :: Already found a match without commentary. Skipping commentary album ${lidarrReleaseTitleWithDisambiguation}"
                 continue
             fi
 
-            # First search through the artist's Deezer albums to find a match on album title and track count
-            log "DEBUG :: lidarrArtistForeignArtistId: ${lidarrArtistForeignArtistId}"
-            if [ "${lidarrArtistForeignArtistId}" != "${VARIOUS_ARTIST_ID}" ]; then # Skip various artists
+            # Loop over lidarrReleaseTitle with disambiguation and without
+            for searchReleaseTitle in "${lidarrReleaseTitleWithDisambiguation}" "${lidarrReleaseTitle}"; do
+                set_state "searchReleaseTitle" "${searchReleaseTitle}"
+                # First search through the artist's Deezer albums to find a match on album title and track count
+                log "DEBUG :: lidarrArtistForeignArtistId: ${lidarrArtistForeignArtistId}"
+                if [ "${lidarrArtistForeignArtistId}" != "${VARIOUS_ARTIST_ID}" ]; then # Skip various artists
+                    perfectMatchFound="$(get_state "perfectMatchFound")"
+                    if [ "${perfectMatchFound}" == "false" ]; then
+                        log "DEBUG :: deezerArtistIds: ${deezerArtistIds[*]}"
+                        for dId in "${!deezerArtistIds[@]}"; do
+                            local deezerArtistId="${deezerArtistIds[$dId]}"
+                            ArtistDeezerSearch "${lyricType}" "${deezerArtistId}"
+                        done
+                    fi
+                fi
+
+                # Fuzzy search
                 perfectMatchFound="$(get_state "perfectMatchFound")"
                 if [ "${perfectMatchFound}" == "false" ]; then
-                    log "DEBUG :: deezerArtistIds: ${deezerArtistIds[*]}"
-                    for dId in "${!deezerArtistIds[@]}"; do
-                        local deezerArtistId="${deezerArtistIds[$dId]}"
-                        ArtistDeezerSearch "${lyricType}" "${deezerArtistId}"
-                    done
+                    FuzzyDeezerSearch "${lyricType}"
                 fi
-            fi
-
-            # Fuzzy search
-            perfectMatchFound="$(get_state "perfectMatchFound")"
-            if [ "${perfectMatchFound}" == "false" ]; then
-                FuzzyDeezerSearch "${lyricType}"
-            fi
-
-            # End search if a perfect match was found
-            perfectMatchFound="$(get_state "perfectMatchFound")"
-            if [ "${perfectMatchFound}" == "true" ]; then
-                break
-            fi
+            done
         done
-
-        # End search if a perfect match was found
-        perfectMatchFound="$(get_state "perfectMatchFound")"
-        if [ "${perfectMatchFound}" == "true" ]; then
-            break
-        fi
     done
 
     log "INFO :: Search process complete..."
@@ -789,15 +795,15 @@ FuzzyDeezerSearch() {
     fi
 
     local lidarrAlbumData="$(get_state "lidarrAlbumData")"
-    local lidarrReleaseTitle="$(get_state "lidarrReleaseTitle")"
+    local searchReleaseTitle="$(get_state "searchReleaseTitle")"
     local lidarrArtistForeignArtistId="$(get_state "lidarrArtistForeignArtistId")"
     local lidarrArtistName="$(get_state "lidarrArtistName")"
 
-    log "INFO :: Fuzzy searching for '${lidarrReleaseTitle}' by '${lidarrArtistName}' (${type} lyrics)..."
+    log "INFO :: Fuzzy searching for '${searchReleaseTitle}' by '${lidarrArtistName}' (${type} lyrics)..."
 
     # Prepare search terms
     local albumTitleSearch albumArtistNameSearch lidarrAlbumReleaseTitleSearchClean lidarrArtistNameSearchClean
-    lidarrAlbumReleaseTitleSearchClean="$(normalize_string "${lidarrReleaseTitle}")"
+    lidarrAlbumReleaseTitleSearchClean="$(normalize_string "${searchReleaseTitle}")"
     lidarrArtistNameSearchClean="$(normalize_string "${lidarrArtistName}")"
     albumTitleSearch="$(jq -R -r @uri <<<"${lidarrAlbumReleaseTitleSearchClean}")"
     albumArtistNameSearch="$(jq -R -r @uri <<<"${lidarrArtistNameSearchClean}")"
@@ -817,20 +823,20 @@ FuzzyDeezerSearch() {
         log "TRACE :: deezerSearch: ${deezerSearch}"
         if [[ -n "${deezerSearch}" ]]; then
             resultsCount=$(jq '.total' <<<"${deezerSearch}")
-            log "DEBUG :: ${resultsCount} search results found for '${lidarrReleaseTitle}' by '${lidarrArtistName}'"
+            log "DEBUG :: ${resultsCount} search results found for '${searchReleaseTitle}' by '${lidarrArtistName}'"
             if ((resultsCount > 0)); then
                 albumsJson=$(jq '[.data[].album] | unique_by(.id)' <<<"${deezerSearch}")
                 uniqueResults=$(jq 'length' <<<"${albumsJson}")
-                log "INFO :: ${uniqueResults} unique search results found for '${lidarrReleaseTitle}' by '${lidarrArtistName}'"
+                log "INFO :: ${uniqueResults} unique search results found for '${searchReleaseTitle}' by '${lidarrArtistName}'"
                 CalculateBestMatch <<<"${albumsJson}"
             else
-                log "INFO :: No results found via Fuzzy Search for '${lidarrReleaseTitle}' by '${lidarrArtistName}'"
+                log "INFO :: No results found via Fuzzy Search for '${searchReleaseTitle}' by '${lidarrArtistName}'"
             fi
         else
             log "WARNING :: Deezer Fuzzy Search API response missing expected fields"
         fi
     else
-        log "WARNING :: Deezer Fuzzy Search failed for '${lidarrReleaseTitle}' by '${lidarrArtistName}'"
+        log "WARNING :: Deezer Fuzzy Search failed for '${searchReleaseTitle}' by '${lidarrArtistName}'"
     fi
     log "TRACE :: Exiting FuzzyDeezerSearch..."
 }
@@ -849,15 +855,16 @@ CalculateBestMatch() {
     local bestMatchYear="$(get_state "bestMatchYear")"
     local bestMatchDistance="$(get_state "bestMatchDistance")"
     local bestMatchTrackDiff="$(get_state "bestMatchTrackDiff")"
+    local bestMatchNumTracks="$(get_state "bestMatchNumTracks")"
     local bestMatchContainsCommentary="$(get_state "bestMatchContainsCommentary")"
 
     local lidarrReleaseTrackCount="$(get_state "lidarrReleaseTrackCount")"
-    local lidarrReleaseTitle="$(get_state "lidarrReleaseTitle")"
+    local searchReleaseTitle="$(get_state "searchReleaseTitle")"
     local lidarrReleaseContainsCommentary="$(get_state "lidarrReleaseContainsCommentary")"
     # Normalize Lidarr release title
-    local lidarrReleaseTitleClean
-    lidarrReleaseTitleClean="$(normalize_string "${lidarrReleaseTitle}")"
-    lidarrReleaseTitleClean="${lidarrReleaseTitleClean:0:130}"
+    local searchReleaseTitleClean
+    searchReleaseTitleClean="$(normalize_string "${searchReleaseTitle}")"
+    searchReleaseTitleClean="${searchReleaseTitleClean:0:130}"
 
     for ((i = 0; i < albumsCount; i++)); do
         local deezerAlbumData deezerAlbumID deezerAlbumTitle deezerAlbumTitleClean
@@ -895,7 +902,7 @@ CalculateBestMatch() {
         fi
 
         # Compute Levenshtein distance
-        diff=$(LevenshteinDistance "${lidarrReleaseTitleClean,,}" "${deezerAlbumTitleClean,,}")
+        diff=$(LevenshteinDistance "${searchReleaseTitleClean,,}" "${deezerAlbumTitleClean,,}")
         trackDiff=$((lidarrReleaseTrackCount > deezerAlbumTrackCount ? lidarrReleaseTrackCount - deezerAlbumTrackCount : deezerAlbumTrackCount - lidarrReleaseTrackCount))
 
         log "DEBUG :: DL Dist=${diff} TrackDiff=${trackDiff} (${deezerAlbumTrackCount} tracks)"
@@ -914,29 +921,32 @@ CalculateBestMatch() {
             bestMatchYear="${downloadedReleaseYear}"
             bestMatchDistance="${diff}"
             bestMatchTrackDiff="${trackDiff}"
+            bestMatchNumTracks="${deezerAlbumTrackCount}"
             set_state "bestMatchID" "${bestMatchID}"
             set_state "bestMatchTitle" "${bestMatchTitle}"
             set_state "bestMatchYear" "${bestMatchYear}"
             set_state "bestMatchDistance" "${bestMatchDistance}"
             set_state "bestMatchTrackDiff" "${bestMatchTrackDiff}"
+            set_state "bestMatchNumTracks" "${bestMatchNumTracks}"
             set_state "bestMatchContainsCommentary" "${lidarrReleaseContainsCommentary}"
             set_state "perfectMatchFound" "true"
-            log "INFO :: Perfect match found :: ${bestMatchTitle} (${bestMatchYear})"
-            break
+            log "INFO :: Perfect match found :: ${bestMatchTitle} (${bestMatchYear}) with ${bestMatchNumTracks} tracks"
         fi
 
         # Track best match so far
-        if ((diff < bestMatchDistance)) || ((diff == bestMatchDistance && trackDiff < bestMatchTrackDiff)); then
+        if ((diff < bestMatchDistance)) || ((diff == bestMatchDistance && trackDiff < bestMatchTrackDiff)) || ((diff == bestMatchDistance && trackDiff == bestMatchTrackDiff && deezerAlbumTrackCount > bestMatchNumTracks)); then
             bestMatchID="${deezerAlbumID}"
             bestMatchTitle="${deezerAlbumTitle}"
             bestMatchYear="${downloadedReleaseYear}"
             bestMatchDistance="${diff}"
             bestMatchTrackDiff="${trackDiff}"
+            bestMatchNumTracks="${deezerAlbumTrackCount}"
             set_state "bestMatchID" "${bestMatchID}"
             set_state "bestMatchTitle" "${bestMatchTitle}"
             set_state "bestMatchYear" "${bestMatchYear}"
             set_state "bestMatchDistance" "${bestMatchDistance}"
             set_state "bestMatchTrackDiff" "${bestMatchTrackDiff}"
+            set_state "bestMatchNumTracks" "${bestMatchNumTracks}"
             set_state "bestMatchContainsCommentary" "${lidarrReleaseContainsCommentary}"
         fi
     done
@@ -953,9 +963,10 @@ DownloadBestMatch() {
     local bestMatchYear="$(get_state "bestMatchYear")"
     local bestMatchDistance="$(get_state "bestMatchDistance")"
     local bestMatchTrackDiff="$(get_state "bestMatchTrackDiff")"
+    local bestMatchNumTracks="$(get_state "bestMatchNumTracks")"
 
     # Download the best match that was found
-    log "INFO :: Using best match :: ${bestMatchTitle} (${bestMatchYear}) :: Distance=${bestMatchDistance} TrackDiff=${bestMatchTrackDiff}"
+    log "INFO :: Using best match :: ${bestMatchTitle} (${bestMatchYear}) :: Distance=${bestMatchDistance} TrackDiff=${bestMatchTrackDiff} NumTracks=${bestMatchNumTracks}"
 
     GetDeezerAlbumInfo "${bestMatchID}"
     local returnCode=$?
@@ -1012,10 +1023,10 @@ DownloadProcess() {
     fi
 
     local deezerAlbumId deezerAlbumTitle deezerAlbumTitleClean deezerAlbumTrackCount deezerArtistName deezerArtistNameClean downloadedReleaseDate downloadedReleaseYear
-    deezerAlbumId=$(echo "${deezerAlbumJson}" | jq -r ".id")
-    deezerAlbumTitle=$(echo "${deezerAlbumJson}" | jq -r ".title" | head -n1)
+    deezerAlbumId=$(jq -r ".id" <<<"${deezerAlbumJson}")
+    deezerAlbumTitle=$(jq -r ".title" <<<"${deezerAlbumJson}" | head -n1)
     deezerAlbumTitleClean=$(normalize_string "$deezerAlbumTitle")
-    deezerAlbumTrackCount="$(echo "${deezerAlbumJson}" | jq -r .nb_tracks)"
+    deezerAlbumTrackCount="$(jq -r .nb_tracks <<<"${deezerAlbumJson}")"
     deezerArtistName=$(jq -r '.artist.name' <<<"${deezerAlbumJson}")
     deezerArtistNameClean=$(normalize_string "$deezerArtistName")
     downloadedReleaseDate=$(jq -r .release_date <<<"${deezerAlbumJson}")
