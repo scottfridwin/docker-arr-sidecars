@@ -386,9 +386,9 @@ SetupBeets() {
     log "INFO :: Setting up Beets configuration"
 
     # Copy default config to /tmp
-    local defaultConfigFile="/app/config/deemix_config.json"
+    local defaultConfigFile="/app/config/beets_config.json"
     if [[ ! -f "${defaultConfigFile}" ]]; then
-        log "ERROR :: Default Deemix config not found at ${defaultConfigFile}"
+        log "ERROR :: Default Beets config not found at ${defaultConfigFile}"
         setUnhealthy
         exit 1
     fi
@@ -1122,7 +1122,7 @@ DownloadProcess() {
                     --set-tag=ALBUM="$lidarrAlbumTitle" "$file"
                 ;;
             mp3)
-                log "DEBUG :: Applying mutagen tags to mirror FLAC tags: $file"
+                log "DEBUG :: Applying mutagen tags to: $file"
                 export ALBUM_TITLE="$lidarrAlbumTitle"
                 export MB_ALBUMID="$lidarrReleaseForeignId"
                 export MB_RELEASEGROUPID="$lidarrAlbumForeignAlbumId"
@@ -1204,6 +1204,9 @@ AddBeetsTags() {
     touch ${BEETS_DIR}/beets-library.blb
     touch ${BEETS_DIR}/beets.timer
 
+    local lidarrReleaseInfo="$(get_state "lidarrReleaseInfo")"
+    local lidarrReleaseForeignId="$(jq -r ".foreignReleaseId" <<<"${lidarrReleaseInfo}")"
+
     local returnCode=0
     # Process with Beets
     (
@@ -1213,6 +1216,7 @@ AddBeetsTags() {
         mkdir -p "${XDG_CONFIG_HOME}"
         beet -v -c "${BEETS_DIR}/beets.yaml" \
             -l "${BEETS_DIR}/beets-library.blb" \
+            -S "${lidarrReleaseForeignId}" \
             -d "$1" import -qCw "$1"
 
         returnCode=$? # <- captures exit code of subshell
