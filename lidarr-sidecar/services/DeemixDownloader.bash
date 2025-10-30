@@ -289,9 +289,9 @@ EOF
     log "TRACE :: Exiting AddLidarrDownloadClient..."
 }
 
-# Clean up old notfound entries to allow retries
-NotFoundFolderCleaner() {
-    log "TRACE :: Entering NotFoundFolderCleaner..."
+# Clean up old notfound or downloaded entries to allow retries
+FolderCleaner() {
+    log "TRACE :: Entering FolderCleaner..."
     if [ -d "${AUDIO_DATA_PATH}/notfound" ]; then
         # check for notfound entries older than AUDIO_RETRY_NOTFOUND_DAYS days
         if find "${AUDIO_DATA_PATH}/notfound" -mindepth 1 -type f -mtime +${AUDIO_RETRY_NOTFOUND_DAYS} | read; then
@@ -300,7 +300,15 @@ NotFoundFolderCleaner() {
             find "${AUDIO_DATA_PATH}/notfound" -mindepth 1 -type f -mtime +${AUDIO_RETRY_NOTFOUND_DAYS} -delete
         fi
     fi
-    log "TRACE :: Exiting NotFoundFolderCleaner..."
+    if [ -d "${AUDIO_DATA_PATH}/downloaded" ]; then
+        # check for downloaded entries older than AUDIO_RETRY_DOWNLOADED_DAYS days
+        if find "${AUDIO_DATA_PATH}/downloaded" -mindepth 1 -type f -mtime +${AUDIO_RETRY_DOWNLOADED_DAYS} | read; then
+            log "INFO :: Removing previously downloaded lidarr album ids older than ${AUDIO_RETRY_DOWNLOADED_DAYS} days to give them a retry..."
+            # delete downloaded entries older than AUDIO_RETRY_DOWNLOADED_DAYS days
+            find "${AUDIO_DATA_PATH}/downloaded" -mindepth 1 -type f -mtime +${AUDIO_RETRY_DOWNLOADED_DAYS} -delete
+        fi
+    fi
+    log "TRACE :: Exiting FolderCleaner..."
 }
 
 # Given a MusicBrainz release JSON object, return the title with disambiguation if present
@@ -521,6 +529,12 @@ SearchProcess() {
     # Check if album was previously marked "not found"
     if [ -f "${AUDIO_DATA_PATH}/notfound/${wantedAlbumId}--${lidarrArtistForeignArtistId}--${lidarrAlbumForeignAlbumId}" ]; then
         log "INFO :: Album \"${lidarrAlbumTitle}\" by artist \"${lidarrArtistName}\" was previously marked as not found, skipping..."
+        return
+    fi
+
+    # Check if album was previously marked "downloaded"
+    if [ -f "${AUDIO_DATA_PATH}/downloaded/${wantedAlbumId}--${lidarrArtistForeignArtistId}--${lidarrAlbumForeignAlbumId}" ]; then
+        log "INFO :: Album \"${lidarrAlbumTitle}\" by artist \"${lidarrArtistName}\" was previously marked as downloaded, skipping..."
         return
     fi
 
@@ -880,10 +894,10 @@ CalculateBestMatch() {
         # --- Normalize title ---
         deezerAlbumTitleClean="$(normalize_string "$deezerAlbumTitle")"
         deezerAlbumTitleClean="${deezerAlbumTitleClean:0:130}"
-        # TODO - In some cases, albums have strange translations that need to happen for comparison to work.
-        #Example: For Taylor Swift's 1989, Deezer has "1989 (Deluxe Edition)" but musicbrainz has "1989 D.L.X." because that is the title on the album
 
         # Apply custom replacements if defined
+        # In some cases, albums have strange translations that need to happen for comparison to work.
+        # Example: For Taylor Swift's 1989, Deezer has "1989 (Deluxe Edition)" but musicbrainz has "1989 D.L.X." because that is the title on the album
         replacement="$(get_state "titleReplacement_${deezerAlbumTitleClean}")"
         if [[ -n "$replacement" ]]; then
             log "DEBUG :: Title matched replacement rule: \"${deezerAlbumTitleClean}\" → \"${replacement}\""
@@ -968,6 +982,8 @@ DownloadBestMatch() {
     local bestMatchDistance="$(get_state "bestMatchDistance")"
     local bestMatchTrackDiff="$(get_state "bestMatchTrackDiff")"
     local bestMatchNumTracks="$(get_state "bestMatchNumTracks")"
+    local downloadedLidarrReleaseInfo="$(get_state "bestMatchLidarrReleaseInfo")"
+    set_state "downloadedLidarrReleaseInfo" "${downloadedLidarrReleaseInfo}"
 
     # Download the best match that was found
     log "INFO :: Using best match :: ${bestMatchTitle} (${bestMatchYear}) :: Distance=${bestMatchDistance} TrackDiff=${bestMatchTrackDiff} NumTracks=${bestMatchNumTracks}"
@@ -1117,8 +1133,8 @@ DownloadProcess() {
         local lidarrAlbumData="$(get_state "lidarrAlbumData")"
         local lidarrAlbumTitle="$(jq -r ".title" <<<"${lidarrAlbumData}")"
         local lidarrAlbumForeignAlbumId="$(jq -r ".foreignAlbumId" <<<"${lidarrAlbumData}")"
-        local lidarrReleaseInfo="$(get_state "bestMatchLidarrReleaseInfo")"
-        local lidarrReleaseForeignId="$(jq -r ".foreignReleaseId" <<<"${lidarrReleaseInfo}")"
+        local downloadedLidarrReleaseInfo="$(get_state "downloadedLidarrReleaseInfo")"
+        local lidarrReleaseForeignId="$(jq -r ".foreignReleaseId" <<<"${downloadedLidarrReleaseInfo}")"
 
         log "DEBUG :: Title='$lidarrAlbumTitle' AlbumID='$lidarrReleaseForeignId' ReleaseGroupID='$lidarrAlbumForeignAlbumId'"
         shopt -s nullglob
@@ -1219,8 +1235,8 @@ AddBeetsTags() {
     touch ${BEETS_DIR}/beets-library.blb
     touch ${BEETS_DIR}/beets.timer
 
-    local lidarrReleaseInfo="$(get_state "lidarrReleaseInfo")"
-    local lidarrReleaseForeignId="$(jq -r ".foreignReleaseId" <<<"${lidarrReleaseInfo}")"
+    local downloadedLidarrReleaseInfo="$(get_state "downloadedLidarrReleaseInfo")"
+    local lidarrReleaseForeignId="$(jq -r ".foreignReleaseId" <<<"${downloadedLidarrReleaseInfo}")"
 
     local returnCode=0
     # Process with Beets
@@ -1284,6 +1300,7 @@ log "DEBUG :: AUDIO_LYRIC_TYPE=${AUDIO_LYRIC_TYPE}"
 log "DEBUG :: AUDIO_MATCH_DISTANCE_THRESHOLD=${AUDIO_MATCH_DISTANCE_THRESHOLD}"
 log "DEBUG :: AUDIO_PREFER_SPECIAL_EDITIONS=${AUDIO_PREFER_SPECIAL_EDITIONS}"
 log "DEBUG :: AUDIO_REQUIRE_QUALITY=${AUDIO_REQUIRE_QUALITY}"
+log "DEBUG :: AUDIO_RETRY_DOWNLOADED_DAYS=${AUDIO_RETRY_DOWNLOADED_DAYS}"
 log "DEBUG :: AUDIO_RETRY_NOTFOUND_DAYS=${AUDIO_RETRY_NOTFOUND_DAYS}"
 log "DEBUG :: AUDIO_SHARED_LIDARR_PATH=${AUDIO_SHARED_LIDARR_PATH}"
 log "DEBUG :: AUDIO_TAGS=${AUDIO_TAGS}"
@@ -1323,8 +1340,8 @@ sleep 1
 log "INFO :: 1"
 sleep 1
 while true; do
-    # Cleanup old markers for albums previously marked as not found
-    NotFoundFolderCleaner
+    # Cleanup old markers for albums previously marked as not found or downloaded
+    FolderCleaner
 
     ProcessLidarrWantedList "missing"
     ProcessLidarrWantedList "cutoff"
