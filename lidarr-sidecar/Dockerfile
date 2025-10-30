@@ -7,7 +7,7 @@ RUN apk add --no-cache \
     opus-tools opustags python3 py3-pip uv parallel chromaprint curl bash xz
 
 # Install Python dependencies
-RUN pip install --no-cache-dir \
+RUN pip install --no-cache-dir --break-system-packages \
     jellyfish yq pyacoustid requests mutagen deemix langdetect
 
 # Download and install static rsgain
