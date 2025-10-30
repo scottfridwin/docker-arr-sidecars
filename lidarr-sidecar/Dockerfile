@@ -19,13 +19,12 @@ RUN apk add --no-cache \
     parallel \
     chromaprint \
     curl \
-    id3lib \
     bash
 
-# Install atomicparsley from edge/testing
-RUN apk add --no-cache -X http://dl-cdn.alpinelinux.org/alpine/edge/testing atomicparsley
-
 # Install Python packages
+RUN python3 -m ensurepip &&
+    python3 -m pip install --upgrade pip setuptools wheel
+
 RUN uv pip install --system --upgrade --no-cache-dir --break-system-packages \
     jellyfish \
     beautifulsoup4 \
