@@ -39,7 +39,8 @@ RUN uv pip install --system --upgrade --no-cache-dir --break-system-packages \
     r128gain \
     deemix \
     langdetect \
-    apprise
+    apprise \
+    eyed3
 
 # Copy all scripts and config files
 COPY lidarr-sidecar/ /app/

@@ -1112,17 +1112,19 @@ DownloadProcess() {
         log "INFO :: Beets tagging disabled"
     fi
 
-    # Add the musicbrainz album id to the files
+    # Add the MusicBrainz album info to FLAC and MP3 files
     if [ "$returnCode" -eq 0 ]; then
         local lidarrAlbumData="$(get_state "lidarrAlbumData")"
         local lidarrAlbumTitle="$(jq -r ".title" <<<"${lidarrAlbumData}")"
         local lidarrAlbumForeignAlbumId="$(jq -r ".foreignAlbumId" <<<"${lidarrAlbumData}")"
         local lidarrReleaseInfo="$(get_state "lidarrReleaseInfo")"
         local lidarrReleaseForeignId="$(jq -r ".foreignReleaseId" <<<"${lidarrReleaseInfo}")"
+
         shopt -s nullglob
-        for file in "${AUDIO_WORK_PATH}"/staging/*.{flac,mp3,m4a,ogg,opus,wav}; do
+        for file in "${AUDIO_WORK_PATH}"/staging/*.{flac,mp3}; do
             [ -f "$file" ] || continue
             log "DEBUG :: Tagging $file"
+
             case "${file##*.}" in
             flac)
                 metaflac --remove-tag=MUSICBRAINZ_ALBUMID \
@@ -1133,14 +1135,17 @@ DownloadProcess() {
                     --set-tag=ALBUM="$lidarrAlbumTitle" "$file"
                 ;;
             mp3)
-                id3v2 --delete-frames "TXXX:MUSICBRAINZ_ALBUMID" \
-                    --delete-frames "TXXX:MUSICBRAINZ_RELEASEGROUPID" \
-                    --TXXX "MUSICBRAINZ_ALBUMID:$lidarrReleaseForeignId" \
-                    --TXXX "MUSICBRAINZ_RELEASEGROUPID:$lidarrAlbumForeignAlbumId" \
-                    --album "$lidarrAlbumTitle" "$file"
+                # Remove any existing custom tags
+                eyeD3 --remove-frame TXXX:MUSICBRAINZ_ALBUMID \
+                    --remove-frame TXXX:MUSICBRAINZ_RELEASEGROUPID "$file" >/dev/null 2>&1 || true
+
+                # Set the new MusicBrainz and album tags
+                eyeD3 --add-frame="TXXX:MUSICBRAINZ_ALBUMID:$lidarrReleaseForeignId" \
+                    --add-frame="TXXX:MUSICBRAINZ_RELEASEGROUPID:$lidarrAlbumForeignAlbumId" \
+                    --album "$lidarrAlbumTitle" "$file" >/dev/null 2>&1
                 ;;
             *)
-                log "WARN :: Unknown format: $file"
+                log "WARN :: Skipping unsupported format: $file"
                 ;;
             esac
         done
