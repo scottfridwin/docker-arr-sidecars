@@ -1,24 +1,3 @@
-# ===== Build Stage for Python dependencies =====
-FROM python:3.12-slim AS build
-
-# Upgrade pip and install build tools
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    python3-dev \
-    libffi-dev \
-    libssl-dev \
-    libxml2-dev \
-    libxslt1-dev \
-    zlib1g-dev
-RUN rm -rf /var/lib/apt/lists/*
-
-RUN pip install --no-cache-dir --upgrade pip setuptools wheel
-
-# Install Python packages into a custom prefix
-RUN pip install --no-cache-dir --prefix=/install \
-    --prefer-binary --break-system-packages \
-    jellyfish pyacoustid requests mutagen deemix langdetect
-
 # ===== Final Stage =====
 FROM debian:13.1-slim
 
@@ -36,10 +15,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN rm -rf /var/lib/apt/lists/*
 
 # Install Python packages into a custom prefix
-RUN pip install --no-cache-dir --prefer-binary --break-system-packages yq
-
-# Copy Python packages from build stage
-COPY --from=build /install /usr/local
+RUN pip install --no-cache-dir --prefer-binary --break-system-packages jellyfish pyacoustid requests mutagen deemix langdetect
 
 # Copy scripts and config
 COPY lidarr-sidecar/ /app/
