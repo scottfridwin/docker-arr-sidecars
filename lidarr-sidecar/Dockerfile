@@ -1,59 +1,21 @@
-# ===== Build Stage =====
-FROM python:3.12-alpine AS build
-
-# Install build dependencies
-RUN apk add --no-cache \
-    build-base \
-    cmake \
-    libsndfile-dev \
-    libebur128-dev \
-    python3-dev \
-    pkgconfig \
-    git
-
-# Upgrade pip
-RUN pip install --no-cache-dir --upgrade pip setuptools wheel
-
-# Clone and install rsgain
-RUN pip install --no-cache-dir git+https://github.com/berteh/rsgain.git
-
 # ===== Final Stage =====
 FROM alpine:latest
 
 # Install runtime dependencies
 RUN apk add --no-cache \
-    beets \
-    tidyhtml \
-    musl-locales \
-    musl-locales-lang \
-    flac \
-    jq \
-    ffmpeg \
-    imagemagick \
-    opus-tools \
-    opustags \
-    python3 py3-pip \
-    uv \
-    parallel \
-    chromaprint \
-    curl \
-    bash \
-    libsndfile \
-    libebur128
+    beets tidyhtml musl-locales musl-locales-lang flac jq ffmpeg imagemagick \
+    opus-tools opustags python3 py3-pip uv parallel chromaprint curl bash xz
 
-# Copy rsgain from build stage (Python packages and CLI)
-COPY --from=build /usr/local/lib/python3.12/site-packages/rsgain* /usr/local/lib/python3.12/site-packages/
-COPY --from=build /usr/local/bin/rsgain /usr/local/bin/rsgain
-
-# Install other Python packages
+# Install Python dependencies
 RUN pip install --no-cache-dir \
-    jellyfish \
-    yq \
-    pyacoustid \
-    requests \
-    mutagen \
-    deemix \
-    langdetect
+    jellyfish yq pyacoustid requests mutagen deemix langdetect
+
+# Download and install static rsgain
+RUN curl -L -o /tmp/rsgain.tar.xz https://github.com/complexlogic/rsgain/releases/download/v3.6/rsgain-3.6-Linux.tar.xz &&
+    mkdir -p /opt/rsgain &&
+    tar -xf /tmp/rsgain.tar.xz -C /opt/rsgain &&
+    ln -s /opt/rsgain/rsgain /usr/local/bin/rsgain &&
+    rm /tmp/rsgain.tar.xz
 
 # Copy scripts and config
 COPY lidarr-sidecar/ /app/
