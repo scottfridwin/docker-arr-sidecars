@@ -1183,16 +1183,10 @@ AddReplaygainTags() {
     local returnCode=0
     (
         set +e # temporarily disable -e in subshell
-        # -r : recursive, -q : quiet, -t : tag files
-        rsgain -r -q -t "${importPath}" #>/dev/null 2>/tmp/rsgain_errors.log
+        rsgain easy --quiet "${importPath}"
     )
     returnCode=$? # capture exit code of subshell
 
-    if [ $returnCode -ne 0 ]; then
-        log "WARNING :: rsgain encountered errors while processing $importPath. See /tmp/rsgain_errors.log for details."
-    fi
-
-    rm -f /tmp/rsgain_errors.log
     log "TRACE :: Exiting AddReplaygainTags..."
     return $returnCode
 }
