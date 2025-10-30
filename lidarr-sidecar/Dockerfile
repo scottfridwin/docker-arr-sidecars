@@ -15,8 +15,7 @@ RUN apk add --no-cache \
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel
 
 # Clone and install rsgain
-RUN git clone https://github.com/berteh/rsgain.git /tmp/rsgain
-RUN pip install --no-cache-dir /tmp/rsgain
+RUN pip install --no-cache-dir git+https://github.com/berteh/rsgain.git
 
 # ===== Final Stage =====
 FROM alpine:latest
