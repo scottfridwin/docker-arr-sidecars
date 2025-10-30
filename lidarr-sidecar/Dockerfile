@@ -21,23 +21,21 @@ RUN apk add --no-cache \
     curl \
     bash
 
-# Install Python packages
-RUN python3 -m ensurepip && python3 -m pip install --upgrade pip setuptools wheel
+# Install Python and development tools
+RUN apk add --no-cache python3 py3-pip python3-dev libc-dev
 
-RUN uv pip install --system --upgrade --no-cache-dir --break-system-packages \
+# Install Python packages
+RUN pip3 install --no-cache-dir --upgrade pip setuptools wheel
+
+RUN pip3 install --no-cache-dir \
     jellyfish \
-    beautifulsoup4 \
-    yt-dlp \
     yq \
     pyacoustid \
     requests \
-    colorama \
-    pylast \
     mutagen \
     r128gain \
     deemix \
     langdetect \
-    apprise \
     eyed3
 
 # Copy all scripts and config files
