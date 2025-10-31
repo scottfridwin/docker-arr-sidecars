@@ -653,13 +653,15 @@ SearchProcess() {
             lidarrReleaseForeignId="$(jq -r ".foreignReleaseId" <<<"${release_json}")"
             lidarrReleaseFormat="$(jq -r ".format" <<<"${release_json}")"
             lidarrReleaseCountries="$(jq -r '.country // [] | join(",")' <<<"${release_json}")"
+            lidarrReleaseFormatPriority="$(FormatPriority "${lidarrReleaseFormat}")"
+            lidarrReleaseCountryPriority="$(CountriesPriority "${lidarrReleaseCountries}")"
             set_state "lidarrReleaseInfo" "${release_json}"
             set_state "lidarrReleaseTitle" "${lidarrReleaseTitle}"
             set_state "lidarrReleaseTitleWithDisambiguation" "${lidarrReleaseTitleWithDisambiguation}"
             set_state "lidarrReleaseTrackCount" "${lidarrReleaseTrackCount}"
             set_state "lidarrReleaseForeignId" "${lidarrReleaseForeignId}"
-            set_state "lidarrReleaseFormatPriority" "$(FormatPriority "${lidarrReleaseFormat}")"
-            set_state "lidarrReleaseCountryPriority" "$(CountriesPriority "${lidarrReleaseCountries}")"
+            set_state "lidarrReleaseFormatPriority" "${lidarrReleaseFormatPriority}"
+            set_state "lidarrReleaseCountryPriority" "${lidarrReleaseCountryPriority}"
 
             # If a perfect match was already found, only process releases with more tracks
             perfectMatchFound="$(get_state "perfectMatchFound")"
