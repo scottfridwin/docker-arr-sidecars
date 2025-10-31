@@ -902,6 +902,8 @@ CalculateBestMatch() {
     local lidarrReleaseTrackCount="$(get_state "lidarrReleaseTrackCount")"
     local searchReleaseTitle="$(get_state "searchReleaseTitle")"
     local lidarrReleaseContainsCommentary="$(get_state "lidarrReleaseContainsCommentary")"
+    local lidarrReleaseFormatPriority="$(get_state "lidarrReleaseFormatPriority")"
+    local lidarrReleaseCountryPriority="$(get_state "lidarrReleaseCountryPriority")"
     # Normalize Lidarr release title
     local searchReleaseTitleClean
     searchReleaseTitleClean="$(normalize_string "${searchReleaseTitle}")"
