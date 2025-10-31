@@ -620,6 +620,8 @@ SearchProcess() {
     set_state "bestMatchNumTracks" 0
     set_state "bestMatchContainsCommentary" "false"
     set_state "bestMatchLidarrReleaseInfo" ""
+    set_state "bestMatchFormatPriority" ""
+    set_state "bestMatchCountryPriority" ""
     set_state "perfectMatchFound" "false"
 
     # Load title replacement file
@@ -649,19 +651,38 @@ SearchProcess() {
             lidarrReleaseTitleWithDisambiguation="$(GetReleaseTitleDisambiguation "${release_json}")"
             lidarrReleaseTrackCount="$(jq -r ".trackCount" <<<"${release_json}")"
             lidarrReleaseForeignId="$(jq -r ".foreignReleaseId" <<<"${release_json}")"
+            lidarrReleaseFormat="$(jq -r ".format" <<<"${release_json}")"
+            lidarrReleaseCountries="$(jq -r '.country // [] | join(",")' <<<"${release_json}")"
             set_state "lidarrReleaseInfo" "${release_json}"
             set_state "lidarrReleaseTitle" "${lidarrReleaseTitle}"
             set_state "lidarrReleaseTitleWithDisambiguation" "${lidarrReleaseTitleWithDisambiguation}"
             set_state "lidarrReleaseTrackCount" "${lidarrReleaseTrackCount}"
             set_state "lidarrReleaseForeignId" "${lidarrReleaseForeignId}"
+            set_state "lidarrReleaseFormatPriority" "$(FormatPriority "${lidarrReleaseFormat}")"
+            set_state "lidarrReleaseCountryPriority" "$(CountriesPriority "${lidarrReleaseCountries}")"
 
             # If a perfect match was already found, only process releases with more tracks
             perfectMatchFound="$(get_state "perfectMatchFound")"
             if [ "${perfectMatchFound}" == "true" ]; then
+                # If current release has fewer tracks than best match, skip it
                 local bestMatchNumTracks
                 bestMatchNumTracks="$(get_state "bestMatchNumTracks")"
-                if ((lidarrReleaseTrackCount <= bestMatchNumTracks)); then
+                if ((lidarrReleaseTrackCount < bestMatchNumTracks)); then
                     log "DEBUG :: Already found a perfect match with ${bestMatchNumTracks} tracks, skipping release \"${lidarrReleaseTitleWithDisambiguation}\" with ${lidarrReleaseTrackCount} tracks"
+                    continue
+                fi
+                # If current release has a less desired format than best match, skip it
+                local bestMatchFormatPriority
+                bestMatchFormatPriority="$(get_state "bestMatchFormatPriority")"
+                if [[ "${lidarrReleaseFormatPriority}" -gt "${bestMatchFormatPriority}" ]]; then
+                    log "DEBUG :: Already found a perfect match with format priority ${bestMatchFormatPriority}, skipping release \"${lidarrReleaseTitleWithDisambiguation}\" with format ${lidarrReleaseFormat}"
+                    continue
+                fi
+                # If current release is from less desired countries than best match, skip it
+                local bestMatchCountryPriority
+                bestMatchCountryPriority="$(get_state "bestMatchCountryPriority")"
+                if [[ "${lidarrReleaseCountryPriority}" -gt "${bestMatchCountryPriority}" ]]; then
+                    log "DEBUG :: Already found a perfect match with country priority ${bestMatchCountryPriority}, skipping release \"${lidarrReleaseTitleWithDisambiguation}\" from countries ${lidarrReleaseCountries}"
                     continue
                 fi
             fi
@@ -874,6 +895,8 @@ CalculateBestMatch() {
     local bestMatchTrackDiff="$(get_state "bestMatchTrackDiff")"
     local bestMatchNumTracks="$(get_state "bestMatchNumTracks")"
     local bestMatchContainsCommentary="$(get_state "bestMatchContainsCommentary")"
+    local bestMatchFormatPriority="$(get_state "bestMatchFormatPriority")"
+    local bestMatchCountryPriority="$(get_state "bestMatchCountryPriority")"
 
     local lidarrReleaseInfo="$(get_state "lidarrReleaseInfo")"
     local lidarrReleaseTrackCount="$(get_state "lidarrReleaseTrackCount")"
@@ -896,6 +919,11 @@ CalculateBestMatch() {
         # --- Normalize title ---
         deezerAlbumTitleClean="$(normalize_string "$deezerAlbumTitle")"
         deezerAlbumTitleClean="${deezerAlbumTitleClean:0:130}"
+
+        # TODO evermore (deluxe edition) vs evermore (deluxe, explicit)
+        # TODO folklore (deluxe edition) vs folklore (deluxe, explicit)
+        # TODO Red
+        # TODO Speak Now
 
         # Apply custom replacements if defined
         # In some cases, albums have strange translations that need to happen for comparison to work.
@@ -940,6 +968,8 @@ CalculateBestMatch() {
             bestMatchDistance="${diff}"
             bestMatchTrackDiff="${trackDiff}"
             bestMatchNumTracks="${deezerAlbumTrackCount}"
+            bestMatchFormatPriority="${lidarrReleaseFormatPriority}"
+            bestMatchCountryPriority="${lidarrReleaseCountryPriority}"
             set_state "bestMatchID" "${bestMatchID}"
             set_state "bestMatchTitle" "${bestMatchTitle}"
             set_state "bestMatchYear" "${bestMatchYear}"
@@ -948,18 +978,31 @@ CalculateBestMatch() {
             set_state "bestMatchNumTracks" "${bestMatchNumTracks}"
             set_state "bestMatchContainsCommentary" "${lidarrReleaseContainsCommentary}"
             set_state "bestMatchLidarrReleaseInfo" "${lidarrReleaseInfo}"
+            set_state "bestMatchFormatPriority" "${lidarrReleaseFormatPriority}"
+            set_state "bestMatchCountryPriority" "${lidarrReleaseCountryPriority}"
             set_state "perfectMatchFound" "true"
             log "INFO :: Perfect match found :: ${bestMatchTitle} (${bestMatchYear}) with ${bestMatchNumTracks} tracks"
         fi
 
-        # Track best match so far
-        if ((diff < bestMatchDistance)) || ((diff == bestMatchDistance && trackDiff < bestMatchTrackDiff)) || ((diff == bestMatchDistance && trackDiff == bestMatchTrackDiff && deezerAlbumTrackCount > bestMatchNumTracks)); then
+        # Keep track of the best match so far, using this criteria:
+        # 1. Lowest Levenshtein distance
+        # 2. Lowest track count difference
+        # 3. Highest number of tracks
+        # 4. Preferred format priority
+        # 5. Preferred country priority
+        if ((diff < bestMatchDistance)) ||
+            { ((diff == bestMatchDistance)) && ((trackDiff < bestMatchTrackDiff)); } ||
+            { ((diff == bestMatchDistance)) && ((trackDiff == bestMatchTrackDiff)) && ((deezerAlbumTrackCount > bestMatchNumTracks)); } ||
+            { ((diff == bestMatchDistance)) && ((trackDiff == bestMatchTrackDiff)) && ((deezerAlbumTrackCount == bestMatchNumTracks)) && ((lidarrReleaseFormatPriority < bestMatchFormatPriority)); } ||
+            { ((diff == bestMatchDistance)) && ((trackDiff == bestMatchTrackDiff)) && ((deezerAlbumTrackCount == bestMatchNumTracks)) && ((lidarrReleaseFormatPriority == bestMatchFormatPriority)) && ((lidarrReleaseCountryPriority < bestMatchCountryPriority)); }; then
             bestMatchID="${deezerAlbumID}"
             bestMatchTitle="${deezerAlbumTitle}"
             bestMatchYear="${downloadedReleaseYear}"
             bestMatchDistance="${diff}"
             bestMatchTrackDiff="${trackDiff}"
             bestMatchNumTracks="${deezerAlbumTrackCount}"
+            bestMatchFormatPriority="${lidarrReleaseFormatPriority}"
+            bestMatchCountryPriority="${lidarrReleaseCountryPriority}"
             set_state "bestMatchID" "${bestMatchID}"
             set_state "bestMatchTitle" "${bestMatchTitle}"
             set_state "bestMatchYear" "${bestMatchYear}"
@@ -968,6 +1011,9 @@ CalculateBestMatch() {
             set_state "bestMatchNumTracks" "${bestMatchNumTracks}"
             set_state "bestMatchContainsCommentary" "${lidarrReleaseContainsCommentary}"
             set_state "bestMatchLidarrReleaseInfo" "${lidarrReleaseInfo}"
+            set_state "bestMatchFormatPriority" "${lidarrReleaseFormatPriority}"
+            set_state "bestMatchCountryPriority" "${lidarrReleaseCountryPriority}"
+            log "INFO :: New best match :: ${bestMatchTitle} (${bestMatchYear}) :: Distance=${bestMatchDistance} TrackDiff=${bestMatchTrackDiff} NumTracks=${bestMatchNumTracks}"
         fi
     done
 
@@ -1276,6 +1322,56 @@ audioFlacVerification() {
     flac --totally-silent -t "$1" >/dev/null 2>&1
 }
 
+FormatPriority() {
+    log "TRACE :: Entering FormatPriority..."
+    # $1 -> Format string to evaluate
+    local formatString="${1}"
+    local priority=999 # Default low priority
+
+    # Determine priority based on AUDIO_PREFERED_FORMATS
+    # If AUDIO_PREFERED_FORMATS is blank, all formats are equal priority
+    if [[ -z "${AUDIO_PREFERED_FORMATS}" ]]; then
+        priority=0
+    else
+        IFS=',' read -r -a formatArray <<<"${AUDIO_PREFERED_FORMATS}"
+        for i in "${!formatArray[@]}"; do
+            if [[ "${formatString,,}" == *"${formatArray[$i],,}"* ]]; then
+                priority=$i
+                break
+            fi
+        done
+    fi
+
+    log "TRACE :: Exiting FormatPriority..."
+    # Return calculated priority
+    echo "${priority}"
+}
+
+CountriesPriority() {
+    log "TRACE :: Entering CountriesPriority..."
+    # $1 -> Countries string to evaluate (comma-separated)
+    local countriesString="${1}"
+    local priority=999 # Default low priority
+
+    # Determine priority based on AUDIO_PREFERED_COUNTRIES
+    # If AUDIO_PREFERED_COUNTRIES is blank, all countries are equal priority
+    if [[ -z "${AUDIO_PREFERED_COUNTRIES}" ]]; then
+        priority=0
+    else
+        IFS=',' read -r -a countryArray <<<"${AUDIO_PREFERED_COUNTRIES}"
+        for i in "${!countryArray[@]}"; do
+            if [[ "${countriesString,,}" == *"${countryArray[$i],,}"* ]]; then
+                priority=$i
+                break
+            fi
+        done
+    fi
+
+    log "TRACE :: Exiting CountriesPriority..."
+    # Return calculated priority
+    echo "${priority}"
+}
+
 ###### Script Execution #####
 
 ### Preamble ###
@@ -1303,6 +1399,8 @@ log "DEBUG :: AUDIO_INTERVAL=${AUDIO_INTERVAL}"
 log "DEBUG :: AUDIO_LYRIC_TYPE=${AUDIO_LYRIC_TYPE}"
 log "DEBUG :: AUDIO_MATCH_DISTANCE_THRESHOLD=${AUDIO_MATCH_DISTANCE_THRESHOLD}"
 log "DEBUG :: AUDIO_PREFER_SPECIAL_EDITIONS=${AUDIO_PREFER_SPECIAL_EDITIONS}"
+log "DEBUG :: AUDIO_PREFERED_COUNTRIES=${AUDIO_PREFERED_COUNTRIES}"
+log "DEBUG :: AUDIO_PREFERED_FORMATS=${AUDIO_PREFERED_FORMATS}"
 log "DEBUG :: AUDIO_REQUIRE_QUALITY=${AUDIO_REQUIRE_QUALITY}"
 log "DEBUG :: AUDIO_RETRY_DOWNLOADED_DAYS=${AUDIO_RETRY_DOWNLOADED_DAYS}"
 log "DEBUG :: AUDIO_RETRY_NOTFOUND_DAYS=${AUDIO_RETRY_NOTFOUND_DAYS}"
