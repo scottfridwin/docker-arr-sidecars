@@ -312,7 +312,7 @@ updateArrConfig() {
     log "TRACE :: Exiting updateConfig..."
 }
 
-# Normalizes a string by replacing smart quotes and normalizing spaces
+# Normalizes a string for comparison
 normalize_string() {
     # $1 -> the string to normalize
 
@@ -322,6 +322,7 @@ normalize_string() {
     # Collapses multiple spaces → one
     # Trims leading/trailing spaces
     # Removes parentheses
+    # Removes ? characters
     echo "$1" |
         sed -e "s/’/'/g" \
             -e "s/‘/'/g" \
@@ -331,7 +332,8 @@ normalize_string() {
             -e 's/\xA0/ /g' \
             -e 's/[[:space:]]\+/ /g' \
             -e 's/^ *//; s/ *$//' \
-            -e 's/[()]//g'
+            -e 's/[()]//g' \
+            -e 's/[?]//g'
 }
 
 # Create a named associative array: auto-named using shell PID
