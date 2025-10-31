@@ -491,11 +491,12 @@ ProcessLidarrWantedList() {
 SearchProcess() {
     log "TRACE :: Entering SearchProcess..."
     # $1 -> Deezer album ID
-    local wantedAlbumId="$1"
-    if [ -z "$wantedAlbumId" ]; then
+    local lidarrAlbumId="$1"
+    if [ -z "$lidarrAlbumId" ]; then
         log "WARNING :: No album ID provided to SearchProcess"
         return
     fi
+    set_state "lidarrAlbumId" "${lidarrAlbumId}"
 
     if [ ! -d "${AUDIO_DATA_PATH}/notfound" ]; then
         mkdir -p "${AUDIO_DATA_PATH}"/notfound
@@ -503,10 +504,10 @@ SearchProcess() {
 
     # Fetch album data from Lidarr
     local lidarrAlbumData
-    ArrApiRequest "GET" "album/${wantedAlbumId}"
+    ArrApiRequest "GET" "album/${lidarrAlbumId}"
     lidarrAlbumData="$(get_state "arrApiResponse")"
     if [ -z "$lidarrAlbumData" ]; then
-        log "WARNING :: Lidarr returned no data for album ID ${wantedAlbumId}"
+        log "WARNING :: Lidarr returned no data for album ID ${lidarrAlbumId}"
         return
     fi
     set_state "lidarrAlbumData" "${lidarrAlbumData}" # Cache response in state object
@@ -525,15 +526,16 @@ SearchProcess() {
     lidarrAlbumTitle=$(jq -r ".title" <<<"$lidarrAlbumData")
     lidarrAlbumType=$(jq -r ".albumType" <<<"$lidarrAlbumData")
     lidarrAlbumForeignAlbumId=$(jq -r ".foreignAlbumId" <<<"$lidarrAlbumData")
+    set_state "lidarrAlbumForeignAlbumId" "${lidarrAlbumForeignAlbumId}"
 
     # Check if album was previously marked "not found"
-    if [ -f "${AUDIO_DATA_PATH}/notfound/${wantedAlbumId}--${lidarrArtistForeignArtistId}--${lidarrAlbumForeignAlbumId}" ]; then
+    if [ -f "${AUDIO_DATA_PATH}/notfound/${lidarrAlbumId}--${lidarrArtistForeignArtistId}--${lidarrAlbumForeignAlbumId}" ]; then
         log "INFO :: Album \"${lidarrAlbumTitle}\" by artist \"${lidarrArtistName}\" was previously marked as not found, skipping..."
         return
     fi
 
     # Check if album was previously marked "downloaded"
-    if [ -f "${AUDIO_DATA_PATH}/downloaded/${wantedAlbumId}--${lidarrArtistForeignArtistId}--${lidarrAlbumForeignAlbumId}" ]; then
+    if [ -f "${AUDIO_DATA_PATH}/downloaded/${lidarrAlbumId}--${lidarrArtistForeignArtistId}--${lidarrAlbumForeignAlbumId}" ]; then
         log "INFO :: Album \"${lidarrAlbumTitle}\" by artist \"${lidarrArtistName}\" was previously marked as downloaded, skipping..."
         return
     fi
@@ -745,8 +747,8 @@ SearchProcess() {
             log "INFO :: Skip marking album as not found because it's a new release..."
         else
             log "INFO :: Marking album as not found"
-            if [ ! -f "${AUDIO_DATA_PATH}/notfound/${wantedAlbumId}--${lidarrArtistForeignArtistId}--${lidarrAlbumForeignAlbumId}" ]; then
-                touch "${AUDIO_DATA_PATH}/notfound/${wantedAlbumId}--${lidarrArtistForeignArtistId}--${lidarrAlbumForeignAlbumId}"
+            if [ ! -f "${AUDIO_DATA_PATH}/notfound/${lidarrAlbumId}--${lidarrArtistForeignArtistId}--${lidarrAlbumForeignAlbumId}" ]; then
+                touch "${AUDIO_DATA_PATH}/notfound/${lidarrAlbumId}--${lidarrArtistForeignArtistId}--${lidarrAlbumForeignAlbumId}"
             fi
         fi
     fi
@@ -1053,12 +1055,14 @@ DownloadProcess() {
     downloadedReleaseYear="${downloadedReleaseDate:0:4}"
 
     # Check if previously downloaded or failed download
-    if [ -f "${AUDIO_DATA_PATH}/downloaded/${deezerAlbumId}" ]; then
-        log "WARNING :: Album \"${deezerAlbumTitle}\" previously downloaded (${deezerAlbumId})...Skipping..."
+    local lidarrArtistForeignArtistId="$(get_state "lidarrArtistForeignArtistId")"
+    local lidarrAlbumForeignAlbumId="$(get_state "lidarrAlbumForeignAlbumId")"
+    if [ -f "${AUDIO_DATA_PATH}/downloaded/${lidarrAlbumId}--${lidarrArtistForeignArtistId}--${lidarrAlbumForeignAlbumId}" ]; then
+        log "WARNING :: Album \"${deezerAlbumTitle}\" previously downloaded (deezer: ${deezerAlbumId}, lidarr:${lidarrAlbumId})...Skipping..."
         return
     fi
     if [ -f "${AUDIO_DATA_PATH}/failed/${deezerAlbumId}" ]; then
-        log "WARNING :: Album \"${deezerAlbumTitle}\" previously failed to download ($deezerAlbumId)...Skipping..."
+        log "WARNING :: Album \"${deezerAlbumTitle}\" previously failed to download (deezer: ${deezerAlbumId}, lidarr:${lidarrAlbumId})...Skipping..."
         return
     fi
 
@@ -1188,7 +1192,7 @@ DownloadProcess() {
     # Log Completed Download
     if [ "$returnCode" -eq 0 ]; then
         log "INFO :: Album \"${deezerAlbumTitle}\" successfully downloaded"
-        touch "${AUDIO_DATA_PATH}/downloaded/${deezerAlbumId}"
+        touch "${AUDIO_DATA_PATH}/downloaded/${lidarrAlbumId}--${lidarrArtistForeignArtistId}--${lidarrAlbumForeignAlbumId}"
 
         local downloadedAlbumFolder="${deezerArtistNameClean}-${deezerAlbumTitleClean:0:100} (${downloadedReleaseYear})"
         mkdir -p "${AUDIO_SHARED_LIDARR_PATH}/${downloadedAlbumFolder}"
