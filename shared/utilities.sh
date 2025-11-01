@@ -206,7 +206,6 @@ ArrTaskStatusCheck() {
     done
     log "TRACE :: Exiting ArrTaskStatusCheck..."
 }
-
 # Ensures connectivity to *arr and determines API version
 verifyArrApiAccess() {
     log "TRACE :: Entering verifyArrApiAccess..."
@@ -227,27 +226,43 @@ verifyArrApiAccess() {
     # Normalize by removing spaces and splitting on commas
     IFS=',' read -r -a supported_versions <<<"${ARR_SUPPORTED_API_VERSIONS// /}"
 
-    # Check if arrApiVersion is in the supported list
     for ver in "${supported_versions[@]}"; do
-        log "DEBUG :: Attemping connection to \"${arrUrl}/api/${ver}/system/status\"..."
-        apiTest="$(curl -s "${arrUrl}/api/${ver}/system/status?apikey=${arrApiKey}" | jq -r .instanceName)"
-        if [ -n "${apiTest}" ]; then
-            arrApiVersion=${ver}
-            break
-        fi
+        local testUrl="${arrUrl}/api/${ver}/system/status?apikey=${arrApiKey}"
+        log "DEBUG :: Attempting connection to \"${testUrl}\"..."
+
+        # Recovery loop for connectivity failures (HTTP 000 or empty response)
+        local attempt=0
+        while true; do
+            ((attempt++))
+            apiTest="$(curl -s -w "\n%{http_code}" "${testUrl}")"
+            httpCode=$(tail -n1 <<<"${apiTest}")
+            body=$(sed '$d' <<<"${apiTest}")
+
+            if [[ "${httpCode}" == "200" ]]; then
+                arrApiVersion=${ver}
+                log "DEBUG :: ${ARR_NAME} API v${ver} available (instance: $(jq -r .instanceName <<<"$body"))"
+                break 2 # Found valid version; break out of both loops
+            elif [[ "${httpCode}" == "000" ]]; then
+                log "WARNING :: ${ARR_NAME} unreachable (attempt ${attempt}) — retrying in 5s..."
+                sleep 5
+                continue
+            else
+                log "DEBUG :: ${ARR_NAME} returned HTTP ${httpCode} on attempt ${attempt} for v${ver}"
+                break # Try next version instead
+            fi
+        done
     done
 
     if [[ -z "${arrApiVersion}" ]]; then
-        log "ERROR :: Unable to connect to ${ARR_NAME} with any supported API versions. Supported versions: ${ARR_SUPPORTED_API_VERSIONS}"
+        log "ERROR :: Unable to connect to ${ARR_NAME} with any supported API versions. Supported: ${ARR_SUPPORTED_API_VERSIONS}"
         setUnhealthy
         exit 1
     fi
-    set_state "arrApiVersion" "${arrApiVersion}"
 
-    log "DEBUG :: ${ARR_NAME} API access verified (URL: ${arrUrl}, API Version: ${arrApiVersion})"
+    set_state "arrApiVersion" "${arrApiVersion}"
+    log "DEBUG :: ${ARR_NAME} API access verified (URL: ${arrUrl}, Version: ${arrApiVersion})"
     log "TRACE :: Exiting verifyArrApiAccess..."
 }
-
 updateArrConfig() {
     log "TRACE :: Entering updateConfig..."
     local jsonFile="${1}"
