@@ -231,6 +231,7 @@ verifyArrApiAccess() {
         log "DEBUG :: Attempting connection to \"${testUrl}\"..."
 
         # Recovery loop for connectivity failures (HTTP 000 or empty response)
+        log "DEBUG :: Before loop"
         while true; do
             log "DEBUG :: Before curl"
             apiTest="$(curl -s --fail --connect-timeout 5 --max-time 10 \
