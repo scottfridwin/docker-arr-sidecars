@@ -242,7 +242,7 @@ verifyArrApiAccess() {
 
             if [[ "${httpCode}" == "200" ]]; then
                 arrApiVersion=${ver}
-                log "DEBUG :: ${ARR_NAME} API v${ver} available (instance: $(jq -r .instanceName <<<"$body"))"
+                log "DEBUG :: ${ARR_NAME} API ${ver} available (instance: $(jq -r .instanceName <<<"$body"))"
                 break 2 # Found valid version; break out of both loops
             elif [[ "${httpCode}" == "000" ]]; then
                 log "WARNING :: ${ARR_NAME} unreachable — retrying in 5s..."
