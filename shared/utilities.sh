@@ -232,16 +232,11 @@ verifyArrApiAccess() {
         log "DEBUG :: Attempting connection to \"${testUrl}\"..."
 
         # Recovery loop for connectivity failures (HTTP 000 or empty response)
-        log "DEBUG :: Before loop"
         while true; do
-            log "DEBUG :: Before curl"
             set +e
-            apiTest="$(timeout 15 curl -s --fail --connect-timeout 5 --max-time 10 -w "\n%{http_code}" "${testUrl}" 2>&1)"
+            apiTest="$(timeout 15 curl -s --connect-timeout 5 --max-time 10 -w "\n%{http_code}" "${testUrl}" 2>&1)"
             curlExit=$?
             set -e
-            # apiTest="$(curl -s --fail --connect-timeout 5 --max-time 10 \
-            #     --retry 0 -w "\n%{http_code}" "${testUrl}")"
-            log "DEBUG :: After curl ${curlExit}"
             httpCode=$(tail -n1 <<<"${apiTest}")
             body=$(sed '$d' <<<"${apiTest}")
 
