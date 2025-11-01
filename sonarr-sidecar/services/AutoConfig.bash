@@ -12,6 +12,7 @@ source /app/utilities.sh
 
 log "INFO :: Starting ${scriptName}"
 
+log "DEBUG :: AUTOCONFIG_DELAY=${AUTOCONFIG_DELAY}"
 log "DEBUG :: AUTOCONFIG_MEDIAMANAGEMENT=${AUTOCONFIG_MEDIAMANAGEMENT}"
 log "DEBUG :: AUTOCONFIG_MEDIAMANAGEMENT_JSON=${AUTOCONFIG_MEDIAMANAGEMENT_JSON}"
 log "DEBUG :: AUTOCONFIG_HOST=${AUTOCONFIG_HOST}"
@@ -30,6 +31,12 @@ log "DEBUG :: AUTOCONFIG_NAMING_JSON=${AUTOCONFIG_NAMING_JSON}"
 # Nothing to validate
 
 ### Main ###
+
+# Initial delay
+if [ "${AUTOCONFIG_DELAY}" -gt 0 ]; then
+    log "INFO :: Delaying for ${AUTOCONFIG_DELAY} seconds to allow ${ARR_NAME} to fully initialize database"
+    sleep "${AUTOCONFIG_DELAY}"
+fi
 
 # Initalize state object
 init_state
