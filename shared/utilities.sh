@@ -234,7 +234,10 @@ verifyArrApiAccess() {
         local attempt=0
         while true; do
             ((attempt++))
-            apiTest="$(curl -s --connect-timeout 5 --max-time 10 -w "\n%{http_code}" "${testUrl}")"
+            log "DEBUG :: Before curl"
+            apiTest="$(curl -s --fail --connect-timeout 5 --max-time 10 \
+                --resolve-timeout 5 --retry 0 -w "\n%{http_code}" "${testUrl}")"
+            log "DEBUG :: After curl"
             httpCode=$(tail -n1 <<<"${apiTest}")
             body=$(sed '$d' <<<"${apiTest}")
 
