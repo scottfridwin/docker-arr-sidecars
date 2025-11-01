@@ -235,9 +235,16 @@ verifyArrApiAccess() {
         while true; do
             ((attempt++))
             log "DEBUG :: Before curl"
-            apiTest="$(curl -s --fail --connect-timeout 5 --max-time 10 \
-                --resolve-timeout 5 --retry 0 -w "\n%{http_code}" "${testUrl}")"
-            log "DEBUG :: After curl"
+            set +e
+            apiTest="$(timeout 15 curl -s --connect-timeout 5 --max-time 10 -w "\n%{http_code}" "${testUrl}" 2>&1)"
+            curlExit=$?
+            set -e
+            log "DEBUG :: After curl (exit code: ${curlExit})"
+
+            if [[ "${curlExit}" -ne 0 ]]; then
+                log "ERROR :: curl failed with exit code ${curlExit}: ${apiTest}"
+                continue
+            fi
             httpCode=$(tail -n1 <<<"${apiTest}")
             body=$(sed '$d' <<<"${apiTest}")
 
