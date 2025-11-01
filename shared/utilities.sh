@@ -231,21 +231,9 @@ verifyArrApiAccess() {
         log "DEBUG :: Attempting connection to \"${testUrl}\"..."
 
         # Recovery loop for connectivity failures (HTTP 000 or empty response)
-        local attempt=0
         while true; do
-            log "DEBUG :: Before increment"
-            ((attempt++))
-            log "DEBUG :: Before curl"
-            set +e
-            apiTest="$(timeout 15 curl -s --connect-timeout 5 --max-time 10 -w "\n%{http_code}" "${testUrl}" 2>&1)"
-            curlExit=$?
-            set -e
-            log "DEBUG :: After curl (exit code: ${curlExit})"
-
-            if [[ "${curlExit}" -ne 0 ]]; then
-                log "ERROR :: curl failed with exit code ${curlExit}: ${apiTest}"
-                continue
-            fi
+            apiTest="$(curl -s --fail --connect-timeout 5 --max-time 10 \
+                --resolve-timeout 5 --retry 0 -w "\n%{http_code}" "${testUrl}")"
             httpCode=$(tail -n1 <<<"${apiTest}")
             body=$(sed '$d' <<<"${apiTest}")
 
@@ -254,11 +242,11 @@ verifyArrApiAccess() {
                 log "DEBUG :: ${ARR_NAME} API v${ver} available (instance: $(jq -r .instanceName <<<"$body"))"
                 break 2 # Found valid version; break out of both loops
             elif [[ "${httpCode}" == "000" ]]; then
-                log "WARNING :: ${ARR_NAME} unreachable (attempt ${attempt}) — retrying in 5s..."
+                log "WARNING :: ${ARR_NAME} unreachable — retrying in 5s..."
                 sleep 5
                 continue
             else
-                log "DEBUG :: ${ARR_NAME} returned HTTP ${httpCode} on attempt ${attempt} for v${ver}"
+                log "DEBUG :: ${ARR_NAME} returned HTTP ${httpCode} for v${ver}"
                 break # Try next version instead
             fi
         done
