@@ -233,6 +233,7 @@ verifyArrApiAccess() {
         # Recovery loop for connectivity failures (HTTP 000 or empty response)
         local attempt=0
         while true; do
+            log "DEBUG :: Before increment"
             ((attempt++))
             log "DEBUG :: Before curl"
             set +e
