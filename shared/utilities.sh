@@ -206,6 +206,7 @@ ArrTaskStatusCheck() {
     done
     log "TRACE :: Exiting ArrTaskStatusCheck..."
 }
+
 # Ensures connectivity to *arr and determines API version
 verifyArrApiAccess() {
     log "TRACE :: Entering verifyArrApiAccess..."
@@ -234,9 +235,13 @@ verifyArrApiAccess() {
         log "DEBUG :: Before loop"
         while true; do
             log "DEBUG :: Before curl"
-            apiTest="$(curl -s --fail --connect-timeout 5 --max-time 10 \
-                --retry 0 -w "\n%{http_code}" "${testUrl}")"
-            log "DEBUG :: After curl"
+            set +e
+            apiTest="$(timeout 15 curl -s --fail --connect-timeout 5 --max-time 10 -w "\n%{http_code}" "${testUrl}" 2>&1)"
+            curlExit=$?
+            set -e
+            # apiTest="$(curl -s --fail --connect-timeout 5 --max-time 10 \
+            #     --retry 0 -w "\n%{http_code}" "${testUrl}")"
+            log "DEBUG :: After curl ${curlExit}"
             httpCode=$(tail -n1 <<<"${apiTest}")
             body=$(sed '$d' <<<"${apiTest}")
 
@@ -265,6 +270,8 @@ verifyArrApiAccess() {
     log "DEBUG :: ${ARR_NAME} API access verified (URL: ${arrUrl}, Version: ${arrApiVersion})"
     log "TRACE :: Exiting verifyArrApiAccess..."
 }
+
+# Updates *arr configuration via API from a JSON file
 updateArrConfig() {
     log "TRACE :: Entering updateConfig..."
     local jsonFile="${1}"
