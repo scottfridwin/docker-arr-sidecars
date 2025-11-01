@@ -266,69 +266,152 @@ verifyArrApiAccess() {
     log "TRACE :: Exiting verifyArrApiAccess..."
 }
 
+# Compares API response to payload and logs mismatches
+responseMatchesPayload() {
+    local payload="$1"
+    local response="$2"
+
+    # Capture mismatches from jq
+    local mismatches
+    mismatches=$(jq -n --argjson payload "$payload" --argjson response "$response" '
+      def mismatches($p; $r):
+        if ($r|type) == "object" then
+          reduce ($p | to_entries[]) as $item ([]; 
+            if ($r[$item.key] == null) then . + ["Missing field: " + $item.key]
+            elif ($r[$item.key] != $item.value) then . + ["Value mismatch: " + $item.key + " (expected: " + ($item.value|tostring) + ", got: " + ($r[$item.key]|tostring) + ")"]
+            else . end
+          )
+        elif ($r|type) == "array" then
+          [ $r[] | select(type == "object") | mismatches($p; .) ] | add // []
+        else
+          ["Response is not an object or array"]
+        end;
+
+      mismatches($payload; $response)
+    ' 2>/dev/null)
+
+    # Log each mismatch using your log function
+    if [[ -n "$mismatches" ]]; then
+        while IFS= read -r line; do
+            log "DEBUG :: $line"
+        done <<<"$mismatches"
+        return 1
+    fi
+
+    return 0
+}
+
+# Attempts an API request multiple times until the response matches the payload
+arrApiAttempt() {
+    local method="$1"
+    local url="$2"
+    local payload="$3"
+    local max_attempts=5
+    local attempt=1
+    local resp
+
+    while true; do
+        ArrApiRequest "$method" "$url" "$payload"
+        resp="$(get_state "arrApiResponse")"
+
+        # Verify response is valid JSON
+        if [[ -z "$resp" || "$resp" == "null" ]] || ! jq -e 'type=="object" or type=="array"' <<<"$resp" >/dev/null 2>&1; then
+            if [[ "$method" == "PUT" ]]; then
+                log "DEBUG :: Empty/invalid response to PUT; fetching $url to verify..."
+                ArrApiRequest "GET" "$url"
+                resp="$(get_state "arrApiResponse")"
+            else
+                log "DEBUG :: Empty/invalid response to $method at $url; skipping verification for this attempt."
+                break
+            fi
+        fi
+
+        # Check if response matches payload
+        if responseMatchesPayload "$payload" "$resp"; then
+            break
+        fi
+
+        if ((attempt >= max_attempts)); then
+            log "ERROR :: ${ARR_NAME} response does not reflect requested changes for $url after $attempt attempts."
+            setUnhealthy
+            exit 1
+        fi
+
+        log "WARNING :: ${ARR_NAME} response mismatch for $url; retrying in 5s ($attempt/$max_attempts)..."
+        sleep 5
+        attempt=$((attempt + 1))
+    done
+}
+
 # Updates *arr configuration via API from a JSON file
 updateArrConfig() {
-    log "TRACE :: Entering updateConfig..."
-    local jsonFile="${1}"
-    local apiPath="${2}"
-    local settingName="${3}"
+    log "TRACE :: Entering updateArrConfig..."
+    local jsonFile="$1"
+    local apiPath="$2"
+    local settingName="$3"
 
-    if [ -z "${jsonFile}" ] || [ ! -f "${jsonFile}" ]; then
-        log "ERROR :: JSON config file not set or not found: ${jsonFile}"
+    # Validate JSON file
+    if [[ -z "$jsonFile" || ! -f "$jsonFile" ]]; then
+        log "ERROR :: JSON config file not set or not found: $jsonFile"
         setUnhealthy
         exit 1
     fi
 
     log "DEBUG :: Configuring ${ARR_NAME} ${settingName} Settings"
 
-    # Load JSON file
+    # Load JSON and validate
     local jsonData
-    jsonData=$(<"${jsonFile}")
+    if ! jsonData=$(jq -c '.' "$jsonFile" 2>/dev/null); then
+        log "ERROR :: Invalid JSON in $jsonFile"
+        setUnhealthy
+        exit 1
+    fi
 
-    # Determine whether it's an array or an object
     local jsonType
-    jsonType=$(jq -r 'if type=="array" then "array" else "object" end' <<<"${jsonData}")
+    jsonType=$(jq -r 'if type=="array" then "array" else "object" end' <<<"$jsonData")
 
-    if [[ "${jsonType}" == "array" ]]; then
-        log "DEBUG :: Detected JSON array, sending one PUT per element..."
+    if [[ "$jsonType" == "array" ]]; then
+        log "DEBUG :: Detected JSON array, sending one PUT/POST per element..."
         local length
-        length=$(jq 'length' <<<"${jsonData}")
+        length=$(jq 'length' <<<"$jsonData")
 
-        log "TRACE :: Getting existing resources at ${apiPath}"
-        ArrApiRequest "GET" "${apiPath}"
-        local response="$(get_state "arrApiResponse")"
+        log "TRACE :: Fetching existing resources at $apiPath..."
+        ArrApiRequest "GET" "$apiPath"
+        local response
+        response="$(get_state "arrApiResponse")"
 
         for ((i = 0; i < length; i++)); do
-            local id item exists
-            item=$(jq -c ".[$i]" <<<"${jsonData}")
-            id=$(jq -r ".[$i].id" <<<"${jsonData}")
+            local item id exists url payload
+            item=$(jq -c ".[$i]" <<<"$jsonData")
+            id=$(jq -r ".[$i].id" <<<"$jsonData")
 
-            if [[ -z "${id}" || "${id}" == "null" ]]; then
+            if [[ -z "$id" || "$id" == "null" ]]; then
                 log "ERROR :: Element $((i + 1)) has no 'id' property."
                 setUnhealthy
                 exit 1
             fi
 
-            exists=$(jq --arg id "$id" 'map(select(.id == ($id|tonumber))) | length' <<<"${response}")
+            exists=$(jq --arg id "$id" 'map(select(.id == ($id|tonumber))) | length' <<<"$response")
             if ((exists > 0)); then
-                local url="${apiPath}/${id}"
-                payload="${item}"
-                log "TRACE :: Updating existing element (id=${id}) at ${url}"
-                log "TRACE :: Payload: ${payload}"
-                ArrApiRequest "PUT" "${url}" "${payload}"
+                url="${apiPath}/${id}"
+                payload="$item"
+                log "TRACE :: Updating existing element (id=$id) at $url"
+                log "TRACE :: Payload: $payload"
+                arrApiAttempt "PUT" "$url" "$payload"
             else
-                payload=$(jq 'del(.id)' <<<"${item}")
-                log "TRACE :: Resource id=${id} not found; creating new entry via POST"
-                log "TRACE :: Payload: ${payload}"
-                ArrApiRequest "POST" "${apiPath}" "${payload}"
+                payload=$(jq 'del(.id)' <<<"$item")
+                log "TRACE :: Resource id=$id not found; creating new entry via POST"
+                log "TRACE :: Payload: $payload"
+                arrApiAttempt "POST" "$apiPath" "$payload"
             fi
         done
     else
         log "DEBUG :: Detected JSON object, sending single PUT..."
-        ArrApiRequest "PUT" "${apiPath}" "${jsonData}"
+        local payload="$jsonData"
+        arrApiAttempt "PUT" "$apiPath" "$payload"
     fi
 
-    log "TRACE :: Exiting updateConfig..."
+    log "TRACE :: Exiting updateArrConfig..."
 }
 
 # Normalizes a string for comparison
