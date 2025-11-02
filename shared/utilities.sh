@@ -291,7 +291,7 @@ responseMatchesPayload() {
     ' 2>/dev/null)
 
     # Log each mismatch using your log function
-    if [[ -n "$mismatches" ]]; then
+    if [[ -n "$mismatches" && "$mismatches" != "[]" ]]; then
         while IFS= read -r line; do
             log "DEBUG :: $line"
         done <<<"$mismatches"
