@@ -14,7 +14,6 @@
     "logSizeLimit": 1,
     "consoleLogLevel": "",
     "branch": "master",
-    "apiKey": "${LIDARR_API_KEY}",
     "sslCertPath": "",
     "sslCertPassword": "",
     "urlBase": "",

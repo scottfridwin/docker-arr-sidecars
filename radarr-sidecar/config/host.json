@@ -14,7 +14,6 @@
     "logSizeLimit": 1,
     "consoleLogLevel": "",
     "branch": "master",
-    "apiKey": "${RADARR_API_KEY}",
     "sslCertPath": "",
     "sslCertPassword": "",
     "urlBase": "",
