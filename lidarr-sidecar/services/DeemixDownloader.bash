@@ -328,6 +328,16 @@ GetReleaseTitleDisambiguation() {
     log "TRACE :: Exiting GetReleaseTitleDisambiguation..."
 }
 
+# Remove common edition keywords from the end of an album title
+RemoveEditionsFromAlbumTitle() {
+    title="$1"
+    # Remove trailing parentheses if they contain these keywords
+    title=$(echo "$title" | sed -E 's/\s*\((.*(Deluxe|Remaster|Edition|Anniversary|Expanded).*)\)\s*$//I')
+    # Trim whitespace
+    title=$(echo "$title" | sed -E 's/^[[:space:]]+|[[:space:]]+$//g')
+    echo "$title"
+}
+
 # Notify Lidarr to import the downloaded album
 NotifyLidarrForImport() {
     log "TRACE :: Entering NotifyLidarrForImport..."
@@ -923,6 +933,7 @@ CalculateBestMatch() {
         # --- Normalize title ---
         deezerAlbumTitleClean="$(normalize_string "$deezerAlbumTitle")"
         deezerAlbumTitleClean="${deezerAlbumTitleClean:0:130}"
+        deezerAlbumTitleEditionless="$(RemoveEditionsFromAlbumTitle "${deezerAlbumTitleClean}")"
 
         # TODO evermore (deluxe edition) vs evermore (deluxe, explicit)
         # TODO folklore (deluxe edition) vs folklore (deluxe, explicit)
@@ -936,6 +947,11 @@ CalculateBestMatch() {
         if [[ -n "$replacement" ]]; then
             log "DEBUG :: Title matched replacement rule: \"${deezerAlbumTitleClean}\" → \"${replacement}\""
             deezerAlbumTitleClean="${replacement}"
+        fi
+        replacement="$(get_state "titleReplacement_${deezerAlbumTitleEditionless}")"
+        if [[ -n "$replacement" ]]; then
+            log "DEBUG :: Title matched replacement rule: \"${deezerAlbumTitleEditionless}\" → \"${replacement}\""
+            deezerAlbumTitleEditionless="${replacement}"
         fi
 
         # Get album info from Deezer
@@ -951,74 +967,82 @@ CalculateBestMatch() {
             continue
         fi
 
-        # Compute Levenshtein distance
-        diff=$(LevenshteinDistance "${searchReleaseTitleClean,,}" "${deezerAlbumTitleClean,,}")
-        trackDiff=$((lidarrReleaseTrackCount > deezerAlbumTrackCount ? lidarrReleaseTrackCount - deezerAlbumTrackCount : deezerAlbumTrackCount - lidarrReleaseTrackCount))
-
-        log "DEBUG :: DL Dist=${diff} TrackDiff=${trackDiff} (${deezerAlbumTrackCount} tracks)"
-
-        if ((diff <= ${AUDIO_MATCH_DISTANCE_THRESHOLD})); then
-            log "INFO :: Potential match found :: ${deezerAlbumTitle} (${downloadedReleaseYear}) :: Distance=${diff} TrackDiff=${trackDiff}"
-        else
-            log "DEBUG :: Album does not meet matching threshold, skipping..."
-            continue
+        # Check both with and without edition info
+        local titlesToCheck=()
+        titlesToCheck+=("${deezerAlbumTitleClean}")
+        if [[ "${deezerAlbumTitleClean}" != "${deezerAlbumTitleEditionless}" ]]; then
+            titlesToCheck+=("${deezerAlbumTitleEditionless}")
         fi
+        for titleVariant in "${titlesToCheck[@]}"; do
+            # Compute Levenshtein distance
+            diff=$(LevenshteinDistance "${searchReleaseTitleClean,,}" "${titleVariant,,}")
+            trackDiff=$((lidarrReleaseTrackCount > deezerAlbumTrackCount ? lidarrReleaseTrackCount - deezerAlbumTrackCount : deezerAlbumTrackCount - lidarrReleaseTrackCount))
 
-        # Perfect match
-        if ((diff == 0 && trackDiff == 0)); then
-            bestMatchID="${deezerAlbumID}"
-            bestMatchTitle="${deezerAlbumTitle}"
-            bestMatchYear="${downloadedReleaseYear}"
-            bestMatchDistance="${diff}"
-            bestMatchTrackDiff="${trackDiff}"
-            bestMatchNumTracks="${deezerAlbumTrackCount}"
-            bestMatchFormatPriority="${lidarrReleaseFormatPriority}"
-            bestMatchCountryPriority="${lidarrReleaseCountryPriority}"
-            set_state "bestMatchID" "${bestMatchID}"
-            set_state "bestMatchTitle" "${bestMatchTitle}"
-            set_state "bestMatchYear" "${bestMatchYear}"
-            set_state "bestMatchDistance" "${bestMatchDistance}"
-            set_state "bestMatchTrackDiff" "${bestMatchTrackDiff}"
-            set_state "bestMatchNumTracks" "${bestMatchNumTracks}"
-            set_state "bestMatchContainsCommentary" "${lidarrReleaseContainsCommentary}"
-            set_state "bestMatchLidarrReleaseInfo" "${lidarrReleaseInfo}"
-            set_state "bestMatchFormatPriority" "${lidarrReleaseFormatPriority}"
-            set_state "bestMatchCountryPriority" "${lidarrReleaseCountryPriority}"
-            set_state "perfectMatchFound" "true"
-            log "INFO :: Perfect match found :: ${bestMatchTitle} (${bestMatchYear}) with ${bestMatchNumTracks} tracks"
-        fi
+            log "DEBUG :: DL Dist=${diff} TrackDiff=${trackDiff} (${deezerAlbumTrackCount} tracks)"
 
-        # Keep track of the best match so far, using this criteria:
-        # 1. Lowest Levenshtein distance
-        # 2. Lowest track count difference
-        # 3. Highest number of tracks
-        # 4. Preferred format priority
-        # 5. Preferred country priority
-        if ((diff < bestMatchDistance)) ||
-            { ((diff == bestMatchDistance)) && ((trackDiff < bestMatchTrackDiff)); } ||
-            { ((diff == bestMatchDistance)) && ((trackDiff == bestMatchTrackDiff)) && ((deezerAlbumTrackCount > bestMatchNumTracks)); } ||
-            { ((diff == bestMatchDistance)) && ((trackDiff == bestMatchTrackDiff)) && ((deezerAlbumTrackCount == bestMatchNumTracks)) && ((lidarrReleaseFormatPriority < bestMatchFormatPriority)); } ||
-            { ((diff == bestMatchDistance)) && ((trackDiff == bestMatchTrackDiff)) && ((deezerAlbumTrackCount == bestMatchNumTracks)) && ((lidarrReleaseFormatPriority == bestMatchFormatPriority)) && ((lidarrReleaseCountryPriority < bestMatchCountryPriority)); }; then
-            bestMatchID="${deezerAlbumID}"
-            bestMatchTitle="${deezerAlbumTitle}"
-            bestMatchYear="${downloadedReleaseYear}"
-            bestMatchDistance="${diff}"
-            bestMatchTrackDiff="${trackDiff}"
-            bestMatchNumTracks="${deezerAlbumTrackCount}"
-            bestMatchFormatPriority="${lidarrReleaseFormatPriority}"
-            bestMatchCountryPriority="${lidarrReleaseCountryPriority}"
-            set_state "bestMatchID" "${bestMatchID}"
-            set_state "bestMatchTitle" "${bestMatchTitle}"
-            set_state "bestMatchYear" "${bestMatchYear}"
-            set_state "bestMatchDistance" "${bestMatchDistance}"
-            set_state "bestMatchTrackDiff" "${bestMatchTrackDiff}"
-            set_state "bestMatchNumTracks" "${bestMatchNumTracks}"
-            set_state "bestMatchContainsCommentary" "${lidarrReleaseContainsCommentary}"
-            set_state "bestMatchLidarrReleaseInfo" "${lidarrReleaseInfo}"
-            set_state "bestMatchFormatPriority" "${lidarrReleaseFormatPriority}"
-            set_state "bestMatchCountryPriority" "${lidarrReleaseCountryPriority}"
-            log "INFO :: New best match :: ${bestMatchTitle} (${bestMatchYear}) :: Distance=${bestMatchDistance} TrackDiff=${bestMatchTrackDiff} NumTracks=${bestMatchNumTracks}"
-        fi
+            if ((diff <= ${AUDIO_MATCH_DISTANCE_THRESHOLD})); then
+                log "INFO :: Potential match found :: ${deezerAlbumTitle} (${downloadedReleaseYear}) :: Distance=${diff} TrackDiff=${trackDiff}"
+            else
+                log "DEBUG :: Album does not meet matching threshold, skipping..."
+                continue
+            fi
+
+            # Perfect match
+            if ((diff == 0 && trackDiff == 0)); then
+                bestMatchID="${deezerAlbumID}"
+                bestMatchTitle="${deezerAlbumTitle}"
+                bestMatchYear="${downloadedReleaseYear}"
+                bestMatchDistance="${diff}"
+                bestMatchTrackDiff="${trackDiff}"
+                bestMatchNumTracks="${deezerAlbumTrackCount}"
+                bestMatchFormatPriority="${lidarrReleaseFormatPriority}"
+                bestMatchCountryPriority="${lidarrReleaseCountryPriority}"
+                set_state "bestMatchID" "${bestMatchID}"
+                set_state "bestMatchTitle" "${bestMatchTitle}"
+                set_state "bestMatchYear" "${bestMatchYear}"
+                set_state "bestMatchDistance" "${bestMatchDistance}"
+                set_state "bestMatchTrackDiff" "${bestMatchTrackDiff}"
+                set_state "bestMatchNumTracks" "${bestMatchNumTracks}"
+                set_state "bestMatchContainsCommentary" "${lidarrReleaseContainsCommentary}"
+                set_state "bestMatchLidarrReleaseInfo" "${lidarrReleaseInfo}"
+                set_state "bestMatchFormatPriority" "${lidarrReleaseFormatPriority}"
+                set_state "bestMatchCountryPriority" "${lidarrReleaseCountryPriority}"
+                set_state "perfectMatchFound" "true"
+                log "INFO :: Perfect match found :: ${bestMatchTitle} (${bestMatchYear}) with ${bestMatchNumTracks} tracks"
+            fi
+
+            # Keep track of the best match so far, using this criteria:
+            # 1. Lowest Levenshtein distance
+            # 2. Lowest track count difference
+            # 3. Highest number of tracks
+            # 4. Preferred format priority
+            # 5. Preferred country priority
+            if ((diff < bestMatchDistance)) ||
+                { ((diff == bestMatchDistance)) && ((trackDiff < bestMatchTrackDiff)); } ||
+                { ((diff == bestMatchDistance)) && ((trackDiff == bestMatchTrackDiff)) && ((deezerAlbumTrackCount > bestMatchNumTracks)); } ||
+                { ((diff == bestMatchDistance)) && ((trackDiff == bestMatchTrackDiff)) && ((deezerAlbumTrackCount == bestMatchNumTracks)) && ((lidarrReleaseFormatPriority < bestMatchFormatPriority)); } ||
+                { ((diff == bestMatchDistance)) && ((trackDiff == bestMatchTrackDiff)) && ((deezerAlbumTrackCount == bestMatchNumTracks)) && ((lidarrReleaseFormatPriority == bestMatchFormatPriority)) && ((lidarrReleaseCountryPriority < bestMatchCountryPriority)); }; then
+                bestMatchID="${deezerAlbumID}"
+                bestMatchTitle="${deezerAlbumTitle}"
+                bestMatchYear="${downloadedReleaseYear}"
+                bestMatchDistance="${diff}"
+                bestMatchTrackDiff="${trackDiff}"
+                bestMatchNumTracks="${deezerAlbumTrackCount}"
+                bestMatchFormatPriority="${lidarrReleaseFormatPriority}"
+                bestMatchCountryPriority="${lidarrReleaseCountryPriority}"
+                set_state "bestMatchID" "${bestMatchID}"
+                set_state "bestMatchTitle" "${bestMatchTitle}"
+                set_state "bestMatchYear" "${bestMatchYear}"
+                set_state "bestMatchDistance" "${bestMatchDistance}"
+                set_state "bestMatchTrackDiff" "${bestMatchTrackDiff}"
+                set_state "bestMatchNumTracks" "${bestMatchNumTracks}"
+                set_state "bestMatchContainsCommentary" "${lidarrReleaseContainsCommentary}"
+                set_state "bestMatchLidarrReleaseInfo" "${lidarrReleaseInfo}"
+                set_state "bestMatchFormatPriority" "${lidarrReleaseFormatPriority}"
+                set_state "bestMatchCountryPriority" "${lidarrReleaseCountryPriority}"
+                log "INFO :: New best match :: ${bestMatchTitle} (${bestMatchYear}) :: Distance=${bestMatchDistance} TrackDiff=${bestMatchTrackDiff} NumTracks=${bestMatchNumTracks}"
+            fi
+        done
     done
 
     log "TRACE :: Exiting CalculateBestMatch..."
