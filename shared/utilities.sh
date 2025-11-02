@@ -271,26 +271,27 @@ responseMatchesPayload() {
     local payload="$1"
     local response="$2"
 
-    # Capture mismatches from jq
+    # Run jq directly with stdin to avoid --argjson parsing issues
     local mismatches
-    mismatches=$(jq -n --argjson payload "$payload" --argjson response "$response" '
-      def mismatches($p; $r):
-        if ($r|type) == "object" then
-          reduce ($p | to_entries[]) as $item ([]; 
-            if ($r[$item.key] == null) then . + ["Missing field: " + $item.key]
-            elif ($r[$item.key] != $item.value) then . + ["Value mismatch: " + $item.key + " (expected: " + ($item.value|tostring) + ", got: " + ($r[$item.key]|tostring) + ")"]
-            else . end
-          )
-        elif ($r|type) == "array" then
-          [ $r[] | select(type == "object") | mismatches($p; .) ] | add // []
-        else
-          ["Response is not an object or array"]
-        end;
+    mismatches=$(jq -n \
+        --slurpfile payload <(echo "$payload") \
+        --slurpfile response <(echo "$response") '
+        def mismatches($p; $r):
+          if ($r|type) == "object" then
+            reduce ($p | to_entries[]) as $item ([]; 
+              if ($r[$item.key] == null) then . + ["Missing field: " + $item.key]
+              elif ($r[$item.key] != $item.value) then . + ["Value mismatch: " + $item.key + 
+                " (expected: " + ($item.value|tostring) + ", got: " + ($r[$item.key]|tostring) + ")"]
+              else . end)
+          elif ($r|type) == "array" then
+            [ $r[] | select(type == "object") | mismatches($p; .) ] | add // []
+          else
+            ["Response is not an object or array"]
+          end;
 
-      mismatches($payload; $response)
-    ' 2>/dev/null)
+        mismatches($payload[0]; $response[0])
+      ' 2>/dev/null)
 
-    # Log each mismatch using your log function
     if [[ -n "$mismatches" && "$mismatches" != "[]" ]]; then
         while IFS= read -r line; do
             log "DEBUG :: $line"
