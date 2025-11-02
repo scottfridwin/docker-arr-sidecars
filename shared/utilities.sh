@@ -271,25 +271,39 @@ responseMatchesPayload() {
     local payload="$1"
     local response="$2"
 
-    # Run jq directly with stdin to avoid --argjson parsing issues
     local mismatches
     mismatches=$(jq -n \
         --slurpfile payload <(echo "$payload") \
         --slurpfile response <(echo "$response") '
-        def mismatches($p; $r):
-          if ($r|type) == "object" then
-            reduce ($p | to_entries[]) as $item ([]; 
-              if ($r[$item.key] == null) then . + ["Missing field: " + $item.key]
-              elif ($r[$item.key] != $item.value) then . + ["Value mismatch: " + $item.key + 
-                " (expected: " + ($item.value|tostring) + ", got: " + ($r[$item.key]|tostring) + ")"]
-              else . end)
-          elif ($r|type) == "array" then
-            [ $r[] | select(type == "object") | mismatches($p; .) ] | add // []
+        def compare_values($key; $pval; $rval):
+          if $key == "fields" and ($pval | type) == "array" then
+            # Compare name/value pairs only
+            reduce $pval[] as $item ([]; 
+              if ($rval | map(select(.name == $item.name)) | length) == 0 then
+                . + ["Missing field: " + $item.name]
+              else
+                . + ($rval
+                  | map(select(.name == $item.name and .value != $item.value))
+                  | map("Value mismatch in field " + $item.name
+                        + " (expected: " + ($item.value|tostring)
+                        + ", got: " + (.value|tostring) + ")"))
+              end)
+          elif ($pval | type) == "object" then
+            reduce ($pval | to_entries[]) as $sub ([]; . + compare_values($sub.key; $sub.value; $rval[$sub.key]))
+          elif ($pval != $rval) then
+            ["Value mismatch: " + $key + " (expected: " + ($pval|tostring) + ", got: " + ($rval|tostring) + ")"]
           else
-            ["Response is not an object or array"]
+            []
           end;
 
-        mismatches($payload[0]; $response[0])
+        def compare_payload($p; $r):
+          if ($p | type) == "object" then
+            reduce ($p | to_entries[]) as $item ([]; . + compare_values($item.key; $item.value; $r[$item.key]))
+          else
+            []
+          end;
+
+        compare_payload($payload[0]; $response[0])
       ' 2>/dev/null)
 
     if [[ -n "$mismatches" && "$mismatches" != "[]" ]]; then
