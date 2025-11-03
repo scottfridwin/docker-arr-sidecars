@@ -840,6 +840,7 @@ FuzzyDeezerSearch() {
                 CalculateBestMatch <<<"${formattedAlbums}"
             else
                 log "DEBUG :: No results found via Fuzzy Search for '${searchReleaseTitle}' by '${lidarrArtistName}'"
+            fi
         else
             log "WARNING :: Deezer Fuzzy Search API response missing expected fields"
         fi
