@@ -832,10 +832,10 @@ FuzzyDeezerSearch() {
             if ((resultsCount > 0)); then
                 albumsJson=$(jq '[.data[].album] | unique_by(.id)' <<<"${deezerSearch}")
                 uniqueResults=$(jq 'length' <<<"${albumsJson}")
-                log "INFO :: ${uniqueResults} unique search results found for '${searchReleaseTitle}' by '${lidarrArtistName}'"
+                log "DEBUG :: ${uniqueResults} unique search results found for '${searchReleaseTitle}' by '${lidarrArtistName}'"
                 CalculateBestMatch <<<"${albumsJson}"
             else
-                log "INFO :: No results found via Fuzzy Search for '${searchReleaseTitle}' by '${lidarrArtistName}'"
+                log "DEBUG :: No results found via Fuzzy Search for '${searchReleaseTitle}' by '${lidarrArtistName}'"
             fi
         else
             log "WARNING :: Deezer Fuzzy Search API response missing expected fields"
