@@ -481,10 +481,10 @@ ProcessLidarrWantedList() {
 
     # Preload all notfound IDs into memory (only once)
     mapfile -t notfound < <(
-        find "${AUDIO_DATA_PATH}/notfound/" -type f | while read -r f; do
+        find "${AUDIO_DATA_PATH}/notfound/" -type f 2>/dev/null | while read -r f; do
             basename "$f"
         done | sed 's/--.*//' | sort
-    )
+    ) 2>/dev/null
 
     local totalPages=$(((totalRecords + pageSize - 1) / pageSize))
 
@@ -852,7 +852,7 @@ CalculateBestMatch() {
     albumsRaw=$(cat) # read JSON array from stdin
     albumsCount=$(jq '.total' <<<"${albumsRaw}")
     # Filter to unique albums by ID
-    albums=$(jq '[.data[].album] | unique_by(.id)' <<<"${albumsRaw}")
+    albums=$(jq '[.data[]] | unique_by(.id)' <<<"${albumsRaw}")
     uniqueResults=$(jq 'length' <<<"${albums}")
     if ((uniqueResults < albumsCount)); then
         log "DEBUG :: Filtered ${albumsCount} results to ${uniqueResults} unique albums by ID"
