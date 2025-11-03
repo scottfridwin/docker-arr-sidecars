@@ -22,7 +22,7 @@ LevenshteinDistance() {
     # $2 -> string 2
     local s1="${1}"
     local s2="${2}"
-    log "DEBUG :: Calculating Levenshtein distance between '${s1}' and '${s2}'"
+    log "TRACE :: Calculating Levenshtein distance between '${s1}' and '${s2}'"
     local len_s1=${#s1}
     local len_s2=${#s2}
 
@@ -921,6 +921,7 @@ CalculateBestMatch() {
     searchReleaseTitleClean="$(normalize_string "${searchReleaseTitle}")"
     searchReleaseTitleClean="${searchReleaseTitleClean:0:130}"
 
+    log "DEBUG :: Calculating best match for searchReleaseTitle: ${searchReleaseTitleClean} with ${albumsCount} Deezer albums to compare"
     for ((i = 0; i < albumsCount; i++)); do
         local deezerAlbumData deezerAlbumID deezerAlbumTitle deezerAlbumTitleClean
         local deezerAlbumTrackCount downloadedReleaseDate downloadedReleaseYear
@@ -972,25 +973,24 @@ CalculateBestMatch() {
         titlesToCheck+=("${deezerAlbumTitleClean}")
         if [[ "${deezerAlbumTitleClean}" != "${deezerAlbumTitleEditionless}" ]]; then
             titlesToCheck+=("${deezerAlbumTitleEditionless}")
+            log "DEBUG :: Checking both edition and editionless titles: \"${deezerAlbumTitleClean}\", \"${deezerAlbumTitleEditionless}\""
         fi
         for titleVariant in "${titlesToCheck[@]}"; do
             # Compute Levenshtein distance
             diff=$(LevenshteinDistance "${searchReleaseTitleClean,,}" "${titleVariant,,}")
             trackDiff=$((lidarrReleaseTrackCount > deezerAlbumTrackCount ? lidarrReleaseTrackCount - deezerAlbumTrackCount : deezerAlbumTrackCount - lidarrReleaseTrackCount))
 
-            log "DEBUG :: DL Dist=${diff} TrackDiff=${trackDiff} (${deezerAlbumTrackCount} tracks)"
-
             if ((diff <= ${AUDIO_MATCH_DISTANCE_THRESHOLD})); then
-                log "INFO :: Potential match found :: ${deezerAlbumTitle} (${downloadedReleaseYear}) :: Distance=${diff} TrackDiff=${trackDiff}"
+                log "INFO :: Potential match found :: \"${titleVariant,,}\" :: Distance=${diff} TrackDiff=${trackDiff}"
             else
-                log "DEBUG :: Album does not meet matching threshold, skipping..."
+                log "DEBUG :: Album \"${titleVariant,,}\" does not meet matching threshold (Distance=${diff}), skipping..."
                 continue
             fi
 
             # Perfect match
             if ((diff == 0 && trackDiff == 0)); then
                 bestMatchID="${deezerAlbumID}"
-                bestMatchTitle="${deezerAlbumTitle}"
+                bestMatchTitle="${titleVariant}"
                 bestMatchYear="${downloadedReleaseYear}"
                 bestMatchDistance="${diff}"
                 bestMatchTrackDiff="${trackDiff}"
@@ -1023,7 +1023,7 @@ CalculateBestMatch() {
                 { ((diff == bestMatchDistance)) && ((trackDiff == bestMatchTrackDiff)) && ((deezerAlbumTrackCount == bestMatchNumTracks)) && ((lidarrReleaseFormatPriority < bestMatchFormatPriority)); } ||
                 { ((diff == bestMatchDistance)) && ((trackDiff == bestMatchTrackDiff)) && ((deezerAlbumTrackCount == bestMatchNumTracks)) && ((lidarrReleaseFormatPriority == bestMatchFormatPriority)) && ((lidarrReleaseCountryPriority < bestMatchCountryPriority)); }; then
                 bestMatchID="${deezerAlbumID}"
-                bestMatchTitle="${deezerAlbumTitle}"
+                bestMatchTitle="${titleVariant}"
                 bestMatchYear="${downloadedReleaseYear}"
                 bestMatchDistance="${diff}"
                 bestMatchTrackDiff="${trackDiff}"
