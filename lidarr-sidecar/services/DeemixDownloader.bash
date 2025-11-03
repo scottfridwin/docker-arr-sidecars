@@ -332,29 +332,26 @@ GetReleaseTitleDisambiguation() {
 RemoveEditionsFromAlbumTitle() {
     title="$1"
 
-    # Normalize punctuation and spacing
+    # Normalize spacing and separators
     title=$(echo "$title" | sed -E '
         s/[[:space:]]+/ /g;             # Collapse multiple spaces
         s/[[:space:]]*-[[:space:]]*/ /g; # Replace " - " with space
         s/[[:space:]]*:[[:space:]]*/ /g; # Replace " : " with space
     ')
 
+    # Build a case-insensitive pattern for edition keywords
+    edition_pattern='(deluxe|super|special|expanded|anniversary|collector|bonus|exclusive|remaster(ed)?|edition|version|target|apple|spotify|japanese|international)'
+
     # Remove parentheses that contain edition keywords
-    title=$(echo "$title" | sed -E '
-        s/\s*\(([^)]*(deluxe|remaster|edition|anniversary|expanded|version|special|collector|exclusive|bonus|super|target|apple|spotify|japanese|international)[^)]*)\)\s*$//I
-    ')
+    title=$(echo "$title" | sed -E "s/\s*\([^)]*$edition_pattern[^)]*\)\s*$//I")
 
-    # Remove edition keywords at the end (not necessarily in parentheses)
-    title=$(echo "$title" | sed -E '
-        s/\s*[-:]?\s*(deluxe( version)?|super deluxe( version)?|special edition|expanded edition|anniversary edition|collector.?s edition|exclusive edition|bonus edition|remaster(ed)?|version|international edition|japanese edition|target edition|apple music edition|spotify edition)\s*$//I
-    ')
+    # Remove trailing edition keywords, even without parentheses
+    title=$(echo "$title" | sed -E "s/\s*[-:]?\s*$edition_pattern( edition| version)?\s*$//I")
 
-    # Remove repeated cleanup (in case multiple edition tags chained)
-    title=$(echo "$title" | sed -E '
-        s/\s*[-:]?\s*(deluxe|remaster|edition|anniversary|expanded|special|collector|exclusive|bonus|super|target|apple|spotify|japanese|international)\s*$//I
-    ')
+    # Repeat once more to catch chained tags (e.g., "Super Deluxe Edition")
+    title=$(echo "$title" | sed -E "s/\s*[-:]?\s*$edition_pattern( edition| version)?\s*$//I")
 
-    # Final trim
+    # Final whitespace trim
     title=$(echo "$title" | sed -E 's/^[[:space:]]+|[[:space:]]+$//g')
 
     echo "$title"
@@ -895,11 +892,6 @@ CalculateBestMatch() {
         deezerAlbumTitleClean="${deezerAlbumTitleClean:0:130}"
         deezerAlbumTitleEditionless="$(RemoveEditionsFromAlbumTitle "${deezerAlbumTitleClean}")"
         log "DEBUG :: Comparing lidarr release \"${searchReleaseTitleClean}\" to Deezer album ID ${deezerAlbumID} with title \"${deezerAlbumTitleClean}\" (editionless: \"${deezerAlbumTitleEditionless}\" and explicit=${deezerAlbumExplicitLyrics})"
-
-        # TODO evermore (deluxe edition) vs evermore (deluxe, explicit)
-        # TODO folklore (deluxe edition) vs folklore (deluxe, explicit)
-        # TODO Red
-        # TODO Speak Now
 
         # Apply custom replacements if defined
         # In some cases, albums have strange translations that need to happen for comparison to work.
