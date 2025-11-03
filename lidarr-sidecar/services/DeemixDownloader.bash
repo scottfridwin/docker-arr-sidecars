@@ -974,9 +974,9 @@ CalculateBestMatch() {
                 set_state "bestMatchLyricTypePreferred" "${lyricTypePreferred}"
                 set_state "bestMatchContainsCommentary" "${lidarrReleaseContainsCommentary}"
                 set_state "bestMatchLidarrReleaseInfo" "${lidarrReleaseInfo}"
-                log "INFO :: New best match :: ${bestMatchTitle} (${bestMatchYear}) :: Distance=${bestMatchDistance} TrackDiff=${bestMatchTrackDiff} NumTracks=${bestMatchNumTracks}"
+                log "INFO :: New best match :: ${titleVariant} (${downloadedReleaseYear}) :: Distance=${diff} TrackDiff=${trackDiff} NumTracks=${deezerAlbumTrackCount}"
                 if ((diff == 0 && trackDiff == 0)); then
-                    log "INFO :: Exact match found :: ${bestMatchTitle} (${bestMatchYear}) with ${bestMatchNumTracks} tracks"
+                    log "INFO :: Exact match found :: ${titleVariant} (${downloadedReleaseYear}) with ${deezerAlbumTrackCount} tracks"
                     set_state "exactMatchFound" "true"
                 fi
             fi
