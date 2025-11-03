@@ -149,7 +149,7 @@ GetDeezerArtistAlbums() {
 
         # Validate JSON
         if artistJson=$(jq -e . <"${artistCacheFile}" 2>/dev/null); then
-            #log "DEBUG :: artistJson: ${artistJson}"
+            log "TRACE :: artistJson: ${artistJson}"
             set_state "deezerArtistInfo" "${artistJson}"
             returnCode=0
             break
@@ -777,7 +777,7 @@ ArtistDeezerSearch() {
     local returnCode=$?
     if [ "$returnCode" -eq 0 ]; then
         artistAlbums="$(get_state "deezerArtistInfo")"
-        resultsCount=$(jq 'length' <<<"${artistAlbums}")
+        resultsCount=$(jq '.total' <<<"${artistAlbums}")
         log "INFO :: Searching albums for Artist ${artistId} (Total Albums: ${resultsCount} found)"
 
         # Pass filtered albums to the CalculateBestMatch function
@@ -876,7 +876,7 @@ CalculateBestMatch() {
     searchReleaseTitleClean="$(normalize_string "${searchReleaseTitle}")"
     searchReleaseTitleClean="${searchReleaseTitleClean:0:130}"
 
-    log "DEBUG :: Calculating best match for searchReleaseTitle: ${searchReleaseTitleClean} with ${albumsCount} Deezer albums to compare"
+    log "DEBUG :: Calculating best match for \"${searchReleaseTitleClean}\" with ${albumsCount} Deezer albums to compare"
     for ((i = 0; i < albumsCount; i++)); do
         local deezerAlbumData deezerAlbumID deezerAlbumTitle deezerAlbumTitleClean
         local deezerAlbumTrackCount downloadedReleaseDate downloadedReleaseYear
