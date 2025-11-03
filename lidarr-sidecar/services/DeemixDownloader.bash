@@ -851,9 +851,10 @@ CalculateBestMatch() {
     log "TRACE :: Entering CalculateBestMatch..."
     # stdin -> JSON array containing list of Deezer albums to check
 
-    local albums albumsCount
-    albums=$(cat) # read JSON array from stdin
-    albumsCount=$(jq 'length' <<<"${albums}")
+    local albums albumsRaw albumsCount
+    albumsRaw=$(cat) # read JSON array from stdin
+    albumsCount=$(jq '.total' <<<"${albumsRaw}")
+    albums=$(jq '.data' <<<"${albumsRaw}")
 
     local bestMatchID="$(get_state "bestMatchID")"
     local bestMatchTitle="$(get_state "bestMatchTitle")"
