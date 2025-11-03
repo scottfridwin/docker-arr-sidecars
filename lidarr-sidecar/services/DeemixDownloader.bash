@@ -331,10 +331,32 @@ GetReleaseTitleDisambiguation() {
 # Remove common edition keywords from the end of an album title
 RemoveEditionsFromAlbumTitle() {
     title="$1"
-    # Remove trailing parentheses if they contain these keywords
-    title=$(echo "$title" | sed -E 's/\s*\((.*(Deluxe|Remaster|Edition|Anniversary|Expanded).*)\)\s*$//I')
-    # Trim whitespace
+
+    # Normalize punctuation and spacing
+    title=$(echo "$title" | sed -E '
+        s/[[:space:]]+/ /g;             # Collapse multiple spaces
+        s/[[:space:]]*-[[:space:]]*/ /g; # Replace " - " with space
+        s/[[:space:]]*:[[:space:]]*/ /g; # Replace " : " with space
+    ')
+
+    # Remove parentheses that contain edition keywords
+    title=$(echo "$title" | sed -E '
+        s/\s*\(([^)]*(deluxe|remaster|edition|anniversary|expanded|version|special|collector|exclusive|bonus|super|target|apple|spotify|japanese|international)[^)]*)\)\s*$//I
+    ')
+
+    # Remove edition keywords at the end (not necessarily in parentheses)
+    title=$(echo "$title" | sed -E '
+        s/\s*[-:]?\s*(deluxe( version)?|super deluxe( version)?|special edition|expanded edition|anniversary edition|collector.?s edition|exclusive edition|bonus edition|remaster(ed)?|version|international edition|japanese edition|target edition|apple music edition|spotify edition)\s*$//I
+    ')
+
+    # Remove repeated cleanup (in case multiple edition tags chained)
+    title=$(echo "$title" | sed -E '
+        s/\s*[-:]?\s*(deluxe|remaster|edition|anniversary|expanded|special|collector|exclusive|bonus|super|target|apple|spotify|japanese|international)\s*$//I
+    ')
+
+    # Final trim
     title=$(echo "$title" | sed -E 's/^[[:space:]]+|[[:space:]]+$//g')
+
     echo "$title"
 }
 
@@ -872,7 +894,7 @@ CalculateBestMatch() {
         deezerAlbumTitleClean="$(normalize_string "$deezerAlbumTitle")"
         deezerAlbumTitleClean="${deezerAlbumTitleClean:0:130}"
         deezerAlbumTitleEditionless="$(RemoveEditionsFromAlbumTitle "${deezerAlbumTitleClean}")"
-        log "ERROR :: TMP Comparing lidarr release \"${searchReleaseTitleClean}\" to Deezer album ID ${deezerAlbumID} with title \"${deezerAlbumTitleClean}\" (editionless: \"${deezerAlbumTitleEditionless}\" and explicit=${deezerAlbumExplicitLyrics})"
+        log "DEBUG :: Comparing lidarr release \"${searchReleaseTitleClean}\" to Deezer album ID ${deezerAlbumID} with title \"${deezerAlbumTitleClean}\" (editionless: \"${deezerAlbumTitleEditionless}\" and explicit=${deezerAlbumExplicitLyrics})"
 
         # TODO evermore (deluxe edition) vs evermore (deluxe, explicit)
         # TODO folklore (deluxe edition) vs folklore (deluxe, explicit)
