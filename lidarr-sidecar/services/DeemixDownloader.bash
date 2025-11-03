@@ -575,30 +575,15 @@ SearchProcess() {
     fi
     local deezerArtistIds=($(echo "${deezerArtistUrl}" | grep -Eo '[[:digit:]]+' | sort -u))
 
-    # Sort releases based on preference for special editions
     # Sort parameter explanations:
     #  - Track count (descending)
-    #  - Rank (0 for preferred editions, 1 for others)
-    #  - Title length (ascending if prefer special editions, descending if not)
+    #  - Title length (ascending, as a consistent tiebreaker)
 
-    jq_filter_special="[.releases[]
-	| .normalized_title = (.title | ascii_downcase)
-	| .title_length = (.title | length)
-	| .rank = (if (.normalized_title | test(\"deluxe|expanded|special|remaster\")) then 0 else 1 end)
-	] | sort_by(-.trackCount, .rank, -.title_length)"
-
-    jq_filter_normal="[.releases[]
-	| .normalized_title = (.title | ascii_downcase)
-	| .title_length = (.title | length)
-	| .rank = (if (.normalized_title | test(\"deluxe|expanded|special|remaster\")) then 1 else 0 end)
-	] | sort_by(-.trackCount, .rank, .title_length)"
-
-    local sorted_releases
-    if [ "${AUDIO_PREFER_SPECIAL_EDITIONS}" == "true" ]; then
-        sorted_releases=$(jq -c "${jq_filter_special}" <<<"${lidarrAlbumData}")
-    else
-        sorted_releases=$(jq -c "${jq_filter_normal}" <<<"${lidarrAlbumData}")
-    fi
+    jq_filter="[.releases[]
+    | .normalized_title = (.title | ascii_downcase)
+    | .title_length = (.title | length)
+] | sort_by(-.trackCount, .title_length)"
+    sorted_releases=$(jq -c "${jq_filter}" <<<"${lidarrAlbumData}")
 
     # Reset search variables
     set_state "bestMatchID" ""
@@ -1404,7 +1389,6 @@ log "DEBUG :: AUDIO_INSTRUMENTAL_KEYWORDS=${AUDIO_INSTRUMENTAL_KEYWORDS}"
 log "DEBUG :: AUDIO_INTERVAL=${AUDIO_INTERVAL}"
 log "DEBUG :: AUDIO_LYRIC_TYPE=${AUDIO_LYRIC_TYPE}"
 log "DEBUG :: AUDIO_MATCH_DISTANCE_THRESHOLD=${AUDIO_MATCH_DISTANCE_THRESHOLD}"
-log "DEBUG :: AUDIO_PREFER_SPECIAL_EDITIONS=${AUDIO_PREFER_SPECIAL_EDITIONS}"
 log "DEBUG :: AUDIO_PREFERED_COUNTRIES=${AUDIO_PREFERED_COUNTRIES}"
 log "DEBUG :: AUDIO_PREFERED_FORMATS=${AUDIO_PREFERED_FORMATS}"
 log "DEBUG :: AUDIO_REQUIRE_QUALITY=${AUDIO_REQUIRE_QUALITY}"
