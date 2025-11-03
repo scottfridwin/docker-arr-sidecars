@@ -89,7 +89,6 @@ Services:
 | AUDIO_REQUIRE_QUALITY | true | Require target quality (vs. accept best-effort) |
 | AUDIO_RETRY_NOTFOUND_DAYS | 90 | Give up-not-found entries a retry after this many days |
 | AUDIO_SHARED_LIDARR_PATH | /sidecar-import | Shared import path watched by Lidarr (Blackhole) |
-| AUDIO_TAGS | deemix | Comma-separated tags to ensure exist in Lidarr |
 | AUDIO_TITLE_REPLACEMENTS_FILE | /app/config/album_title_replacements.json | Title normalization map (JSON) |
 | AUDIO_WORK_PATH | /work | Working directory for staging/complete/cache |
 | AUTOCONFIG_MEDIA_MANAGEMENT | true | Apply media management settings from JSON |
@@ -115,7 +114,7 @@ Services:
   - Verifies group ownership and group rw permissions for all files (`AUTOIMPORT_GROUP` is required)
   - Moves the folder into the matched library path under `AUTOIMPORT_SHARED_PATH`
   - Triggers Radarr's `DownloadedMoviesScan` for import
-  - Adds tags and a Blackhole download client mapped to your shared import folder if missing
+  - Adds a Blackhole download client mapped to your shared import folder if missing
 
 #### Environment variables
 
@@ -147,7 +146,6 @@ Services:
 | AUTOIMPORT_IMPORT_MARKER | import- | Prefix marking folders to import |
 | AUTOIMPORT_INTERVAL | 5m | Scan interval for drop directory |
 | AUTOIMPORT_SHARED_PATH | /sidecar-import | Library root seen by Radarr |
-| AUTOIMPORT_TAGS | autoimport | Tags ensured to exist in Radarr |
 | AUTOIMPORT_WORK_DIR | /work | Working directory for caches |
 
 ### Sonarr sidecar
@@ -187,7 +185,6 @@ Services:
 | AUTOIMPORT_IMPORT_MARKER | import- | Prefix marking folders to import |
 | AUTOIMPORT_INTERVAL | 5m | Scan interval for drop directory |
 | AUTOIMPORT_SHARED_PATH | /sidecar-import | Library root seen by Sonarr |
-| AUTOIMPORT_TAGS | autoimport | Tags ensured to exist in Sonarr |
 | AUTOIMPORT_WORK_DIR | /work | Working directory for caches |
 
 ## Volumes you'll typically mount

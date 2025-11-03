@@ -211,36 +211,6 @@ CallDeezerAPI() {
     return ${returnCode}
 }
 
-# Add custom tags if they don't already exist
-AddLidarrTags() {
-    log "TRACE :: Entering AddLidarrTags..."
-    local response tagCheck httpCode
-
-    # Fetch existing tags once
-    ArrApiRequest "GET" "tag"
-    response="$(get_state "arrApiResponse")"
-
-    # Split comma-separated AUDIO_TAGS into array
-    IFS=',' read -ra tags <<<"${AUDIO_TAGS}"
-
-    for tag in "${tags[@]}"; do
-        tag=$(echo "${tag}" | xargs) # Trim whitespace
-        log "INFO :: Processing tag: ${tag}"
-
-        # Check if tag already exists
-        tagCheck=$(jq -r --arg TAG "${tag}" '.[] | select(.label==$TAG) | .label' <<<"${response}")
-
-        if [ -z "${tagCheck}" ]; then
-            log "INFO :: Tag not found, creating tag: ${tag}"
-            ArrApiRequest "POST" "tag" "{\"label\":\"${tag}\"}"
-            response="$(get_state "arrApiResponse")"
-        else
-            log "INFO :: Tag already exists: ${tag}"
-        fi
-    done
-    log "TRACE :: Exiting AddLidarrTags..."
-}
-
 # Add custom download client if it doesn't already exist
 AddLidarrDownloadClient() {
     log "TRACE :: Entering AddLidarrDownloadClient..."
@@ -1413,7 +1383,6 @@ log "DEBUG :: AUDIO_REQUIRE_QUALITY=${AUDIO_REQUIRE_QUALITY}"
 log "DEBUG :: AUDIO_RETRY_DOWNLOADED_DAYS=${AUDIO_RETRY_DOWNLOADED_DAYS}"
 log "DEBUG :: AUDIO_RETRY_NOTFOUND_DAYS=${AUDIO_RETRY_NOTFOUND_DAYS}"
 log "DEBUG :: AUDIO_SHARED_LIDARR_PATH=${AUDIO_SHARED_LIDARR_PATH}"
-log "DEBUG :: AUDIO_TAGS=${AUDIO_TAGS}"
 log "DEBUG :: AUDIO_TITLE_REPLACEMENTS_FILE=${AUDIO_TITLE_REPLACEMENTS_FILE}"
 log "DEBUG :: AUDIO_WORK_PATH=${AUDIO_WORK_PATH}"
 
@@ -1430,7 +1399,6 @@ init_state
 verifyArrApiAccess
 
 # Create Lidarr entities
-AddLidarrTags
 AddLidarrDownloadClient
 
 # Setup Deemix & Beets

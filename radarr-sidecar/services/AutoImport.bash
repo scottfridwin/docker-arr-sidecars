@@ -10,36 +10,6 @@ source /app/utilities.sh
 
 #### Constants
 
-# Add custom tags if they don't already exist
-AddTags() {
-    log "TRACE :: Entering AddTags..."
-    local response tagCheck httpCode
-
-    # Fetch existing tags once
-    ArrApiRequest "GET" "tag"
-    response="$(get_state "arrApiResponse")"
-
-    # Split comma-separated AUTOIMPORT_TAGS into array
-    IFS=',' read -ra tags <<<"${AUTOIMPORT_TAGS}"
-
-    for tag in "${tags[@]}"; do
-        tag=$(echo "${tag}" | xargs) # Trim whitespace
-        log "DEBUG :: Processing tag: ${tag}"
-
-        # Check if tag already exists
-        tagCheck=$(echo "${response}" | jq -r --arg TAG "${tag}" '.[] | select(.label==$TAG) | .label')
-
-        if [ -z "${tagCheck}" ]; then
-            log "DEBUG :: Tag not found, creating tag: ${tag}"
-            ArrApiRequest "POST" "tag" "{\"label\":\"${tag}\"}"
-            response="$(get_state "arrApiResponse")"
-        else
-            log "DEBUG :: Tag already exists: ${tag}"
-        fi
-    done
-    log "TRACE :: Exiting AddTags..."
-}
-
 # Add custom download client if it doesn't already exist
 AddDownloadClient() {
     log "TRACE :: Entering AddDownloadClient..."
@@ -54,26 +24,6 @@ AddDownloadClient() {
 
     if [ -z "${downloadClientCheck}" ]; then
         log "INFO :: ${AUTOIMPORT_DOWNLOADCLIENT_NAME} client not found, creating it..."
-
-        # Get existing tags
-        ArrApiRequest "GET" "tag"
-        local tagsJson
-        tagsJson="$(get_state "arrApiResponse")"
-
-        # Map desired tags to ids
-        IFS=',' read -ra tagNames <<<"${AUTOIMPORT_TAGS}"
-        tagIds=()
-        for t in "${tagNames[@]}"; do
-            t=$(echo "$t" | xargs)
-            id=$(jq -r --arg label "$t" '.[] | select(.label==$label) | .id' <<<"$tagsJson")
-            if [[ -n "$id" && "$id" != "null" ]]; then
-                tagIds+=("$id")
-            fi
-        done
-        tagsArray=$(
-            IFS=,
-            echo "${tagIds[*]}"
-        )
 
         # Build JSON payload
         payload=$(
@@ -93,7 +43,7 @@ AddDownloadClient() {
   "implementation": "UsenetBlackhole",
   "configContract": "UsenetBlackholeSettings",
   "infoLink": "https://wiki.servarr.com/lidarr/supported#usenetblackhole",
-  "tags": [ ${tagsArray} ]
+  "tags": [ ]
 }
 EOF
         )
@@ -288,7 +238,6 @@ log "DEBUG :: AUTOIMPORT_GROUP=${AUTOIMPORT_GROUP:-}"
 log "DEBUG :: AUTOIMPORT_IMPORT_MARKER=${AUTOIMPORT_IMPORT_MARKER}"
 log "DEBUG :: AUTOIMPORT_INTERVAL=${AUTOIMPORT_INTERVAL}"
 log "DEBUG :: AUTOIMPORT_SHARED_PATH=${AUTOIMPORT_SHARED_PATH}"
-log "DEBUG :: AUTOIMPORT_TAGS=${AUTOIMPORT_TAGS}"
 log "DEBUG :: AUTOIMPORT_WORK_DIR=${AUTOIMPORT_WORK_DIR}"
 
 ### Validation ###
@@ -321,7 +270,6 @@ init_state
 verifyArrApiAccess
 
 # Create *arr entities
-AddTags
 AddDownloadClient
 
 while true; do
