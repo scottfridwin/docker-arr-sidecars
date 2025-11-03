@@ -830,10 +830,7 @@ FuzzyDeezerSearch() {
             resultsCount=$(jq '.total' <<<"${deezerSearch}")
             log "DEBUG :: ${resultsCount} search results found for '${searchReleaseTitle}' by '${lidarrArtistName}'"
             if ((resultsCount > 0)); then
-                albumsJson=$(jq '[.data[].album] | unique_by(.id)' <<<"${deezerSearch}")
-                uniqueResults=$(jq 'length' <<<"${albumsJson}")
-                log "DEBUG :: ${uniqueResults} unique search results found for '${searchReleaseTitle}' by '${lidarrArtistName}'"
-                CalculateBestMatch <<<"${albumsJson}"
+                CalculateBestMatch <<<"${deezerSearch}"
             else
                 log "DEBUG :: No results found via Fuzzy Search for '${searchReleaseTitle}' by '${lidarrArtistName}'"
             fi
@@ -854,7 +851,13 @@ CalculateBestMatch() {
     local albums albumsRaw albumsCount
     albumsRaw=$(cat) # read JSON array from stdin
     albumsCount=$(jq '.total' <<<"${albumsRaw}")
-    albums=$(jq '.data' <<<"${albumsRaw}")
+    # Filter to unique albums by ID
+    albums=$(jq '[.data[].album] | unique_by(.id)' <<<"${albumsRaw}")
+    uniqueResults=$(jq 'length' <<<"${albums}")
+    if ((uniqueResults < albumsCount)); then
+        log "DEBUG :: Filtered ${albumsCount} results to ${uniqueResults} unique albums by ID"
+        albumsCount="${uniqueResults}"
+    fi
 
     local lidarrReleaseInfo="$(get_state "lidarrReleaseInfo")"
     local lidarrReleaseTrackCount="$(get_state "lidarrReleaseTrackCount")"
