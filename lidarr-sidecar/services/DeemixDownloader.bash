@@ -97,7 +97,7 @@ GetDeezerAlbumInfo() {
 
         # Validate JSON
         if albumJson=$(jq -e . <"${albumCacheFile}" 2>/dev/null); then
-            #log "DEBUG :: albumJson: ${albumJson}"
+            log "TRACE :: albumJson: ${albumJson}"
             set_state "deezerAlbumInfo" "${albumJson}"
             returnCode=0
             break
@@ -796,7 +796,6 @@ FuzzyDeezerSearch() {
 
     local deezerSearch
     local resultsCount
-    local albumsJson
     local url
 
     local lidarrAlbumData="$(get_state "lidarrAlbumData")"
