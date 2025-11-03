@@ -935,6 +935,7 @@ CalculateBestMatch() {
         deezerAlbumTitleClean="$(normalize_string "$deezerAlbumTitle")"
         deezerAlbumTitleClean="${deezerAlbumTitleClean:0:130}"
         deezerAlbumTitleEditionless="$(RemoveEditionsFromAlbumTitle "${deezerAlbumTitleClean}")"
+        log "ERROR :: TMP Comparing lidarr release \"${searchReleaseTitleClean}\" to Deezer album ID ${deezerAlbumID} with title \"${deezerAlbumTitleClean}\" (editionless: \"${deezerAlbumTitleEditionless}\")"
 
         # TODO evermore (deluxe edition) vs evermore (deluxe, explicit)
         # TODO folklore (deluxe edition) vs folklore (deluxe, explicit)
