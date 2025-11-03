@@ -612,7 +612,7 @@ SearchProcess() {
     set_state "bestMatchFormatPriority" ""
     set_state "bestMatchCountryPriority" ""
     set_state "bestMatchLyricTypePreferred" ""
-    set_state "perfectMatchFound" "false"
+    set_state "exactMatchFound" "false"
 
     # Load title replacement file
     if [[ -f "${AUDIO_TITLE_REPLACEMENTS_FILE}" ]]; then
@@ -629,7 +629,7 @@ SearchProcess() {
     fi
 
     # Start search loop
-    local perfectMatchFound="false"
+    local exactMatchFound="false"
     # Process each release from Lidarr in sorted order
     local releases
     mapfile -t releasesArray < <(jq -c '.[]' <<<"$sorted_releases")
@@ -650,30 +650,30 @@ SearchProcess() {
         set_state "lidarrReleaseFormatPriority" "${lidarrReleaseFormatPriority}"
         set_state "lidarrReleaseCountryPriority" "${lidarrReleaseCountryPriority}"
 
-        # If a perfect match was already found, only process releases with more tracks
-        perfectMatchFound="$(get_state "perfectMatchFound")"
-        if [ "${perfectMatchFound}" == "true" ]; then
+        # If a exact match was already found, only process releases with more tracks
+        exactMatchFound="$(get_state "exactMatchFound")"
+        if [ "${exactMatchFound}" == "true" ]; then
             # If current release has fewer tracks than best match, skip it
             local bestMatchNumTracks
             bestMatchNumTracks="$(get_state "bestMatchNumTracks")"
             if ((lidarrReleaseTrackCount < bestMatchNumTracks)); then
-                log "DEBUG :: Already found a perfect match with ${bestMatchNumTracks} tracks, skipping release \"${lidarrReleaseTitleWithDisambiguation}\" with ${lidarrReleaseTrackCount} tracks"
+                log "DEBUG :: Already found an exact match with ${bestMatchNumTracks} tracks, skipping release \"${lidarrReleaseTitleWithDisambiguation}\" with ${lidarrReleaseTrackCount} tracks"
                 continue
             fi
-            # If current release has a less desired format than best match, skip it
-            local bestMatchFormatPriority
-            bestMatchFormatPriority="$(get_state "bestMatchFormatPriority")"
-            if [[ "${lidarrReleaseFormatPriority}" -gt "${bestMatchFormatPriority}" ]]; then
-                log "DEBUG :: Already found a perfect match with format priority ${bestMatchFormatPriority}, skipping release \"${lidarrReleaseTitleWithDisambiguation}\" with format ${lidarrReleaseFormat}"
-                continue
-            fi
-            # If current release is from less desired countries than best match, skip it
-            local bestMatchCountryPriority
-            bestMatchCountryPriority="$(get_state "bestMatchCountryPriority")"
-            if [[ "${lidarrReleaseCountryPriority}" -gt "${bestMatchCountryPriority}" ]]; then
-                log "DEBUG :: Already found a perfect match with country priority ${bestMatchCountryPriority}, skipping release \"${lidarrReleaseTitleWithDisambiguation}\" from countries ${lidarrReleaseCountries}"
-                continue
-            fi
+            # # If current release has a less desired format than best match, skip it
+            # local bestMatchFormatPriority
+            # bestMatchFormatPriority="$(get_state "bestMatchFormatPriority")"
+            # if [[ "${lidarrReleaseFormatPriority}" -gt "${bestMatchFormatPriority}" ]]; then
+            #     log "DEBUG :: Already found an exact match with format priority ${bestMatchFormatPriority}, skipping release \"${lidarrReleaseTitleWithDisambiguation}\" with format ${lidarrReleaseFormat}"
+            #     continue
+            # fi
+            # # If current release is from less desired countries than best match, skip it
+            # local bestMatchCountryPriority
+            # bestMatchCountryPriority="$(get_state "bestMatchCountryPriority")"
+            # if [[ "${lidarrReleaseCountryPriority}" -gt "${bestMatchCountryPriority}" ]]; then
+            #     log "DEBUG :: Already found an exact match with country priority ${bestMatchCountryPriority}, skipping release \"${lidarrReleaseTitleWithDisambiguation}\" from countries ${lidarrReleaseCountries}"
+            #     continue
+            # fi
         fi
 
         # TODO: Enhance this functionality to intelligently handle releases that are expected to have these keywords
@@ -726,19 +726,15 @@ SearchProcess() {
             # First search through the artist's Deezer albums to find a match on album title and track count
             log "DEBUG :: Starting search with searchReleaseTitle: ${searchReleaseTitle}"
             if [ "${lidarrArtistForeignArtistId}" != "${VARIOUS_ARTIST_ID}" ]; then # Skip various artists
-                perfectMatchFound="$(get_state "perfectMatchFound")"
-                if [ "${perfectMatchFound}" == "false" ]; then
-                    log "DEBUG :: deezerArtistIds: ${deezerArtistIds[*]}"
-                    for dId in "${!deezerArtistIds[@]}"; do
-                        local deezerArtistId="${deezerArtistIds[$dId]}"
-                        ArtistDeezerSearch "${deezerArtistId}"
-                    done
-                fi
+                for dId in "${!deezerArtistIds[@]}"; do
+                    local deezerArtistId="${deezerArtistIds[$dId]}"
+                    ArtistDeezerSearch "${deezerArtistId}"
+                done
             fi
 
             # Fuzzy search
-            perfectMatchFound="$(get_state "perfectMatchFound")"
-            if [ "${perfectMatchFound}" == "false" ]; then
+            exactMatchFound="$(get_state "exactMatchFound")"
+            if [ "${exactMatchFound}" == "false" ]; then
                 FuzzyDeezerSearch
             fi
         done
@@ -856,16 +852,6 @@ CalculateBestMatch() {
     albumsCount=$(jq '.total' <<<"${albumsRaw}")
     albums=$(jq '.data' <<<"${albumsRaw}")
 
-    local bestMatchID="$(get_state "bestMatchID")"
-    local bestMatchTitle="$(get_state "bestMatchTitle")"
-    local bestMatchYear="$(get_state "bestMatchYear")"
-    local bestMatchDistance="$(get_state "bestMatchDistance")"
-    local bestMatchTrackDiff="$(get_state "bestMatchTrackDiff")"
-    local bestMatchNumTracks="$(get_state "bestMatchNumTracks")"
-    local bestMatchContainsCommentary="$(get_state "bestMatchContainsCommentary")"
-    local bestMatchFormatPriority="$(get_state "bestMatchFormatPriority")"
-    local bestMatchCountryPriority="$(get_state "bestMatchCountryPriority")"
-
     local lidarrReleaseInfo="$(get_state "lidarrReleaseInfo")"
     local lidarrReleaseTrackCount="$(get_state "lidarrReleaseTrackCount")"
     local searchReleaseTitle="$(get_state "searchReleaseTitle")"
@@ -969,32 +955,6 @@ CalculateBestMatch() {
                 ;;
             esac
 
-            # Perfect match
-            if ((diff == 0 && trackDiff == 0)); then
-                bestMatchID="${deezerAlbumID}"
-                bestMatchTitle="${titleVariant}"
-                bestMatchYear="${downloadedReleaseYear}"
-                bestMatchDistance="${diff}"
-                bestMatchTrackDiff="${trackDiff}"
-                bestMatchNumTracks="${deezerAlbumTrackCount}"
-                bestMatchFormatPriority="${lidarrReleaseFormatPriority}"
-                bestMatchCountryPriority="${lidarrReleaseCountryPriority}"
-                bestMatchLyricTypePreferred="${lyricTypePreferred}"
-                set_state "bestMatchID" "${bestMatchID}"
-                set_state "bestMatchTitle" "${bestMatchTitle}"
-                set_state "bestMatchYear" "${bestMatchYear}"
-                set_state "bestMatchDistance" "${bestMatchDistance}"
-                set_state "bestMatchTrackDiff" "${bestMatchTrackDiff}"
-                set_state "bestMatchNumTracks" "${bestMatchNumTracks}"
-                set_state "bestMatchContainsCommentary" "${lidarrReleaseContainsCommentary}"
-                set_state "bestMatchLidarrReleaseInfo" "${lidarrReleaseInfo}"
-                set_state "bestMatchFormatPriority" "${lidarrReleaseFormatPriority}"
-                set_state "bestMatchCountryPriority" "${lidarrReleaseCountryPriority}"
-                set_state "bestMatchLyricTypePreferred" "${bestMatchLyricTypePreferred}"
-                set_state "perfectMatchFound" "true"
-                log "INFO :: Perfect match found :: ${bestMatchTitle} (${bestMatchYear}) with ${bestMatchNumTracks} tracks"
-            fi
-
             # Keep track of the best match so far, using this criteria:
             # 1. Lowest Levenshtein distance
             # 2. Lowest track count difference
@@ -1002,38 +962,68 @@ CalculateBestMatch() {
             # 4. Preferred lyric type
             # 5. Preferred format priority
             # 6. Preferred country priority
-            if ((diff < bestMatchDistance)) ||
-                { ((diff == bestMatchDistance)) && ((trackDiff < bestMatchTrackDiff)); } ||
-                { ((diff == bestMatchDistance)) && ((trackDiff == bestMatchTrackDiff)) && ((deezerAlbumTrackCount > bestMatchNumTracks)); } ||
-                { ((diff == bestMatchDistance)) && ((trackDiff == bestMatchTrackDiff)) && ((deezerAlbumTrackCount == bestMatchNumTracks)) && ((lyricTypePreferred == true)) && ((bestMatchLyricTypePreferred == false)); } ||
-                { ((diff == bestMatchDistance)) && ((trackDiff == bestMatchTrackDiff)) && ((deezerAlbumTrackCount == bestMatchNumTracks)) && ((lyricTypePreferred == bestMatchLyricTypePreferred)) && ((lidarrReleaseFormatPriority < bestMatchFormatPriority)); } ||
-                { ((diff == bestMatchDistance)) && ((trackDiff == bestMatchTrackDiff)) && ((deezerAlbumTrackCount == bestMatchNumTracks)) && ((lyricTypePreferred == bestMatchLyricTypePreferred)) && ((lidarrReleaseFormatPriority == bestMatchFormatPriority)) && ((lidarrReleaseCountryPriority < bestMatchCountryPriority)); }; then
-                bestMatchID="${deezerAlbumID}"
-                bestMatchTitle="${titleVariant}"
-                bestMatchYear="${downloadedReleaseYear}"
-                bestMatchDistance="${diff}"
-                bestMatchTrackDiff="${trackDiff}"
-                bestMatchNumTracks="${deezerAlbumTrackCount}"
-                bestMatchFormatPriority="${lidarrReleaseFormatPriority}"
-                bestMatchCountryPriority="${lidarrReleaseCountryPriority}"
-                bestMatchLyricTypePreferred="${lyricTypePreferred}"
-                set_state "bestMatchID" "${bestMatchID}"
-                set_state "bestMatchTitle" "${bestMatchTitle}"
-                set_state "bestMatchYear" "${bestMatchYear}"
-                set_state "bestMatchDistance" "${bestMatchDistance}"
-                set_state "bestMatchTrackDiff" "${bestMatchTrackDiff}"
-                set_state "bestMatchNumTracks" "${bestMatchNumTracks}"
-                set_state "bestMatchContainsCommentary" "${lidarrReleaseContainsCommentary}"
-                set_state "bestMatchLidarrReleaseInfo" "${lidarrReleaseInfo}"
+            if isBetterMatch "$diff" "$trackDiff" "$deezerAlbumTrackCount" "$lyricTypePreferred" "$lidarrReleaseFormatPriority" "$lidarrReleaseCountryPriority"; then
+                set_state "bestMatchID" "${deezerAlbumID}"
+                set_state "bestMatchTitle" "${titleVariant}"
+                set_state "bestMatchYear" "${downloadedReleaseYear}"
+                set_state "bestMatchDistance" "${diff}"
+                set_state "bestMatchTrackDiff" "${trackDiff}"
+                set_state "bestMatchNumTracks" "${deezerAlbumTrackCount}"
                 set_state "bestMatchFormatPriority" "${lidarrReleaseFormatPriority}"
                 set_state "bestMatchCountryPriority" "${lidarrReleaseCountryPriority}"
-                set_state "bestMatchLyricTypePreferred" "${bestMatchLyricTypePreferred}"
+                set_state "bestMatchLyricTypePreferred" "${lyricTypePreferred}"
+                set_state "bestMatchContainsCommentary" "${lidarrReleaseContainsCommentary}"
+                set_state "bestMatchLidarrReleaseInfo" "${lidarrReleaseInfo}"
                 log "INFO :: New best match :: ${bestMatchTitle} (${bestMatchYear}) :: Distance=${bestMatchDistance} TrackDiff=${bestMatchTrackDiff} NumTracks=${bestMatchNumTracks}"
+                if ((diff == 0 && trackDiff == 0)); then
+                    log "INFO :: Exact match found :: ${bestMatchTitle} (${bestMatchYear}) with ${bestMatchNumTracks} tracks"
+                    set_state "exactMatchFound" "true"
+                fi
             fi
         done
     done
 
     log "TRACE :: Exiting CalculateBestMatch..."
+}
+
+# Determine if the current candidate is a better match than the best match so far
+isBetterMatch() {
+    local diff="$1"
+    local trackDiff="$2"
+    local deezerAlbumTrackCount="$3"
+    local lyricTypePreferred="$4"
+    local lidarrReleaseFormatPriority="$5"
+    local lidarrReleaseCountryPriority="$6"
+
+    local bestMatchDistance="$(get_state "bestMatchDistance")"
+    local bestMatchTrackDiff="$(get_state "bestMatchTrackDiff")"
+    local bestMatchNumTracks="$(get_state "bestMatchNumTracks")"
+    local bestMatchLyricTypePreferred="$(get_state "bestMatchLyricTypePreferred")"
+    local bestMatchFormatPriority="$(get_state "bestMatchFormatPriority")"
+    local bestMatchCountryPriority="$(get_state "bestMatchCountryPriority")"
+
+    # Compare against current best-match globals
+    if ((diff < bestMatchDistance)); then
+        return 0
+    elif ((diff == bestMatchDistance)) && ((trackDiff < bestMatchTrackDiff)); then
+        return 0
+    elif ((diff == bestMatchDistance)) && ((trackDiff == bestMatchTrackDiff)) && ((deezerAlbumTrackCount > bestMatchNumTracks)); then
+        return 0
+    elif ((diff == bestMatchDistance)) && ((trackDiff == bestMatchTrackDiff)) && ((deezerAlbumTrackCount == bestMatchNumTracks)) &&
+        [[ "$lyricTypePreferred" == "true" && "$bestMatchLyricTypePreferred" == "false" ]]; then
+        return 0
+    elif ((diff == bestMatchDistance)) && ((trackDiff == bestMatchTrackDiff)) && ((deezerAlbumTrackCount == bestMatchNumTracks)) &&
+        [[ "$lyricTypePreferred" == "$bestMatchLyricTypePreferred" ]] &&
+        ((lidarrReleaseFormatPriority < bestMatchFormatPriority)); then
+        return 0
+    elif ((diff == bestMatchDistance)) && ((trackDiff == bestMatchTrackDiff)) && ((deezerAlbumTrackCount == bestMatchNumTracks)) &&
+        [[ "$lyricTypePreferred" == "$bestMatchLyricTypePreferred" ]] &&
+        ((lidarrReleaseFormatPriority == bestMatchFormatPriority)) &&
+        ((lidarrReleaseCountryPriority < bestMatchCountryPriority)); then
+        return 0
+    fi
+
+    return 1
 }
 
 # Given a JSON array of Deezer albums, find the best match based on title similarity and track count
