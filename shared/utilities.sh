@@ -453,6 +453,36 @@ normalize_string() {
             -e 's/[?]//g'
 }
 
+# Cleans a string for safe use in file or folder names
+CleanPathString() {
+    local input="$1"
+
+    # Remove leading/trailing whitespace
+    input="$(echo "$input" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+
+    # Replace invalid filename characters with underscores
+    # Invalid: / \ : * ? " < > |
+    input="${input//\//_}"
+    input="${input//\\/ _}"
+    input="${input//:/_}"
+    input="${input//\*/_}"
+    input="${input//\?/_}"
+    input="${input//\"/_}"
+    input="${input//</_}"
+    input="${input//>/_}"
+    input="${input//|/_}"
+
+    # Replace consecutive spaces with a single underscore
+    input="$(echo "$input" | tr -s ' ' '_')"
+
+    # Remove remaining quotes (single or double)
+    input="${input//\'/}"
+    input="${input//\"/}"
+
+    # Optionally limit the length (safe for most filesystems)
+    echo "${input:0:150}"
+}
+
 # Create a named associative array: auto-named using shell PID
 init_state() {
     local name=$(_get_state_name)

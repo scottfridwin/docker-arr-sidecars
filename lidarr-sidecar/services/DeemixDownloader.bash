@@ -1219,7 +1219,7 @@ DownloadProcess() {
         log "INFO :: Album \"${deezerAlbumTitle}\" successfully downloaded"
         touch "${AUDIO_DATA_PATH}/downloaded/${lidarrAlbumId}--${lidarrArtistForeignArtistId}--${lidarrAlbumForeignAlbumId}"
 
-        local downloadedAlbumFolder="${deezerArtistNameClean}-${deezerAlbumTitleClean:0:100} (${downloadedReleaseYear})"
+        local downloadedAlbumFolder="$(CleanPathString "${deezerArtistNameClean:0:100}-${deezerAlbumTitleClean:0:100} (${downloadedReleaseYear})")"
         mkdir -p "${AUDIO_SHARED_LIDARR_PATH}/${downloadedAlbumFolder}"
         find "${AUDIO_WORK_PATH}/staging" -type f -regex ".*/.*\.\(flac\|m4a\|mp3\|flac\|opus\)" -exec mv {} "${AUDIO_SHARED_LIDARR_PATH}/${downloadedAlbumFolder}"/ \;
 
