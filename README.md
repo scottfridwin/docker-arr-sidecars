@@ -93,7 +93,7 @@ Services:
 | AUDIO_TITLE_REPLACEMENTS_FILE | /app/config/album_title_replacements.json | Title normalization map (JSON) |
 | AUDIO_WORK_PATH | /work | Working directory for staging/complete/cache |
 |---|---|---|
-| AUTOCONFIG_DELAY | 10s | Initial delay before running `AutoConfig` service after container start |
+| AUTOCONFIG_DELAY | 10 | Initial delay before running `AutoConfig` service after container start |
 | AUTOCONFIG_CUSTOMFORMAT | false | Configure settings at the `customformat` api endpoint. |
 | AUTOCONFIG_CUSTOMFORMAT_JSON | /app/config/customformat.json | Path to the json file for `customformat` configuration. Expects an array of objects. |
 | AUTOCONFIG_DOWNLOADCLIENT | false | Configure settings at the `downloadclient` api endpoint. |
@@ -139,7 +139,7 @@ Services:
 | ARR_HOST | radarr | Hostname/IP of Radarr |
 | ARR_PORT | (unset) | Optional external port override |
 |---|---|---|
-| AUTOCONFIG_DELAY | 10s | Initial delay before running `AutoConfig` service after container start |
+| AUTOCONFIG_DELAY | 10 | Initial delay before running `AutoConfig` service after container start |
 | AUTOCONFIG_CUSTOMFORMAT | false | Configure settings at the `customformat` api endpoint. |
 | AUTOCONFIG_CUSTOMFORMAT_JSON | /app/config/customformat.json | Path to the json file for `customformat` configuration. Expects an array of objects. |
 | AUTOCONFIG_DOWNLOADCLIENT | false | Configure settings at the `downloadclient` api endpoint. |
@@ -185,7 +185,7 @@ Services:
 | ARR_HOST | sonarr | Hostname/IP of Sonarr |
 | ARR_PORT | (unset) | Optional external port override |
 |---|---|---|
-| AUTOCONFIG_DELAY | 10s | Initial delay before running `AutoConfig` service after container start |
+| AUTOCONFIG_DELAY | 10 | Initial delay before running `AutoConfig` service after container start |
 | AUTOCONFIG_CUSTOMFORMAT | false | Configure settings at the `customformat` api endpoint. |
 | AUTOCONFIG_CUSTOMFORMAT_JSON | /app/config/customformat.json | Path to the json file for `customformat` configuration. Expects an array of objects. |
 | AUTOCONFIG_DOWNLOADCLIENT | false | Configure settings at the `downloadclient` api endpoint. |
