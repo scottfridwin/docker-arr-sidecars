@@ -38,8 +38,7 @@ This project was inspired by the excellent work in RandomNinjaAtk's [arr-scripts
 
 Services:
 
-- AutoConfig
-  - Updates Lidarr via API using bundled JSON files: media management, metadata provider/profile, track naming, and optional UI tweaks
+- AutoConfig – sends bundled JSONs for many different configuration aspects of Lidarr
 - ARLChecker
   - Validates a Deezer ARL token read from `AUDIO_DEEMIX_ARL_FILE`
   - Enforces: file exists, owned by the running user, and mode 0600
@@ -64,7 +63,9 @@ Services:
 | ARR_HOST | lidarr | Hostname/IP of Lidarr |
 | ARR_PORT | (unset) | Optional external port override (reads from config if unset) |
 | UMASK | (unset) | Process umask applied at start (e.g., 0002) |
+|---|---|---|
 | ARLUPDATE_INTERVAL | 24h | Interval between ARL token checks |
+|---|---|---|
 | AUDIO_APPLY_BEETS | true | Apply Beets tagging to downloads |
 | AUDIO_APPLY_REPLAYGAIN | true | Apply ReplayGain tags via r128gain |
 | AUDIO_CACHE_MAX_AGE_DAYS | 30 | Prune cache entries older than this many days |
@@ -91,24 +92,34 @@ Services:
 | AUDIO_SHARED_LIDARR_PATH | /sidecar-import | Shared import path watched by Lidarr (Blackhole) |
 | AUDIO_TITLE_REPLACEMENTS_FILE | /app/config/album_title_replacements.json | Title normalization map (JSON) |
 | AUDIO_WORK_PATH | /work | Working directory for staging/complete/cache |
-| AUTOCONFIG_MEDIA_MANAGEMENT | true | Apply media management settings from JSON |
-| AUTOCONFIG_MEDIA_MANAGEMENT_JSON | /app/config/media_management.json | Media management JSON path |
-| AUTOCONFIG_METADATA_CONSUMER | false | Apply metadata consumer settings |
-| AUTOCONFIG_METADATA_CONSUMER_JSON | /app/config/metadata_consumer.json | Metadata consumer JSON path |
-| AUTOCONFIG_METADATA_PROVIDER | true | Apply metadata provider settings |
-| AUTOCONFIG_METADATA_PROVIDER_JSON | /app/config/metadata_provider.json | Metadata provider JSON path |
-| AUTOCONFIG_LIDARR_UI | false | Apply UI settings |
-| AUTOCONFIG_LIDARR_UI_JSON | /app/config/lidarr_ui.json | UI JSON path |
-| AUTOCONFIG_METADATA_PROFILE | true | Apply metadata profiles |
-| AUTOCONFIG_METADATA_PROFILE_JSON | /app/config/metadata_profile.json | Metadata profile JSON path |
-| AUTOCONFIG_TRACK_NAMING | true | Apply track naming settings |
-| AUTOCONFIG_TRACK_NAMING_JSON | /app/config/track_naming.json | Track naming JSON path |
+|---|---|---|
+| AUTOCONFIG_DELAY | 10s | Initial delay before running `AutoConfig` service after container start |
+| AUTOCONFIG_CUSTOMFORMAT | false | Configure settings at the `customformat` api endpoint. |
+| AUTOCONFIG_CUSTOMFORMAT_JSON | /app/config/customformat.json | Path to the json file for `customformat` configuration. Expects an array of objects. |
+| AUTOCONFIG_DOWNLOADCLIENT | false | Configure settings at the `downloadclient` api endpoint. |
+| AUTOCONFIG_DOWNLOADCLIENT_JSON | /app/config/downloadclient.json | Path to the json file for `downloadclient` configuration. Expects an array of objects. |
+| AUTOCONFIG_HOST | true | Configure settings at the `config/host` api endpoint. |
+| AUTOCONFIG_HOST_JSON | /app/config/host.json | Path to the json file for `config/host` configuration. Expects a single json object. |
+| AUTOCONFIG_MEDIAMANAGEMENT | true | Configure settings at the `config/mediamanagement` api endpoint. |
+| AUTOCONFIG_MEDIAMANAGEMENT_JSON | /app/config/mediamanagement.json | Path to the json file for `config/mediamanagement` configuration. Expects a single json object. |
+| AUTOCONFIG_MEDIAMANAGEMENT | true | Configure settings at the `metadata` api endpoint. |
+| AUTOCONFIG_MEDIAMANAGEMENT_JSON | /app/config/mediamanagement.json | Path to the json file for `metadata` configuration. Expects an array of objects. |
+| AUTOCONFIG_MEDIAMANAGEMENT | true | Configure settings at the `config/metadataProvider` api endpoint. |
+| AUTOCONFIG_MEDIAMANAGEMENT_JSON | /app/config/mediamanagement.json | Path to the json file for `config/metadataProvider` configuration. Expects a single json object. |
+| AUTOCONFIG_NAMING | true | Configure settings at the `config/naming` api endpoint. |
+| AUTOCONFIG_NAMING_JSON | /app/config/naming.json | Path to the json file for `config/naming` configuration. Expects a single json object. |
+| AUTOCONFIG_QUALITYPROFILE | true | Configure settings at the `qualityprofile` api endpoint. |
+| AUTOCONFIG_QUALITYPROFILE_JSON | /app/config/qualityprofile.json | Path to the json file for `qualityprofile` configuration. Expects an array of objects. |
+| AUTOCONFIG_REMOTEPATHMAPPING | false | Configure settings at the `remotepathmapping` api endpoint. |
+| AUTOCONFIG_REMOTEPATHMAPPING_JSON | /app/config/remotepathmapping.json | Path to the json file for `remotepathmapping` configuration. Expects an array of objects. |
+| AUTOCONFIG_UI | false | Configure settings at the `config/ui` api endpoint. |
+| AUTOCONFIG_UI_JSON | /app/config/ui.json | Path to the json file for `config/ui` configuration. Expects a single json object. |
 
 ### Radarr sidecar
 
 Services:
 
-- AutoConfig – sends bundled JSONs for: media management, host, custom formats, UI, quality profiles, naming
+- AutoConfig – sends bundled JSONs for many different configuration aspects of Radarr
 - AutoImport – watches a drop directory for folders beginning with an import marker and:
   - Attempts to match the folder (minus marker) to an existing Radarr movie path
   - Verifies group ownership and group rw permissions for all files (`AUTOIMPORT_GROUP` is required)
@@ -127,18 +138,25 @@ Services:
 | ARR_SUPPORTED_API_VERSIONS | v3,v1 | API versions to probe in order |
 | ARR_HOST | radarr | Hostname/IP of Radarr |
 | ARR_PORT | (unset) | Optional external port override |
-| AUTOCONFIG_MEDIAMANAGEMENT | true | Apply media management settings from JSON |
-| AUTOCONFIG_MEDIAMANAGEMENT_JSON | /app/config/mediamanagement.json | Media management JSON path |
-| AUTOCONFIG_HOST | true | Apply host settings |
-| AUTOCONFIG_HOST_JSON | /app/config/host.json | Host JSON path |
-| AUTOCONFIG_CUSTOMFORMAT | true | Apply custom format(s) |
-| AUTOCONFIG_CUSTOMFORMAT_JSON | /app/config/customformat.json | Custom format JSON path |
-| AUTOCONFIG_UI | true | Apply UI settings |
-| AUTOCONFIG_UI_JSON | /app/config/ui.json | UI JSON path |
-| AUTOCONFIG_QUALITYPROFILE | true | Apply quality profile(s) |
-| AUTOCONFIG_QUALITYPROFILE_JSON | /app/config/qualityprofile.json | Quality profile JSON path |
-| AUTOCONFIG_NAMING | true | Apply naming settings |
-| AUTOCONFIG_NAMING_JSON | /app/config/naming.json | Naming JSON path |
+|---|---|---|
+| AUTOCONFIG_DELAY | 10s | Initial delay before running `AutoConfig` service after container start |
+| AUTOCONFIG_CUSTOMFORMAT | false | Configure settings at the `customformat` api endpoint. |
+| AUTOCONFIG_CUSTOMFORMAT_JSON | /app/config/customformat.json | Path to the json file for `customformat` configuration. Expects an array of objects. |
+| AUTOCONFIG_DOWNLOADCLIENT | false | Configure settings at the `downloadclient` api endpoint. |
+| AUTOCONFIG_DOWNLOADCLIENT_JSON | /app/config/downloadclient.json | Path to the json file for `downloadclient` configuration. Expects an array of objects. |
+| AUTOCONFIG_HOST | true | Configure settings at the `config/host` api endpoint. |
+| AUTOCONFIG_HOST_JSON | /app/config/host.json | Path to the json file for `config/host` configuration. Expects a single json object. |
+| AUTOCONFIG_MEDIAMANAGEMENT | true | Configure settings at the `config/mediamanagement` api endpoint. |
+| AUTOCONFIG_MEDIAMANAGEMENT_JSON | /app/config/mediamanagement.json | Path to the json file for `config/mediamanagement` configuration. Expects a single json object. |
+| AUTOCONFIG_NAMING | true | Configure settings at the `config/naming` api endpoint. |
+| AUTOCONFIG_NAMING_JSON | /app/config/naming.json | Path to the json file for `config/naming` configuration. Expects a single json object. |
+| AUTOCONFIG_QUALITYPROFILE | true | Configure settings at the `qualityprofile` api endpoint. |
+| AUTOCONFIG_QUALITYPROFILE_JSON | /app/config/qualityprofile.json | Path to the json file for `qualityprofile` configuration. Expects an array of objects. |
+| AUTOCONFIG_REMOTEPATHMAPPING | false | Configure settings at the `remotepathmapping` api endpoint. |
+| AUTOCONFIG_REMOTEPATHMAPPING_JSON | /app/config/remotepathmapping.json | Path to the json file for `remotepathmapping` configuration. Expects an array of objects. |
+| AUTOCONFIG_UI | false | Configure settings at the `config/ui` api endpoint. |
+| AUTOCONFIG_UI_JSON | /app/config/ui.json | Path to the json file for `config/ui` configuration. Expects a single json object. |
+|---|---|---|
 | AUTOIMPORT_CACHE_HOURS | 1 | Cache lifetime for path list (hours) |
 | AUTOIMPORT_DROP_DIR | /drop | Directory scanned for `import-` prefixed folders |
 | AUTOIMPORT_DOWNLOADCLIENT_NAME | radarr-sidecar | Blackhole client name created if missing |
@@ -152,7 +170,7 @@ Services:
 
 Services:
 
-- AutoConfig – same pattern as Radarr (defaults disabled in Dockerfile)
+- AutoConfig – sends bundled JSONs for many different configuration aspects of Sonarr
 - AutoImport – same behavior as Radarr but for series, using Sonarr's `DownloadedSeriesScan`
 
 #### Environment variables
@@ -166,18 +184,25 @@ Services:
 | ARR_SUPPORTED_API_VERSIONS | v3,v1 | API versions to probe in order |
 | ARR_HOST | sonarr | Hostname/IP of Sonarr |
 | ARR_PORT | (unset) | Optional external port override |
-| AUTOCONFIG_MEDIAMANAGEMENT | false | Apply media management settings from JSON |
-| AUTOCONFIG_MEDIAMANAGEMENT_JSON | /app/config/mediamanagement.json | Media management JSON path |
-| AUTOCONFIG_HOST | false | Apply host settings |
-| AUTOCONFIG_HOST_JSON | /app/config/host.json | Host JSON path |
-| AUTOCONFIG_CUSTOMFORMAT | false | Apply custom format(s) |
-| AUTOCONFIG_CUSTOMFORMAT_JSON | /app/config/customformat.json | Custom format JSON path |
-| AUTOCONFIG_UI | false | Apply UI settings |
-| AUTOCONFIG_UI_JSON | /app/config/ui.json | UI JSON path |
-| AUTOCONFIG_QUALITYPROFILE | false | Apply quality profile(s) |
-| AUTOCONFIG_QUALITYPROFILE_JSON | /app/config/qualityprofile.json | Quality profile JSON path |
-| AUTOCONFIG_NAMING | false | Apply naming settings |
-| AUTOCONFIG_NAMING_JSON | /app/config/naming.json | Naming JSON path |
+|---|---|---|
+| AUTOCONFIG_DELAY | 10s | Initial delay before running `AutoConfig` service after container start |
+| AUTOCONFIG_CUSTOMFORMAT | false | Configure settings at the `customformat` api endpoint. |
+| AUTOCONFIG_CUSTOMFORMAT_JSON | /app/config/customformat.json | Path to the json file for `customformat` configuration. Expects an array of objects. |
+| AUTOCONFIG_DOWNLOADCLIENT | false | Configure settings at the `downloadclient` api endpoint. |
+| AUTOCONFIG_DOWNLOADCLIENT_JSON | /app/config/downloadclient.json | Path to the json file for `downloadclient` configuration. Expects an array of objects. |
+| AUTOCONFIG_HOST | true | Configure settings at the `config/host` api endpoint. |
+| AUTOCONFIG_HOST_JSON | /app/config/host.json | Path to the json file for `config/host` configuration. Expects a single json object. |
+| AUTOCONFIG_MEDIAMANAGEMENT | true | Configure settings at the `config/mediamanagement` api endpoint. |
+| AUTOCONFIG_MEDIAMANAGEMENT_JSON | /app/config/mediamanagement.json | Path to the json file for `config/mediamanagement` configuration. Expects a single json object. |
+| AUTOCONFIG_NAMING | true | Configure settings at the `config/naming` api endpoint. |
+| AUTOCONFIG_NAMING_JSON | /app/config/naming.json | Path to the json file for `config/naming` configuration. Expects a single json object. |
+| AUTOCONFIG_QUALITYPROFILE | true | Configure settings at the `qualityprofile` api endpoint. |
+| AUTOCONFIG_QUALITYPROFILE_JSON | /app/config/qualityprofile.json | Path to the json file for `qualityprofile` configuration. Expects an array of objects. |
+| AUTOCONFIG_REMOTEPATHMAPPING | false | Configure settings at the `remotepathmapping` api endpoint. |
+| AUTOCONFIG_REMOTEPATHMAPPING_JSON | /app/config/remotepathmapping.json | Path to the json file for `remotepathmapping` configuration. Expects an array of objects. |
+| AUTOCONFIG_UI | false | Configure settings at the `config/ui` api endpoint. |
+| AUTOCONFIG_UI_JSON | /app/config/ui.json | Path to the json file for `config/ui` configuration. Expects a single json object. |
+|---|---|---|
 | AUTOIMPORT_CACHE_HOURS | 1 | Cache lifetime for path list (hours) |
 | AUTOIMPORT_DROP_DIR | /drop | Directory scanned for `import-` prefixed folders |
 | AUTOIMPORT_DOWNLOADCLIENT_NAME | sonarr-sidecar | Blackhole client name created if missing |
