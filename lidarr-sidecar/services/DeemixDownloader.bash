@@ -278,6 +278,14 @@ FolderCleaner() {
             find "${AUDIO_DATA_PATH}/downloaded" -mindepth 1 -type f -mtime +${AUDIO_RETRY_DOWNLOADED_DAYS} -delete
         fi
     fi
+    if [ -d "${AUDIO_DATA_PATH}/failed" ]; then
+        # check for failed entries older than AUDIO_RETRY_FAILED_DAYS days
+        if find "${AUDIO_DATA_PATH}/failed" -mindepth 1 -type f -mtime +${AUDIO_RETRY_FAILED_DAYS} | read; then
+            log "INFO :: Removing previously failed lidarr album ids older than ${AUDIO_RETRY_FAILED_DAYS} days to give them a retry..."
+            # delete failed entries older than AUDIO_RETRY_FAILED_DAYS days
+            find "${AUDIO_DATA_PATH}/failed" -mindepth 1 -type f -mtime +${AUDIO_RETRY_FAILED_DAYS} -delete
+        fi
+    fi
     log "TRACE :: Exiting FolderCleaner..."
 }
 
@@ -449,9 +457,14 @@ ProcessLidarrWantedList() {
         return
     fi
 
-    # Preload all notfound IDs into memory (only once)
+    # Preload all notfound and downloaded IDs into memory (only once)
     mapfile -t notfound < <(
         find "${AUDIO_DATA_PATH}/notfound/" -type f 2>/dev/null | while read -r f; do
+            basename "$f"
+        done | sed 's/--.*//' | sort
+    ) 2>/dev/null
+    mapfile -t downloaded < <(
+        find "${AUDIO_DATA_PATH}/downloaded/" -type f 2>/dev/null | while read -r f; do
             basename "$f"
         done | sed 's/--.*//' | sort
     ) 2>/dev/null
@@ -468,8 +481,12 @@ ProcessLidarrWantedList() {
             jq -r '.records[].id // empty' <<<"$lidarrPage" | sort -u
         )
 
-        # Filter out already failed/notfound IDs
-        mapfile -t toProcess < <(comm -13 <(printf "%s\n" "${notfound[@]}") <(printf "%s\n" "${tocheck[@]}"))
+        # Filter out already notfound and downloaded IDs
+        local tmpList
+        tmpList=$(printf "%s\n" "${tocheck[@]}")
+        tmpList=$(grep -vFf <(printf "%s\n" "${notfound[@]}") <<<"$tmpList")
+        tmpList=$(grep -vFf <(printf "%s\n" "${downloaded[@]}") <<<"$tmpList")
+        mapfile -t toProcess <<<"$(sort -u <<<"$tmpList")"
 
         local recordCount=${#toProcess[@]}
         log "INFO :: ${recordCount} ${listType} albums to process"
@@ -936,6 +953,13 @@ CalculateBestMatch() {
             # 5. Preferred format priority
             # 6. Preferred country priority
             if isBetterMatch "$diff" "$trackDiff" "$deezerAlbumTrackCount" "$lyricTypePreferred" "$lidarrReleaseFormatPriority" "$lidarrReleaseCountryPriority"; then
+                # Check if we tried and failed to download this album before
+                if [ -f "${AUDIO_DATA_PATH}/failed/${deezerAlbumId}" ]; then
+                    log "WARNING :: Album \"${titleVariant}\" previously failed to download (deezer: ${deezerAlbumId})...Looking for a different match..."
+                    continue
+                fi
+
+                # Update best match globals
                 set_state "bestMatchID" "${deezerAlbumID}"
                 set_state "bestMatchTitle" "${titleVariant}"
                 set_state "bestMatchYear" "${downloadedReleaseYear}"
@@ -1098,6 +1122,7 @@ DownloadProcess() {
         # Stop trying after too many attempts
         if ((downloadTry >= AUDIO_DOWNLOAD_ATTEMPT_THRESHOLD)); then
             log "WARNING :: Album \"${deezerAlbumTitle}\" failed to download after ${downloadTry} attempts...Skipping..."
+            touch "${AUDIO_DATA_PATH}/failed/${deezerAlbumId}"
             return
         fi
 
@@ -1381,6 +1406,7 @@ log "DEBUG :: AUDIO_PREFERED_COUNTRIES=${AUDIO_PREFERED_COUNTRIES}"
 log "DEBUG :: AUDIO_PREFERED_FORMATS=${AUDIO_PREFERED_FORMATS}"
 log "DEBUG :: AUDIO_REQUIRE_QUALITY=${AUDIO_REQUIRE_QUALITY}"
 log "DEBUG :: AUDIO_RETRY_DOWNLOADED_DAYS=${AUDIO_RETRY_DOWNLOADED_DAYS}"
+log "DEBUG :: AUDIO_RETRY_FAILED_DAYS=${AUDIO_RETRY_FAILED_DAYS}"
 log "DEBUG :: AUDIO_RETRY_NOTFOUND_DAYS=${AUDIO_RETRY_NOTFOUND_DAYS}"
 log "DEBUG :: AUDIO_SHARED_LIDARR_PATH=${AUDIO_SHARED_LIDARR_PATH}"
 log "DEBUG :: AUDIO_TITLE_REPLACEMENTS_FILE=${AUDIO_TITLE_REPLACEMENTS_FILE}"
