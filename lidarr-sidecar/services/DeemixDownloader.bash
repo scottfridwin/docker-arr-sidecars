@@ -482,6 +482,7 @@ ProcessLidarrWantedList() {
         )
 
         # Filter out already notfound and downloaded IDs
+        log "DEBUG :: Initial ${#tocheck[@]} ${listType} albums to check"
         local tmpList
         tmpList=$(printf "%s\n" "${tocheck[@]}")
         tmpList=$(grep -vFf <(printf "%s\n" "${notfound[@]}") <<<"$tmpList")
