@@ -951,8 +951,8 @@ CalculateBestMatch() {
             # 6. Preferred country priority
             if isBetterMatch "$diff" "$trackDiff" "$deezerAlbumTrackCount" "$lyricTypePreferred" "$lidarrReleaseFormatPriority" "$lidarrReleaseCountryPriority"; then
                 # Check if we tried and failed to download this album before
-                if [ -f "${AUDIO_DATA_PATH}/failed/${deezerAlbumId}" ]; then
-                    log "WARNING :: Album \"${titleVariant}\" previously failed to download (deezer: ${deezerAlbumId})...Looking for a different match..."
+                if [ -f "${AUDIO_DATA_PATH}/failed/${deezerAlbumID}" ]; then
+                    log "WARNING :: Album \"${titleVariant}\" previously failed to download (deezer: ${deezerAlbumID})...Looking for a different match..."
                     continue
                 fi
 
