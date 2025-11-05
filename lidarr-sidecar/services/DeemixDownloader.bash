@@ -457,6 +457,21 @@ ProcessLidarrWantedList() {
         return
     fi
 
+    # Preload title replacement file
+    if [[ -f "${AUDIO_TITLE_REPLACEMENTS_FILE}" ]]; then
+        log "DEBUG :: Loading custom title replacements from ${AUDIO_TITLE_REPLACEMENTS_FILE}"
+        while IFS="=" read -r key value; do
+            key="$(normalize_string "$key")"
+            value="$(normalize_string "$value")"
+            set_state "titleReplacement_${key}" "$value"
+            log "DEBUG :: Loaded title replacement: ${key} -> ${value}"
+        done < <(
+            jq -r 'to_entries[] | "\(.key)=\(.value)"' "${AUDIO_TITLE_REPLACEMENTS_FILE}" 2>/dev/null
+        )
+    else
+        log "DEBUG :: No custom title replacements file found (${AUDIO_TITLE_REPLACEMENTS_FILE})"
+    fi
+
     # Preload all notfound/downloaded IDs into memory (only once)
     mapfile -t notfound < <(
         find "${AUDIO_DATA_PATH}/notfound/" -type f 2>/dev/null | while read -r f; do
@@ -601,20 +616,6 @@ SearchProcess() {
     set_state "bestMatchCountryPriority" ""
     set_state "bestMatchLyricTypePreferred" ""
     set_state "exactMatchFound" "false"
-
-    # Load title replacement file
-    if [[ -f "${AUDIO_TITLE_REPLACEMENTS_FILE}" ]]; then
-        log "DEBUG :: Loading custom title replacements from ${AUDIO_TITLE_REPLACEMENTS_FILE}"
-        while IFS="=" read -r key value; do
-            key="$(normalize_string "$key")"
-            value="$(normalize_string "$value")"
-            set_state "titleReplacement_${key}" "$value"
-        done < <(
-            jq -r 'to_entries[] | "\(.key)=\(.value)"' "${AUDIO_TITLE_REPLACEMENTS_FILE}" 2>/dev/null
-        )
-    else
-        log "DEBUG :: No custom title replacements file found (${AUDIO_TITLE_REPLACEMENTS_FILE})"
-    fi
 
     # Start search loop
     local exactMatchFound="false"
