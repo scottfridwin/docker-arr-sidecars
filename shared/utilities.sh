@@ -440,6 +440,7 @@ normalize_string() {
     # Trims leading/trailing spaces
     # Removes parentheses
     # Removes ? characters
+    # Removes ! characters
     # Replaces masculine ordinal º with degree symbol °
     echo "$1" |
         sed -e "s/’/'/g" \
@@ -452,7 +453,8 @@ normalize_string() {
             -e 's/[[:space:]]\+/ /g' \
             -e 's/^ *//; s/ *$//' \
             -e 's/[()]//g' \
-            -e 's/[?]//g'
+            -e 's/[?]//g' \
+            -e 's/[!]//g'
 }
 
 # Cleans a string for safe use in file or folder names
