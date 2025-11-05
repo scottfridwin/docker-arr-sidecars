@@ -483,14 +483,39 @@ ProcessLidarrWantedList() {
 
         # Filter out already notfound and downloaded IDs
         log "DEBUG :: Initial ${#tocheck[@]} ${listType} albums to check"
-        local tmpList
+
+        # Build a newline-separated list of IDs
         tmpList=$(printf "%s\n" "${tocheck[@]}")
-        tmpList=$(grep -vFf <(printf "%s\n" "${notfound[@]}") <<<"$tmpList")
-        tmpList=$(grep -vFf <(printf "%s\n" "${downloaded[@]}") <<<"$tmpList")
-        mapfile -t toProcess <<<"$(sort -u <<<"$tmpList")"
+
+        # Track initial count
+        local beforeCount=${#tocheck[@]}
+        local removedCount=0
+
+        # Filter out those marked as "notfound"
+        if ((${#notfound[@]})); then
+            local tmpBeforeCount
+            tmpBeforeCount=$(wc -l <<<"$tmpList")
+            tmpList=$(grep -vFf <<<"$(printf "%s\n" "${notfound[@]}")" <<<"$tmpList" || true)
+            local tmpAfterCount
+            tmpAfterCount=$(wc -l <<<"$tmpList")
+            ((removedCount += tmpBeforeCount - tmpAfterCount))
+        fi
+
+        # Filter out those already downloaded
+        if ((${#downloaded[@]})); then
+            local tmpBeforeCount
+            tmpBeforeCount=$(wc -l <<<"$tmpList")
+            tmpList=$(grep -vFf <<<"$(printf "%s\n" "${downloaded[@]}")" <<<"$tmpList" || true)
+            local tmpAfterCount
+            tmpAfterCount=$(wc -l <<<"$tmpList")
+            ((removedCount += tmpBeforeCount - tmpAfterCount))
+        fi
+
+        # Deduplicate and convert to array
+        mapfile -t toProcess < <(sort -u <<<"$tmpList")
 
         local recordCount=${#toProcess[@]}
-        log "INFO :: ${recordCount} ${listType} albums to process"
+        log "INFO :: ${recordCount} ${listType} albums to process (filtered out ${removedCount} already processed)"
 
         if ((recordCount > 0)); then
             log "INFO :: Starting search for ${recordCount} ${listType} albums"
