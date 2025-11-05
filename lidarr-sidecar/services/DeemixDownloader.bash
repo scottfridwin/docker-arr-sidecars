@@ -457,7 +457,7 @@ ProcessLidarrWantedList() {
         return
     fi
 
-    # Preload all notfound and downloaded IDs into memory (only once)
+    # Preload all notfound/downloaded IDs into memory (only once)
     mapfile -t notfound < <(
         find "${AUDIO_DATA_PATH}/notfound/" -type f 2>/dev/null | while read -r f; do
             basename "$f"
@@ -481,40 +481,12 @@ ProcessLidarrWantedList() {
             jq -r '.records[].id // empty' <<<"$lidarrPage" | sort -u
         )
 
-        # Filter out already notfound and downloaded IDs
-        log "DEBUG :: Initial ${#tocheck[@]} ${listType} albums to check"
-
-        # Build a newline-separated list of IDs
-        tmpList=$(printf "%s\n" "${tocheck[@]}")
-
-        local beforeCount=${#tocheck[@]}
-        local removedCount=0
-
-        # Filter out those marked as "notfound"
-        if ((${#notfound[@]})); then
-            local tmpBeforeCount
-            tmpBeforeCount=$(wc -l <<<"$tmpList")
-            tmpList=$(grep -vFf <(printf "%s\n" "${notfound[@]}") <<<"$tmpList" 2>/dev/null || true)
-            local tmpAfterCount
-            tmpAfterCount=$(wc -l <<<"$tmpList")
-            ((removedCount += tmpBeforeCount - tmpAfterCount))
-        fi
-
-        # Filter out those already downloaded
-        if ((${#downloaded[@]})); then
-            local tmpBeforeCount
-            tmpBeforeCount=$(wc -l <<<"$tmpList")
-            tmpList=$(grep -vFf <(printf "%s\n" "${downloaded[@]}") <<<"$tmpList" 2>/dev/null || true)
-            local tmpAfterCount
-            tmpAfterCount=$(wc -l <<<"$tmpList")
-            ((removedCount += tmpBeforeCount - tmpAfterCount))
-        fi
-
-        # Deduplicate and convert to array
-        mapfile -t toProcess < <(sort -u <<<"$tmpList")
+        # Filter out already notfound/downloaded IDs
+        mapfile -t tmpList < <(comm -13 <(printf "%s\n" "${notfound[@]}") <(printf "%s\n" "${tocheck[@]}"))
+        mapfile -t toProcess < <(comm -13 <(printf "%s\n" "${downloaded[@]}") <(printf "%s\n" "${tmpList[@]}"))
 
         local recordCount=${#toProcess[@]}
-        log "INFO :: ${recordCount} ${listType} albums to process (filtered out ${removedCount} already processed)"
+        log "INFO :: ${recordCount} ${listType} albums to process"
 
         if ((recordCount > 0)); then
             log "INFO :: Starting search for ${recordCount} ${listType} albums"
