@@ -476,6 +476,9 @@ CleanPathString() {
     input="${input//>/_}"
     input="${input//|/_}"
 
+    # Remove hyphens (-) to better support path parsing
+    input="${input//-/}"
+
     # Replace consecutive spaces with a single underscore
     input="$(echo "$input" | tr -s ' ' '_')"
 

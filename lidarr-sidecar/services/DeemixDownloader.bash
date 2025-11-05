@@ -1171,7 +1171,7 @@ DownloadProcess() {
     {
         shopt -s nullglob
         for f in "${AUDIO_WORK_PATH}"/staging/*/*; do
-            mv "$f" "${AUDIO_WORK_PATH}/staging/"
+            mv "${f}" "${AUDIO_WORK_PATH}/staging/"
         done
         shopt -u nullglob
     }
@@ -1188,31 +1188,31 @@ DownloadProcess() {
         local downloadedLidarrReleaseInfo="$(get_state "downloadedLidarrReleaseInfo")"
         local lidarrReleaseForeignId="$(jq -r ".foreignReleaseId" <<<"${downloadedLidarrReleaseInfo}")"
 
-        log "DEBUG :: Title='$lidarrAlbumTitle' AlbumID='$lidarrReleaseForeignId' ReleaseGroupID='$lidarrAlbumForeignAlbumId'"
+        log "DEBUG :: Title='${lidarrAlbumTitle}' AlbumID='${lidarrReleaseForeignId}' ReleaseGroupID='${lidarrAlbumForeignAlbumId}'"
         shopt -s nullglob
         for file in "${AUDIO_WORK_PATH}"/staging/*.{flac,mp3}; do
-            [ -f "$file" ] || continue
-            log "DEBUG :: Tagging $file"
+            [ -f "${file}" ] || continue
+            log "DEBUG :: Tagging ${file}"
 
             case "${file##*.}" in
             flac)
-                log "DEBUG :: Applying metaflac tags to: $file"
+                log "DEBUG :: Applying metaflac tags to: ${file}"
                 metaflac --remove-tag=MUSICBRAINZ_ALBUMID \
                     --remove-tag=MUSICBRAINZ_RELEASEGROUPID \
                     --remove-tag=ALBUM \
-                    --set-tag=MUSICBRAINZ_ALBUMID="$lidarrReleaseForeignId" \
-                    --set-tag=MUSICBRAINZ_RELEASEGROUPID="$lidarrAlbumForeignAlbumId" \
-                    --set-tag=ALBUM="$lidarrAlbumTitle" "$file"
+                    --set-tag=MUSICBRAINZ_ALBUMID="${lidarrReleaseForeignId}" \
+                    --set-tag=MUSICBRAINZ_RELEASEGROUPID="${lidarrAlbumForeignAlbumId}" \
+                    --set-tag=ALBUM="${lidarrAlbumTitle}" "${file}"
                 ;;
             mp3)
-                log "DEBUG :: Applying mutagen tags to: $file"
-                export ALBUM_TITLE="$lidarrAlbumTitle"
-                export MB_ALBUMID="$lidarrReleaseForeignId"
-                export MB_RELEASEGROUPID="$lidarrAlbumForeignAlbumId"
-                python3 python/MutagenTagger.py "$file"
+                log "DEBUG :: Applying mutagen tags to: ${file}"
+                export ALBUM_TITLE="${lidarrAlbumTitle}"
+                export MB_ALBUMID="${lidarrReleaseForeignId}"
+                export MB_RELEASEGROUPID="${lidarrAlbumForeignAlbumId}"
+                python3 python/MutagenTagger.py "${file}"
                 ;;
             *)
-                log "WARN :: Skipping unsupported format: $file"
+                log "WARN :: Skipping unsupported format: ${file}"
                 ;;
             esac
         done
@@ -1220,19 +1220,19 @@ DownloadProcess() {
     fi
 
     # Add ReplayGain tags if enabled
-    if [ "$returnCode" -eq 0 ] && [ "${AUDIO_APPLY_REPLAYGAIN}" == "true" ]; then
+    if [ "${returnCode}" -eq 0 ] && [ "${AUDIO_APPLY_REPLAYGAIN}" == "true" ]; then
         AddReplaygainTags "${AUDIO_WORK_PATH}/staging"
         returnCode=$?
-        log "DEBUG :: returnCode=$returnCode"
+        log "DEBUG :: returnCode=${returnCode}"
     else
         log "INFO :: Replaygain tagging disabled"
     fi
 
     # Add Beets tags if enabled
-    if [ "$returnCode" -eq 0 ] && [ "${AUDIO_APPLY_BEETS}" == "true" ]; then
+    if [ "${returnCode}" -eq 0 ] && [ "${AUDIO_APPLY_BEETS}" == "true" ]; then
         AddBeetsTags "${AUDIO_WORK_PATH}/staging"
         returnCode=$?
-        log "DEBUG :: returnCode=$returnCode"
+        log "DEBUG :: returnCode=${returnCode}"
     else
         log "INFO :: Beets tagging disabled"
     fi
