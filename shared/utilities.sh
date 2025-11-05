@@ -440,12 +440,14 @@ normalize_string() {
     # Trims leading/trailing spaces
     # Removes parentheses
     # Removes ? characters
+    # Replaces masculine ordinal º with degree symbol °
     echo "$1" |
         sed -e "s/’/'/g" \
             -e "s/‘/'/g" \
             -e 's/“/"/g' \
             -e 's/”/"/g' \
             -e 's/–/-/g' \
+            -e 's/º/°/g' \
             -e 's/\xA0/ /g' \
             -e 's/[[:space:]]\+/ /g' \
             -e 's/^ *//; s/ *$//' \
