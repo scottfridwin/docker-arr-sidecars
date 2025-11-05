@@ -487,7 +487,6 @@ ProcessLidarrWantedList() {
         # Build a newline-separated list of IDs
         tmpList=$(printf "%s\n" "${tocheck[@]}")
 
-        # Track initial count
         local beforeCount=${#tocheck[@]}
         local removedCount=0
 
@@ -495,7 +494,7 @@ ProcessLidarrWantedList() {
         if ((${#notfound[@]})); then
             local tmpBeforeCount
             tmpBeforeCount=$(wc -l <<<"$tmpList")
-            tmpList=$(grep -vFf <<<"$(printf "%s\n" "${notfound[@]}")" <<<"$tmpList" || true)
+            tmpList=$(grep -vFf <(printf "%s\n" "${notfound[@]}") <<<"$tmpList" 2>/dev/null || true)
             local tmpAfterCount
             tmpAfterCount=$(wc -l <<<"$tmpList")
             ((removedCount += tmpBeforeCount - tmpAfterCount))
@@ -505,7 +504,7 @@ ProcessLidarrWantedList() {
         if ((${#downloaded[@]})); then
             local tmpBeforeCount
             tmpBeforeCount=$(wc -l <<<"$tmpList")
-            tmpList=$(grep -vFf <<<"$(printf "%s\n" "${downloaded[@]}")" <<<"$tmpList" || true)
+            tmpList=$(grep -vFf <(printf "%s\n" "${downloaded[@]}") <<<"$tmpList" 2>/dev/null || true)
             local tmpAfterCount
             tmpAfterCount=$(wc -l <<<"$tmpList")
             ((removedCount += tmpBeforeCount - tmpAfterCount))
