@@ -457,6 +457,14 @@ normalize_string() {
             -e 's/[!]//g'
 }
 
+# Removes quotes from a string
+remove_quotes() {
+    # $1 -> the string to process
+
+    # Remove quotes
+    echo "$1" | sed -e "s/['\"]//g"
+}
+
 # Cleans a string for safe use in file or folder names
 CleanPathString() {
     local input="$1"
