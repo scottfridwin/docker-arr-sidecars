@@ -1172,6 +1172,7 @@ DownloadProcess() {
         shopt -s nullglob
         for f in "${AUDIO_WORK_PATH}"/staging/*/*; do
             mv "${f}" "${AUDIO_WORK_PATH}/staging/"
+            log "TRACE :: Moved ${f} to ${AUDIO_WORK_PATH}/staging/"
         done
         shopt -u nullglob
     }
