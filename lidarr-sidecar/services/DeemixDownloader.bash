@@ -1168,16 +1168,26 @@ DownloadProcess() {
 
     # Consolidate files to a single folder and delete empty folders
     log "INFO :: Consolidating files to single folder"
-    {
-        shopt -s nullglob
-        for f in "${AUDIO_WORK_PATH}"/staging/*/*; do
-            mv "${f}" "${AUDIO_WORK_PATH}/staging/"
-            log "TRACE :: Moved ${f} to ${AUDIO_WORK_PATH}/staging/"
-        done
-        shopt -u nullglob
-    }
+
+    # Move all files from subdirectories to the staging root
+    find "${AUDIO_WORK_PATH}/staging" -mindepth 2 -type f -print0 | while IFS= read -r -d '' f; do
+        dest="${AUDIO_WORK_PATH}/staging/$(basename "$f")"
+
+        # Handle potential name collisions
+        if [[ -e "$dest" ]]; then
+            base="$(basename "$f")"
+            ext="${base##*.}"
+            name="${base%.*}"
+            dest="${AUDIO_WORK_PATH}/staging/${name}_$(date +%s%N).${ext}"
+            log "WARN :: Renamed duplicate file $(basename "$f") -> $(basename "$dest")"
+        fi
+
+        mv "$f" "$dest"
+        log "TRACE :: Moved $f -> $dest"
+    done
+
     # Remove now-empty subdirectories
-    find "${AUDIO_WORK_PATH}/staging/" -type d -mindepth 1 -maxdepth 1 -exec rm -rf {} \; 2>/dev/null
+    find "${AUDIO_WORK_PATH}/staging" -type d -mindepth 1 -empty -delete 2>/dev/null
 
     local returnCode=0
 
