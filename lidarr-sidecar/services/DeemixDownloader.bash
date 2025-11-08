@@ -73,6 +73,7 @@ GetDeezerAlbumInfo() {
     local maxRetries="${AUDIO_DEEZER_API_RETRIES}"
     local albumCacheFile="${AUDIO_WORK_PATH}/cache/album-${albumId}.json"
     local albumJson
+    local httpCode=0
     local returnCode=1
 
     # Ensure cache directory exists
@@ -81,37 +82,42 @@ GetDeezerAlbumInfo() {
     while ((retries < maxRetries)); do
         # Fetch from Deezer if cache is missing
         if [ ! -f "${albumCacheFile}" ]; then
-            # Curl with HTTP code capture
-            httpCode=$(curl -sS -w "%{http_code}" -o "${albumCacheFile}" \
-                --connect-timeout 5 --max-time ${AUDIO_DEEZER_API_TIMEOUT} \
-                "https://api.deezer.com/album/${albumId}")
+            # Use subshell to prevent curl failure from aborting script
+            if ! httpCode=$(curl -sS -w "%{http_code}" -o "${albumCacheFile}" \
+                --connect-timeout 5 --max-time "${AUDIO_DEEZER_API_TIMEOUT}" \
+                "https://api.deezer.com/album/${albumId}" 2>/dev/null || true); then
+                httpCode=0
+            fi
 
             if [[ "${httpCode}" -ne 200 ]]; then
-                log "WARNING :: Deezer returned HTTP ${httpCode} for album ${albumId}, retrying..."
-                rm -f "${albumCacheFile}"
+                log "WARNING :: Deezer returned HTTP ${httpCode} for album ${albumId}, retrying... ($((retries + 1))/${maxRetries})"
+                rm -f "${albumCacheFile}" 2>/dev/null || true
                 ((retries++))
                 sleep 1
                 continue
             fi
         fi
 
-        # Validate JSON
-        if albumJson=$(jq -e . <"${albumCacheFile}" 2>/dev/null); then
-            log "TRACE :: albumJson: ${albumJson}"
-            set_state "deezerAlbumInfo" "${albumJson}"
-            returnCode=0
-            break
-        else
-            log "WARNING :: Invalid JSON from Deezer for album ${albumId}, retrying... ($((retries + 1))/${maxRetries})"
-            rm -f "${albumCacheFile}"
-            ((retries++))
-            sleep 1
+        # Safely validate JSON (jq -e can crash script under set -e)
+        if albumJson=$(jq -e . <"${albumCacheFile}" 2>/dev/null || true); then
+            if [[ -n "${albumJson}" ]]; then
+                log "TRACE :: albumJson: ${albumJson}"
+                set_state "deezerAlbumInfo" "${albumJson}"
+                returnCode=0
+                break
+            fi
         fi
+
+        log "WARNING :: Invalid JSON from Deezer for album ${albumId}, retrying... ($((retries + 1))/${maxRetries})"
+        rm -f "${albumCacheFile}" 2>/dev/null || true
+        ((retries++))
+        sleep 1
     done
 
     if ((returnCode != 0)); then
         log "WARNING :: Failed to get valid album information after ${maxRetries} attempts for album ${albumId}"
     fi
+
     log "TRACE :: Exiting GetDeezerAlbumInfo..."
     return ${returnCode}
 }
@@ -133,69 +139,88 @@ GetDeezerArtistAlbums() {
     while ((retries < maxRetries)); do
         # Fetch from Deezer if cache is missing
         if [ ! -f "${artistCacheFile}" ]; then
-            # Curl with HTTP code capture
-            httpCode=$(curl -sS -w "%{http_code}" -o "${artistCacheFile}" \
-                --connect-timeout 5 --max-time ${AUDIO_DEEZER_API_TIMEOUT} \
-                "https://api.deezer.com/artist/${artistId}/albums?limit=1000")
+            # Use subshell to prevent curl failure from aborting script
+            if ! httpCode=$(curl -sS -w "%{http_code}" -o "${artistCacheFile}" \
+                --connect-timeout 5 --max-time "${AUDIO_DEEZER_API_TIMEOUT}" \
+                "https://api.deezer.com/artist/${artistId}/albums?limit=1000" 2>/dev/null || true); then
+                httpCode=0
+            fi
 
             if [[ "${httpCode}" -ne 200 ]]; then
-                log "WARNING :: Deezer returned HTTP ${httpCode} for artist ${artistId} albums, retrying..."
-                rm -f "${artistCacheFile}"
+                log "WARNING :: Deezer returned HTTP ${httpCode} for artist ${artistId}, retrying... ($((retries + 1))/${maxRetries})"
+                rm -f "${artistCacheFile}" 2>/dev/null || true
                 ((retries++))
                 sleep 1
                 continue
             fi
         fi
 
-        # Validate JSON
-        if artistJson=$(jq -e . <"${artistCacheFile}" 2>/dev/null); then
-            log "TRACE :: artistJson: ${artistJson}"
-            set_state "deezerArtistInfo" "${artistJson}"
-            returnCode=0
-            break
-        else
-            log "WARNING :: Invalid JSON for artist ${artistId} albums, retrying... ($((retries + 1))/${maxRetries})"
-            rm -f "${artistCacheFile}"
-            ((retries++))
-            sleep 1
+        # Safely validate JSON (jq -e can crash script under set -e)
+        if artistJson=$(jq -e . <"${artistCacheFile}" 2>/dev/null || true); then
+            if [[ -n "${artistJson}" ]]; then
+                log "TRACE :: artistJson: ${artistJson}"
+                set_state "deezerArtistInfo" "${artistJson}"
+                returnCode=0
+                break
+            fi
         fi
+
+        log "WARNING :: Invalid JSON from Deezer for artist ${artistId}, retrying... ($((retries + 1))/${maxRetries})"
+        rm -f "${artistCacheFile}" 2>/dev/null || true
+        ((retries++))
+        sleep 1
     done
 
     if ((returnCode != 0)); then
         log "WARNING :: Failed to get valid album list after ${maxRetries} attempts for artist ${artistId}"
     fi
+
     log "TRACE :: Exiting GetDeezerArtistAlbums..."
     return ${returnCode}
 }
-
 # Generic Deezer API call with retries and error handling
 CallDeezerAPI() {
     log "TRACE :: Entering CallDeezerAPI..."
-    # $1 -> Deezer API URL
     local url="${1}"
     local maxRetries="${AUDIO_DEEZER_API_RETRIES}"
     local retries=0
-    local httpCode
-    local body
-    local response
+    local httpCode=0
+    local body=""
+    local response=""
     local returnCode=1
 
     while ((retries < maxRetries)); do
-        # Capture HTTP code and output
         log "DEBUG :: url: ${url}"
-        response=$(curl -s -w "\n%{http_code}" \
+
+        # Wrap curl to avoid aborting the script on errors
+        if ! response=$(curl -sS -w "\n%{http_code}" \
             --connect-timeout 5 \
             --max-time "${AUDIO_DEEZER_API_TIMEOUT}" \
-            "${url}")
+            "${url}" 2>/dev/null || true); then
+            response=""
+        fi
 
-        httpCode=$(tail -n1 <<<"${response}")
-        body=$(sed '$d' <<<"${response}")
+        # Guard against empty or malformed response
+        if [[ -z "${response}" ]]; then
+            log "WARNING :: Empty response from Deezer API for URL ${url}, retrying ($((retries + 1))/${maxRetries})..."
+            ((retries++))
+            sleep 1
+            continue
+        fi
 
-        if [[ "${httpCode}" -eq 200 ]]; then
-            #log "DEBUG :: body: ${body}"
-            set_state "deezerApiResponse" "${body}"
-            returnCode=0
-            break
+        # Safely extract HTTP code and body
+        httpCode="$(tail -n1 <<<"${response}" 2>/dev/null || echo 0)"
+        body="$(sed '$d' <<<"${response}" 2>/dev/null || echo "")"
+
+        if [[ "${httpCode}" -eq 200 && -n "${body}" ]]; then
+            # JSON validation (uncomment if needed)
+            if jq -e . >/dev/null 2>&1 <<<"${body}"; then
+                set_state "deezerApiResponse" "${body}"
+                returnCode=0
+                break
+            else
+                log "WARNING :: Invalid JSON body from Deezer API for URL ${url}, retrying..."
+            fi
         else
             log "WARNING :: Deezer API returned HTTP ${httpCode:-<empty>} for URL ${url}, retrying ($((retries + 1))/${maxRetries})..."
             ((retries++))
@@ -208,7 +233,7 @@ CallDeezerAPI() {
     fi
 
     log "TRACE :: Exiting CallDeezerAPI..."
-    return ${returnCode}
+    return "${returnCode}"
 }
 
 # Add custom download client if it doesn't already exist
