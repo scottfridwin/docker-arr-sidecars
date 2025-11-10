@@ -297,7 +297,7 @@ GetReleaseTitleDisambiguation() {
     if [[ -n "$(releaseDisambiguation)" && "$(releaseDisambiguation) " != "null" && "${releaseDisambiguation}" != "" ]]; then
         releaseDisambiguation=" ($(releaseDisambiguation))"
     elif [[ -n "${albumDisambiguation}" && "${albumDisambiguation}" != "null" && "${albumDisambiguation}" != "" ]]; then
-        releaseDisambiguation="${albumDisambiguation}"
+        releaseDisambiguation=" (${albumDisambiguation})"
     else
         releaseDisambiguation=""
     fi
