@@ -291,8 +291,12 @@ GetReleaseTitleDisambiguation() {
     local releaseTitle releaseDisambiguation
     releaseTitle="$(jq -r ".title" <<<"${release_json}")"
     releaseDisambiguation="$(jq -r ".disambiguation" <<<"${release_json}")"
+    albumDisambiguation=$(get_state "lidarrAlbumDisambiguation")
     if [ -z "$releaseDisambiguation" ] || [ "$releaseDisambiguation" == "null" ]; then
         releaseDisambiguation=""
+    elif [ -z "$albumDisambiguation" ] || [ "$albumDisambiguation" == "null" ]; then
+        # Use album disambiguation from Lidarr if release disambiguation is empty
+        releaseDisambiguation=" (${albumDisambiguation})"
     else
         releaseDisambiguation=" ($releaseDisambiguation)"
     fi
@@ -550,15 +554,27 @@ SearchProcess() {
     lidarrAlbumForeignAlbumId=$(jq -r ".foreignAlbumId" <<<"$lidarrAlbumData")
     set_state "lidarrAlbumForeignAlbumId" "${lidarrAlbumForeignAlbumId}"
 
+    # Extract disambiguation from album info
+    local lidarrAlbumDisambiguation
+    lidarrAlbumDisambiguation=$(jq -r ".disambiguation" <<<"$lidarrAlbumData")
+    set_state "lidarrAlbumDisambiguation" "${lidarrAlbumDisambiguation}"
+    if [ -z "$lidarrAlbumDisambiguation" ] || [ "$lidarrAlbumDisambiguation" == "null" ]; then
+        lidarrAlbumDisambiguation=""
+    else
+        lidarrAlbumDisambiguation=" ($lidarrAlbumDisambiguation)"
+    fi
+    lidarrAlbumTitleWithDisambiguation="${lidarrAlbumTitle}${lidarrAlbumDisambiguation}"
+    set_state "lidarrAlbumTitleWithDisambiguation" "${lidarrAlbumTitleWithDisambiguation}"
+
     # Check if album was previously marked "not found"
     if [ -f "${AUDIO_DATA_PATH}/notfound/${lidarrAlbumId}--${lidarrArtistForeignArtistId}--${lidarrAlbumForeignAlbumId}" ]; then
-        log "INFO :: Album \"${lidarrAlbumTitle}\" by artist \"${lidarrArtistName}\" was previously marked as not found, skipping..."
+        log "INFO :: Album \"${lidarrAlbumTitleWithDisambiguation}\" by artist \"${lidarrArtistName}\" was previously marked as not found, skipping..."
         return
     fi
 
     # Check if album was previously marked "downloaded"
     if [ -f "${AUDIO_DATA_PATH}/downloaded/${lidarrAlbumId}--${lidarrArtistForeignArtistId}--${lidarrAlbumForeignAlbumId}" ]; then
-        log "INFO :: Album \"${lidarrAlbumTitle}\" by artist \"${lidarrArtistName}\" was previously marked as downloaded, skipping..."
+        log "INFO :: Album \"${lidarrAlbumTitleWithDisambiguation}\" by artist \"${lidarrArtistName}\" was previously marked as downloaded, skipping..."
         return
     fi
 
@@ -571,13 +587,13 @@ SearchProcess() {
     currentDateClean=$(date "+%Y%m%d")
     albumIsNewRelease="false"
     if [[ "${currentDateClean}" -lt "${releaseDateClean}" ]]; then
-        log "INFO :: Album \"${lidarrAlbumTitle}\" by artist \"${lidarrArtistName}\" has not been released yet (${releaseDate}), skipping..."
+        log "INFO :: Album \"${lidarrAlbumTitleWithDisambiguation}\" by artist \"${lidarrArtistName}\" has not been released yet (${releaseDate}), skipping..."
         return
     elif ((currentDateClean - releaseDateClean < 8)); then
         albumIsNewRelease="true"
     fi
 
-    log "INFO :: Starting search for album \"${lidarrAlbumTitle}\" by artist \"${lidarrArtistName}\""
+    log "INFO :: Starting search for album \"${lidarrAlbumTitleWithDisambiguation}\" by artist \"${lidarrArtistName}\""
 
     # Extract artist links
     local deezerArtistUrl=$(jq -r '.links[]? | select(.name=="deezer") | .url' <<<"${lidarrArtistData}")
@@ -670,8 +686,8 @@ SearchProcess() {
                 echo "${keywordArray[*]}"
             ))" # join array with | for pattern matching
 
-            if [[ "${lidarrAlbumTitle}" =~ ${keywordPattern} ]]; then
-                log "INFO :: Album \"${lidarrAlbumTitle}\" matched instrumental keyword (${AUDIO_INSTRUMENTAL_KEYWORDS}), skipping..."
+            if [[ "${lidarrAlbumTitleWithDisambiguation}" =~ ${keywordPattern} ]]; then
+                log "INFO :: Album \"${lidarrAlbumTitleWithDisambiguation}\" matched instrumental keyword (${AUDIO_INSTRUMENTAL_KEYWORDS}), skipping..."
                 continue
             elif [[ "${lidarrReleaseTitleWithDisambiguation,,}" =~ ${keywordPattern,,} ]]; then
                 log "INFO :: Release \"${lidarrReleaseTitleWithDisambiguation}\" matched instrumental keyword (${AUDIO_INSTRUMENTAL_KEYWORDS}), skipping..."
@@ -688,8 +704,8 @@ SearchProcess() {
             echo "${commentaryArray[*]}"
         ))" # join array with | for pattern matching
 
-        if [[ "${lidarrAlbumTitle,,}" =~ ${commentaryPattern,,} ]]; then
-            log "DEBUG :: Album \"${lidarrAlbumTitle}\" matched commentary keyword (${AUDIO_COMMENTARY_KEYWORDS})"
+        if [[ "${lidarrAlbumTitleWithDisambiguation,,}" =~ ${commentaryPattern,,} ]]; then
+            log "DEBUG :: Album \"${lidarrAlbumTitleWithDisambiguation}\" matched commentary keyword (${AUDIO_COMMENTARY_KEYWORDS})"
             lidarrReleaseContainsCommentary="true"
         elif [[ "${lidarrReleaseTitleWithDisambiguation,,}" =~ ${commentaryPattern,,} ]]; then
             log "DEBUG :: Release \"${lidarrReleaseTitleWithDisambiguation}\" matched commentary keyword (${AUDIO_COMMENTARY_KEYWORDS})"
