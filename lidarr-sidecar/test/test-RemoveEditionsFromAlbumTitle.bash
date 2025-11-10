@@ -48,3 +48,5 @@ echo "Passed: $pass, Failed: $fail"
 if ((fail > 0)); then
     exit 1
 fi
+
+exit 0
