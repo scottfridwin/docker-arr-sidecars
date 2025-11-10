@@ -61,10 +61,10 @@ jobs:
               echo "Total tests: $test_count"
               echo "Failed tests: $failed_tests"
               echo "========================================="
-              
-              if [ $failed_tests -gt 0 ]; then
-                exit 1
-              fi
+            fi
+            
+            if [ $failed_tests -gt 0 ]; then
+              exit 1
             fi
           else
             echo "⚠️  No test directory found for ${{ matrix.service }}"
