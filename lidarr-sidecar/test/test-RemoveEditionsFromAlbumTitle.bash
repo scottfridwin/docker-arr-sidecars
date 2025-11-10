@@ -25,7 +25,6 @@ declare -A TESTS=(
 pass=0
 fail=0
 
-echo "Running tests for RemoveEditionsFromAlbumTitle..."
 echo "----------------------------------------------"
 
 for input in "${!TESTS[@]}"; do
