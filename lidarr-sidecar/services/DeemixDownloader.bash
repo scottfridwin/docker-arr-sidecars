@@ -292,14 +292,16 @@ GetReleaseTitleDisambiguation() {
     releaseTitle="$(jq -r ".title" <<<"${release_json}")"
     releaseDisambiguation="$(jq -r ".disambiguation" <<<"${release_json}")"
     albumDisambiguation=$(get_state "lidarrAlbumDisambiguation")
-    if [ -z "$releaseDisambiguation" ] || [ "$releaseDisambiguation" == "null" ]; then
-        releaseDisambiguation=""
-    elif [ -z "$albumDisambiguation" ] || [ "$albumDisambiguation" == "null" ]; then
-        # Use album disambiguation from Lidarr if release disambiguation is empty
-        releaseDisambiguation=" (${albumDisambiguation})"
+    log "DEBUG :: albumDisambiguation=${albumDisambiguation}"
+    # Determine which disambiguation to use
+    if [[ -n "$(releaseDisambiguation)" && "$(releaseDisambiguation) " != "null" && "${releaseDisambiguation}" != "" ]]; then
+        releaseDisambiguation=" ($(releaseDisambiguation))"
+    elif [[ -n "${albumDisambiguation}" && "${albumDisambiguation}" != "null" && "${albumDisambiguation}" != "" ]]; then
+        releaseDisambiguation="${albumDisambiguation}"
     else
-        releaseDisambiguation=" ($releaseDisambiguation)"
+        releaseDisambiguation=""
     fi
+
     echo "${releaseTitle}${releaseDisambiguation}"
     log "TRACE :: Exiting GetReleaseTitleDisambiguation..."
 }
