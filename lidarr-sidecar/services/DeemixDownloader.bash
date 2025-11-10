@@ -1040,6 +1040,7 @@ isBetterMatch() {
         fi
     fi
 
+    log "DEBUG :: Comparing candidate (Diff=${diff}, TrackDiff=${trackDiff}, YearDiff=${yearDiff} (${yearDiffEvaluation}), NumTracks=${deezerAlbumTrackCount}, LyricPreferred=${lyricTypePreferred}, FormatPriority=${lidarrReleaseFormatPriority}, CountryPriority=${lidarrReleaseCountryPriority}) against best match (Diff=${bestMatchDistance}, TrackDiff=${bestMatchTrackDiff}, YearDiff=${bestMatchYearDiff}, NumTracks=${bestMatchNumTracks}, LyricPreferred=${bestMatchLyricTypePreferred}, FormatPriority=${bestMatchFormatPriority}, CountryPriority=${bestMatchCountryPriority})"
     # Compare against current best-match globals
     # Return 0 (true) if current candidate is better, 1 (false) otherwise
     if ((diff < bestMatchDistance)); then
