@@ -634,14 +634,20 @@ SearchProcess() {
     local releases
     mapfile -t releasesArray < <(jq -c '.[]' <<<"$sorted_releases")
     for release_json in "${releasesArray[@]}"; do
-        lidarrReleaseTitle="$(jq -r ".title" <<<"${release_json}")"
-        lidarrReleaseTitleWithDisambiguation="$(GetReleaseTitleDisambiguation "${release_json}")"
-        lidarrReleaseTrackCount="$(jq -r ".trackCount" <<<"${release_json}")"
-        lidarrReleaseForeignId="$(jq -r ".foreignReleaseId" <<<"${release_json}")"
-        lidarrReleaseFormat="$(jq -r ".format" <<<"${release_json}")"
-        lidarrReleaseCountries="$(jq -r '.country // [] | join(",")' <<<"${release_json}")"
-        lidarrReleaseFormatPriority="$(FormatPriority "${lidarrReleaseFormat}")"
-        lidarrReleaseCountryPriority="$(CountriesPriority "${lidarrReleaseCountries}")"
+        local lidarrReleaseTitle="$(jq -r ".title" <<<"${release_json}")"
+        local lidarrReleaseTitleWithDisambiguation="$(GetReleaseTitleDisambiguation "${release_json}")"
+        local lidarrReleaseTrackCount="$(jq -r ".trackCount" <<<"${release_json}")"
+        local lidarrReleaseForeignId="$(jq -r ".foreignReleaseId" <<<"${release_json}")"
+        local lidarrReleaseFormat="$(jq -r ".format" <<<"${release_json}")"
+        local lidarrReleaseCountries="$(jq -r '.country // [] | join(",")' <<<"${release_json}")"
+        local lidarrReleaseFormatPriority="$(FormatPriority "${lidarrReleaseFormat}")"
+        local lidarrReleaseCountryPriority="$(CountriesPriority "${lidarrReleaseCountries}")"
+        local lidarrReleaseDate=$(jq -r '.releaseDate' <<<"${release_json}")
+        if [ -n "${lidarrReleaseDate}" ] && [ "${lidarrReleaseDate}" != "null" ]; then
+            lidarrReleaseYear="${lidarrReleaseDate:0:4}"
+        else
+            lidarrReleaseYear=""
+        fi
         set_state "lidarrReleaseInfo" "${release_json}"
         set_state "lidarrReleaseTitle" "${lidarrReleaseTitle}"
         set_state "lidarrReleaseTitleWithDisambiguation" "${lidarrReleaseTitleWithDisambiguation}"
@@ -649,6 +655,8 @@ SearchProcess() {
         set_state "lidarrReleaseForeignId" "${lidarrReleaseForeignId}"
         set_state "lidarrReleaseFormatPriority" "${lidarrReleaseFormatPriority}"
         set_state "lidarrReleaseCountryPriority" "${lidarrReleaseCountryPriority}"
+        set_state "lidarrReleaseYear" "${lidarrReleaseYear}"
+        log "DEBUG :: Processing Lidarr release \"${lidarrReleaseTitleWithDisambiguation}\" with ${lidarrReleaseTrackCount} tracks, format: ${lidarrReleaseFormat} (priority ${lidarrReleaseFormatPriority}), countries: ${lidarrReleaseCountries} (priority ${lidarrReleaseCountryPriority}), year: ${lidarrReleaseYear}"
 
         # If a exact match was already found, only process releases with more tracks
         exactMatchFound="$(get_state "exactMatchFound")"
@@ -660,20 +668,6 @@ SearchProcess() {
                 log "DEBUG :: Already found an exact match with ${bestMatchNumTracks} tracks, skipping release \"${lidarrReleaseTitleWithDisambiguation}\" with ${lidarrReleaseTrackCount} tracks"
                 continue
             fi
-            # # If current release has a less desired format than best match, skip it
-            # local bestMatchFormatPriority
-            # bestMatchFormatPriority="$(get_state "bestMatchFormatPriority")"
-            # if [[ "${lidarrReleaseFormatPriority}" -gt "${bestMatchFormatPriority}" ]]; then
-            #     log "DEBUG :: Already found an exact match with format priority ${bestMatchFormatPriority}, skipping release \"${lidarrReleaseTitleWithDisambiguation}\" with format ${lidarrReleaseFormat}"
-            #     continue
-            # fi
-            # # If current release is from less desired countries than best match, skip it
-            # local bestMatchCountryPriority
-            # bestMatchCountryPriority="$(get_state "bestMatchCountryPriority")"
-            # if [[ "${lidarrReleaseCountryPriority}" -gt "${bestMatchCountryPriority}" ]]; then
-            #     log "DEBUG :: Already found an exact match with country priority ${bestMatchCountryPriority}, skipping release \"${lidarrReleaseTitleWithDisambiguation}\" from countries ${lidarrReleaseCountries}"
-            #     continue
-            # fi
         fi
 
         # TODO: Enhance this functionality to intelligently handle releases that are expected to have these keywords
@@ -933,15 +927,7 @@ CalculateBestMatch() {
             trackDiff=$((lidarrReleaseTrackCount > deezerAlbumTrackCount ? lidarrReleaseTrackCount - deezerAlbumTrackCount : deezerAlbumTrackCount - lidarrReleaseTrackCount))
 
             if ((diff <= ${AUDIO_MATCH_DISTANCE_THRESHOLD})); then
-                log "INFO :: Potential match found :: \"${titleVariant,,}\" :: Distance=${diff} TrackDiff=${trackDiff}"
-                # local lidarrAlbumData="$(get_state "lidarrAlbumData")"
-                # local lidarrReleaseYear=$(jq -r '.releaseDate' <<<"${lidarrAlbumData}" | cut -d'-' -f1)
-                # local yearDiffInfo=""
-                # if [[ -n "${downloadedReleaseYear}" && -n "${lidarrReleaseYear}" && "${downloadedReleaseYear}" != "null" && "${lidarrReleaseYear}" != "null" ]]; then
-                #     local yearDiff=$((downloadedReleaseYear - lidarrReleaseYear))
-                #     yearDiff=${yearDiff#-} # absolute value
-                # fi
-                # log "INFO :: Potential match found :: \"${titleVariant,,}\" :: Distance=${diff} TrackDiff=${trackDiff} DeezerYear=${downloadedReleaseYear} LidarrYear=${lidarrReleaseYear}"
+                log "INFO :: Potential match found :: \"${titleVariant,,}\" :: Distance=${diff} TrackDiff=${trackDiff} LidarrYear=${lidarrReleaseYear}"
             else
                 log "DEBUG :: Album \"${titleVariant,,}\" does not meet matching threshold (Distance=${diff}), skipping..."
                 continue
@@ -1022,7 +1008,7 @@ isBetterMatch() {
 
     # Get the expected release year from Lidarr
     local lidarrAlbumData="$(get_state "lidarrAlbumData")"
-    local lidarrReleaseYear=$(jq -r '.releaseDate' <<<"${lidarrAlbumData}" | cut -d'-' -f1)
+    local lidarrReleaseYear=$(get_state "lidarrReleaseYear")
 
     # Calculate year difference
     local yearDiff=-1
