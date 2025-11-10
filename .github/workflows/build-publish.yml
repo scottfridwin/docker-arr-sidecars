@@ -43,11 +43,11 @@ jobs:
                 echo "----------------------------------------"
                 if bash "$test_file"; then
                   echo "✅ Test passed: $test_file"
-                  ((test_count++))
+                  test_count=$(($test_count + 1))
                 else
                   echo "❌ Test failed: $test_file"
-                  ((test_count++))
-                  ((failed_tests++))
+                  test_count=$(($test_count + 1))
+                  failed_tests=$(($failed_tests + 1))
                 fi
                 echo ""
               fi
