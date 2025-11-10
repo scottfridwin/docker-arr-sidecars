@@ -565,6 +565,8 @@ SearchProcess() {
     fi
     lidarrAlbumTitleWithDisambiguation="${lidarrAlbumTitle}${lidarrAlbumDisambiguation}"
     set_state "lidarrAlbumTitleWithDisambiguation" "${lidarrAlbumTitleWithDisambiguation}"
+    log "DEBUG :: lidarrAlbumDisambiguation: ${lidarrAlbumDisambiguation}"
+    log "DEBUG :: lidarrAlbumTitleWithDisambiguation: ${lidarrAlbumTitleWithDisambiguation}"
 
     # Check if album was previously marked "not found"
     if [ -f "${AUDIO_DATA_PATH}/notfound/${lidarrAlbumId}--${lidarrArtistForeignArtistId}--${lidarrAlbumForeignAlbumId}" ]; then
