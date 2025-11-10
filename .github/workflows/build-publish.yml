@@ -35,37 +35,41 @@ jobs:
             echo "Running tests in ${{ matrix.service }}/test/"
             test_count=0
             failed_tests=0
-            shopt -s nullglob
-            for test_file in "${{ matrix.service }}/test/test-*.bash"; do
+            
+            for test_file in ${{ matrix.service }}/test/test-*.bash; do
+              if [ -f "$test_file" ]; then
                 echo "----------------------------------------"
                 echo "Running: $test_file"
                 echo "----------------------------------------"
                 if bash "$test_file"; then
-                    echo "✅ Test passed: $test_file"
-                    ((test_count++))
+                  echo "✅ Test passed: $test_file"
+                  ((test_count++))
                 else
-                    echo "❌ Test failed: $test_file"
-                    ((test_count++))
-                    ((failed_tests++))
+                  echo "❌ Test failed: $test_file"
+                  ((test_count++))
+                  ((failed_tests++))
                 fi
                 echo ""
+              fi
             done
-            shopt -u nullglob
+            
             if [ $test_count -eq 0 ]; then
-                echo "⚠️  No tests found in ${{ matrix.service }}/test/"
+              echo "⚠️  No tests found in ${{ matrix.service }}/test/"
             else
-                echo "========================================="
-                echo "Test Summary for ${{ matrix.service }}"
-                echo "Total tests: $test_count"
-                echo "Failed tests: $failed_tests"
-                echo "========================================="
+              echo "========================================="
+              echo "Test Summary for ${{ matrix.service }}"
+              echo "Total tests: $test_count"
+              echo "Failed tests: $failed_tests"
+              echo "========================================="
             fi
+            
             if [ $failed_tests -gt 0 ]; then
-                exit 1
+              exit 1
             fi
-        else
+          else
             echo "⚠️  No test directory found for ${{ matrix.service }}"
-        fi
+          fi
+          exit 0
 
   # ----------------------------------------------------------
   # Build job: runs on every push to main (after tests pass)
