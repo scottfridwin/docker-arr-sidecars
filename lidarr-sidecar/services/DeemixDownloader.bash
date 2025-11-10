@@ -1021,6 +1021,7 @@ isBetterMatch() {
         yearDiff=${yearDiff#-} # absolute value
     fi
     set_state "currentYearDiff" "${yearDiff}"
+    log "DEBUG :: Calculated yearDiff=${yearDiff} between Deezer year ${deezerAlbumYear} and Lidarr year ${lidarrReleaseYear}"
 
     # Check if the current release year difference is better/worse/same than the best match so far
     # If the best match year diff is not set, any year diff is better
