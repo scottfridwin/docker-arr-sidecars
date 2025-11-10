@@ -79,14 +79,13 @@ CallDeezerAPI() {
     while ((retries < maxRetries)); do
         log "DEBUG :: url: ${url}"
 
-        # Run curl safely, capturing exit code and HTTP code
-        response="$(curl -sS -w '\n%{http_code}' \
+        # Run curl safely
+        response="$({ curl -sS -w '\n%{http_code}' \
             --connect-timeout 5 \
             --max-time "${AUDIO_DEEZER_API_TIMEOUT:-10}" \
-            "${url}" 2>/dev/null || true)"
+            "${url}" 2>/dev/null || true; })"
         curlExit=$?
 
-        # Guard against empty or failed response
         if [[ $curlExit -ne 0 || -z "$response" ]]; then
             log "WARNING :: curl failed (exit $curlExit) for URL ${url}, retrying ($((retries + 1))/${maxRetries})..."
             ((retries++))
@@ -94,14 +93,22 @@ CallDeezerAPI() {
             continue
         fi
 
-        # Extract body + HTTP code safely
-        httpCode="$(tail -n1 <<<"$response" 2>/dev/null || echo 0)"
-        body="$(sed '$d' <<<"$response" 2>/dev/null || echo "")"
+        # Extract HTTP code safely
+        httpCode="$({ tail -n1 <<<"$response" 2>/dev/null; } || echo 0)"
+        body="$({ sed '$d' <<<"$response" 2>/dev/null; } || echo "")"
+
+        # Treat HTTP 000 as failure
+        if [[ "$httpCode" == "000" || "$httpCode" == "0" || -z "$httpCode" ]]; then
+            log "WARNING :: No HTTP response (000) from Deezer API for URL ${url}, retrying ($((retries + 1))/${maxRetries})..."
+            ((retries++))
+            sleep 1
+            continue
+        fi
 
         # Check for success
         if [[ "$httpCode" -eq 200 && -n "$body" ]]; then
             # Validate JSON safely
-            if jq -e . >/dev/null 2>&1 <<<"$body" || true; then
+            if jq -e . >/dev/null 2>&1 <<<"$body"; then
                 set_state "deezerApiResponse" "$body"
                 returnCode=0
                 break
