@@ -579,10 +579,11 @@ SearchProcess() {
     fi
 
     # Release date check
-    local releaseDate releaseDateClean currentDateClean albumIsNewRelease
+    local releaseDate releaseDateClean currentDateClean albumIsNewRelease albumReleaseYear
     releaseDate=$(jq -r ".releaseDate" <<<"$lidarrAlbumData")
     releaseDate=${releaseDate:0:10}                                  # YYYY-MM-DD
     releaseDateClean=$(echo "${releaseDate}" | sed -e 's/[^0-9]//g') # YYYYMMDD
+    albumReleaseYear="${releaseDate:0:4}"
 
     currentDateClean=$(date "+%Y%m%d")
     albumIsNewRelease="false"
@@ -645,6 +646,8 @@ SearchProcess() {
         local lidarrReleaseDate=$(jq -r '.releaseDate' <<<"${release_json}")
         if [ -n "${lidarrReleaseDate}" ] && [ "${lidarrReleaseDate}" != "null" ]; then
             lidarrReleaseYear="${lidarrReleaseDate:0:4}"
+        elif [ -n "${albumReleaseYear}" ] && [ "${albumReleaseYear}" != "null" ]; then
+            lidarrReleaseYear="${albumReleaseYear}"
         else
             lidarrReleaseYear=""
         fi
