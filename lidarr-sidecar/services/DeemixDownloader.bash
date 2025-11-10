@@ -867,7 +867,7 @@ CalculateBestMatch() {
     log "DEBUG :: Calculating best match for \"${searchReleaseTitleClean}\" with ${albumsCount} Deezer albums to compare"
     for ((i = 0; i < albumsCount; i++)); do
         local deezerAlbumData deezerAlbumID deezerAlbumTitle deezerAlbumTitleClean
-        local deezerAlbumTrackCount deezerReleaseYear downloadedReleaseYear
+        local deezerAlbumTrackCount deezerReleaseYear
         local diff trackDiff
 
         deezerAlbumData=$(jq -c ".[$i]" <<<"${albums}")
@@ -911,7 +911,7 @@ CalculateBestMatch() {
             deezerAlbumData="$(get_state "deezerAlbumInfo")"
             deezerAlbumTrackCount=$(jq -r .nb_tracks <<<"${deezerAlbumData}")
             deezerReleaseYear=$(jq -r .release_date <<<"${deezerAlbumData}")
-            downloadedReleaseYear="${deezerReleaseYear:0:4}"
+            deezerReleaseYear="${deezerReleaseYear:0:4}"
         else
             log "WARNING :: Failed to fetch album info for Deezer album ID ${deezerAlbumID}, skipping..."
             continue
@@ -969,7 +969,7 @@ CalculateBestMatch() {
                 # Update best match globals
                 set_state "bestMatchID" "${deezerAlbumID}"
                 set_state "bestMatchTitle" "${titleVariant}"
-                set_state "bestMatchYear" "${downloadedReleaseYear}"
+                set_state "bestMatchYear" "${deezerReleaseYear}"
                 set_state "bestMatchDistance" "${diff}"
                 set_state "bestMatchTrackDiff" "${trackDiff}"
                 set_state "bestMatchNumTracks" "${deezerAlbumTrackCount}"
@@ -979,9 +979,9 @@ CalculateBestMatch() {
                 set_state "bestMatchContainsCommentary" "${lidarrReleaseContainsCommentary}"
                 set_state "bestMatchLidarrReleaseInfo" "${lidarrReleaseInfo}"
                 set_state "bestMatchYearDiff" "$(get_state "currentYearDiff")"
-                log "INFO :: New best match :: ${titleVariant} (${downloadedReleaseYear}) :: Distance=${diff} TrackDiff=${trackDiff} NumTracks=${deezerAlbumTrackCount} YearDiff=$(get_state "currentYearDiff") LyricPreferred=${lyricTypePreferred} FormatPriority=${lidarrReleaseFormatPriority} CountryPriority=${lidarrReleaseCountryPriority}"
+                log "INFO :: New best match :: ${titleVariant} (${deezerReleaseYear}) :: Distance=${diff} TrackDiff=${trackDiff} NumTracks=${deezerAlbumTrackCount} YearDiff=$(get_state "currentYearDiff") LyricPreferred=${lyricTypePreferred} FormatPriority=${lidarrReleaseFormatPriority} CountryPriority=${lidarrReleaseCountryPriority}"
                 if ((diff == 0 && trackDiff == 0)); then
-                    log "INFO :: Exact match found :: ${titleVariant} (${downloadedReleaseYear}) with ${deezerAlbumTrackCount} tracks"
+                    log "INFO :: Exact match found :: ${titleVariant} (${deezerReleaseYear}) with ${deezerAlbumTrackCount} tracks"
                     set_state "exactMatchFound" "true"
                 fi
             fi
