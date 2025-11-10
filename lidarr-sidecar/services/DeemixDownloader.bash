@@ -7,6 +7,7 @@ scriptName="DeemixDownloader"
 
 #### Import shared utilities
 source /app/utilities.sh
+source /app/services/functions.bash
 
 #### Constants
 readonly VARIOUS_ARTIST_ID="89ad4ac3-39f7-470e-963a-56509c546377"
@@ -304,35 +305,6 @@ GetReleaseTitleDisambiguation() {
 
     echo "${releaseTitle}${releaseDisambiguation}"
     log "TRACE :: Exiting GetReleaseTitleDisambiguation..."
-}
-
-# Remove common edition keywords from the end of an album title
-RemoveEditionsFromAlbumTitle() {
-    title="$1"
-
-    # Normalize spacing and separators
-    title=$(echo "$title" | sed -E '
-        s/[[:space:]]+/ /g;             # Collapse multiple spaces
-        s/[[:space:]]*-[[:space:]]*/ /g; # Replace " - " with space
-        s/[[:space:]]*:[[:space:]]*/ /g; # Replace " : " with space
-    ')
-
-    # Build a case-insensitive pattern for edition keywords
-    edition_pattern='(deluxe|super|special|expanded|anniversary|collector|bonus|exclusive|remaster(ed)?|edition|version|target|apple|spotify|japanese|international)'
-
-    # Remove parentheses that contain edition keywords
-    title=$(echo "$title" | sed -E "s/\s*\([^)]*$edition_pattern[^)]*\)\s*$//I")
-
-    # Remove trailing edition keywords, even without parentheses
-    title=$(echo "$title" | sed -E "s/\s*[-:]?\s*$edition_pattern( edition| version)?\s*$//I")
-
-    # Repeat once more to catch chained tags (e.g., "Super Deluxe Edition")
-    title=$(echo "$title" | sed -E "s/\s*[-:]?\s*$edition_pattern( edition| version)?\s*$//I")
-
-    # Final whitespace trim
-    title=$(echo "$title" | sed -E 's/^[[:space:]]+|[[:space:]]+$//g')
-
-    echo "$title"
 }
 
 # Notify Lidarr to import the downloaded album

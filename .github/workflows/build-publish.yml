@@ -14,11 +14,69 @@ env:
 
 jobs:
   # ----------------------------------------------------------
-  # Build job: runs on every push to main
+  # Test job: runs all tests before building
+  # ----------------------------------------------------------
+  test:
+    name: Test ${{ matrix.service }}
+    if: github.ref_type == 'branch'
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        service: [lidarr-sidecar, radarr-sidecar, sonarr-sidecar]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run tests for ${{ matrix.service }}
+        run: |
+          if [ -d "${{ matrix.service }}/test" ]; then
+            echo "Running tests in ${{ matrix.service }}/test/"
+            test_count=0
+            failed_tests=0
+            
+            for test_file in ${{ matrix.service }}/test/test-*.bash; do
+              if [ -f "$test_file" ]; then
+                echo "----------------------------------------"
+                echo "Running: $test_file"
+                echo "----------------------------------------"
+                if bash "$test_file"; then
+                  echo "✅ Test passed: $test_file"
+                  ((test_count++))
+                else
+                  echo "❌ Test failed: $test_file"
+                  ((test_count++))
+                  ((failed_tests++))
+                fi
+                echo ""
+              fi
+            done
+            
+            if [ $test_count -eq 0 ]; then
+              echo "⚠️  No tests found in ${{ matrix.service }}/test/"
+            else
+              echo "========================================="
+              echo "Test Summary for ${{ matrix.service }}"
+              echo "Total tests: $test_count"
+              echo "Failed tests: $failed_tests"
+              echo "========================================="
+              
+              if [ $failed_tests -gt 0 ]; then
+                exit 1
+              fi
+            fi
+          else
+            echo "⚠️  No test directory found for ${{ matrix.service }}"
+          fi
+
+  # ----------------------------------------------------------
+  # Build job: runs on every push to main (after tests pass)
   # ----------------------------------------------------------
   build:
     name: Build and publish ${{ matrix.service }} (main build)
     if: github.ref_type == 'branch'
+    needs: test
     runs-on: ubuntu-latest
     permissions:
       contents: read
