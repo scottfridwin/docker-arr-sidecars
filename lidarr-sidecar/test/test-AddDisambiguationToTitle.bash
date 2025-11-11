@@ -5,6 +5,11 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/../services/functions.bash"
 
+#### Mocks ####
+log() {
+    : # Do nothing, suppress logs in tests
+}
+
 # --- Define test cases: "title|disambiguation" -> expected_output ---
 declare -A TESTS=(
     ["1989|Deluxe Edition"]="1989 (Deluxe Edition)"

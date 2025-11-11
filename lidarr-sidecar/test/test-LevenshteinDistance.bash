@@ -5,6 +5,11 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/../services/functions.bash"
 
+#### Mocks ####
+log() {
+    : # Do nothing, suppress logs in tests
+}
+
 # --- Define test cases: "string1|string2" -> expected_distance ---
 declare -A TESTS=(
     ["kitten|sitting"]="3"

@@ -7,6 +7,9 @@ source "${SCRIPT_DIR}/../../shared/utilities.sh"
 source "${SCRIPT_DIR}/../services/functions.bash"
 
 #### Mocks ####
+log() {
+    : # Do nothing, suppress logs in tests
+}
 RemoveEditionsFromAlbumTitle() {
     local s="$1"
     # simple test substitutions — keep them idempotent and perform on the local var

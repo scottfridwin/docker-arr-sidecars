@@ -6,6 +6,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/../../shared/utilities.sh"
 source "${SCRIPT_DIR}/../services/functions.bash"
 
+#### Mocks ####
+log() {
+    : # Do nothing, suppress logs in tests
+}
 # Mock environment variables
 export AUDIO_PREFERED_FORMATS="CD,Vinyl,Digital"
 export AUDIO_PREFERED_COUNTRIES="US,UK,JP"
