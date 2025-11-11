@@ -3,6 +3,7 @@ set -uo pipefail
 
 # --- Source the function under test ---
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/../../shared/utilities.sh"
 source "${SCRIPT_DIR}/../services/functions.bash"
 
 #### Mocks ####

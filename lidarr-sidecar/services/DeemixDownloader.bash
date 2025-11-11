@@ -709,16 +709,16 @@ CalculateBestMatch() {
     local lidarrReleaseContainsCommentary="$(get_state "lidarrReleaseContainsCommentary")"
     local lidarrReleaseFormatPriority="$(get_state "lidarrReleaseFormatPriority")"
     local lidarrReleaseCountryPriority="$(get_state "lidarrReleaseCountryPriority")"
+
     # Normalize Lidarr release title
     local searchReleaseTitleClean
     searchReleaseTitleClean="$(normalize_string "${searchReleaseTitle}")"
     searchReleaseTitleClean="${searchReleaseTitleClean:0:130}"
 
     log "DEBUG :: Calculating best match for \"${searchReleaseTitleClean}\" with ${albumsCount} Deezer albums to compare"
+
     for ((i = 0; i < albumsCount; i++)); do
-        local deezerAlbumData deezerAlbumID deezerAlbumTitle deezerAlbumTitleClean
-        local deezerAlbumTrackCount deezerReleaseYear
-        local diff trackDiff
+        local deezerAlbumData deezerAlbumID deezerAlbumTitle deezerAlbumExplicitLyrics
 
         deezerAlbumData=$(jq -c ".[$i]" <<<"${albums}")
         deezerAlbumID=$(jq -r ".id" <<<"${deezerAlbumData}")
@@ -726,130 +726,29 @@ CalculateBestMatch() {
         deezerAlbumExplicitLyrics=$(jq -r ".explicit_lyrics" <<<"${deezerAlbumData}")
 
         # Skip albums that don't match the lyric type filter
-        if [[ "${AUDIO_LYRIC_TYPE}" == "require-clean" && "${deezerAlbumExplicitLyrics}" == "true" ]]; then
-            log "DEBUG :: Skipping Deezer album ID ${deezerAlbumID} (${deezerAlbumTitle}) due to explicit lyrics filter"
-            continue
-        elif [[ "${AUDIO_LYRIC_TYPE}" == "require-explicit" && "${deezerAlbumExplicitLyrics}" == "false" ]]; then
-            log "DEBUG :: Skipping Deezer album ID ${deezerAlbumID} (${deezerAlbumTitle}) due to clean lyrics filter"
+        local shouldSkip=$(ShouldSkipAlbumByLyricType "${deezerAlbumExplicitLyrics}" "${AUDIO_LYRIC_TYPE:-}")
+        if [[ "${shouldSkip}" == "true" ]]; then
+            log "DEBUG :: Skipping Deezer album ID ${deezerAlbumID} (${deezerAlbumTitle}) due to lyric type filter"
             continue
         fi
 
-        # --- Normalize title ---
-        deezerAlbumTitleClean="$(normalize_string "$deezerAlbumTitle")"
-        deezerAlbumTitleClean="${deezerAlbumTitleClean:0:130}"
-        deezerAlbumTitleEditionless="$(RemoveEditionsFromAlbumTitle "${deezerAlbumTitleClean}")"
-        log "DEBUG :: Comparing lidarr release \"${searchReleaseTitleClean}\" to Deezer album ID ${deezerAlbumID} with title \"${deezerAlbumTitleClean}\" (editionless: \"${deezerAlbumTitleEditionless}\" and explicit=${deezerAlbumExplicitLyrics})"
-
-        # Apply custom replacements if defined
-        # In some cases, albums have strange translations that need to happen for comparison to work.
-        # Example: For Taylor Swift's 1989, Deezer has "1989 (Deluxe Edition)" but musicbrainz has "1989 D.L.X." because that is the title on the album
-        replacement="$(get_state "titleReplacement_${deezerAlbumTitleClean}")"
-        if [[ -n "$replacement" ]]; then
-            log "DEBUG :: Title matched replacement rule: \"${deezerAlbumTitleClean}\" → \"${replacement}\""
-            deezerAlbumTitleClean="${replacement}"
-        fi
-        replacement="$(get_state "titleReplacement_${deezerAlbumTitleEditionless}")"
-        if [[ -n "$replacement" ]]; then
-            log "DEBUG :: Title matched replacement rule: \"${deezerAlbumTitleEditionless}\" → \"${replacement}\""
-            deezerAlbumTitleEditionless="${replacement}"
-        fi
-
-        # Get album info from Deezer
-        GetDeezerAlbumInfo "${deezerAlbumID}"
-        local returnCode=$?
-        if [ "$returnCode" -eq 0 ]; then
-            deezerAlbumData="$(get_state "deezerAlbumInfo")"
-            deezerAlbumTrackCount=$(jq -r .nb_tracks <<<"${deezerAlbumData}")
-            deezerReleaseYear=$(jq -r .release_date <<<"${deezerAlbumData}")
-            deezerReleaseYear="${deezerReleaseYear:0:4}"
-        else
-            log "WARNING :: Failed to fetch album info for Deezer album ID ${deezerAlbumID}, skipping..."
-            continue
-        fi
-
-        # Calculate year difference
-        local yearDiff=-1
-        if [[ -n "${deezerAlbumYear}" && -n "${lidarrReleaseYear}" && "${deezerAlbumYear}" != "null" && "${lidarrReleaseYear}" != "null" ]]; then
-            yearDiff=$((deezerAlbumYear - lidarrReleaseYear))
-            yearDiff=${yearDiff#-} # absolute value
-        fi
-        set_state "currentYearDiff" "${yearDiff}"
-
-        # Check both with and without edition info
-        local titlesToCheck=()
-        titlesToCheck+=("${deezerAlbumTitleClean}")
-        if [[ "${deezerAlbumTitleClean}" != "${deezerAlbumTitleEditionless}" ]]; then
-            titlesToCheck+=("${deezerAlbumTitleEditionless}")
-            log "DEBUG :: Checking both edition and editionless titles: \"${deezerAlbumTitleClean}\", \"${deezerAlbumTitleEditionless}\""
-        fi
-        for titleVariant in "${titlesToCheck[@]}"; do
-            # Compute Levenshtein distance and track count difference
-            diff=$(LevenshteinDistance "${searchReleaseTitleClean,,}" "${titleVariant,,}")
-            trackDiff=$((lidarrReleaseTrackCount > deezerAlbumTrackCount ? lidarrReleaseTrackCount - deezerAlbumTrackCount : deezerAlbumTrackCount - lidarrReleaseTrackCount))
-
-            if ((diff <= ${AUDIO_MATCH_DISTANCE_THRESHOLD})); then
-                log "INFO :: Potential match found :: \"${titleVariant,,}\" :: Distance=${diff} TrackDiff=${trackDiff} LidarrYear=${lidarrReleaseYear}"
-            else
-                log "DEBUG :: Album \"${titleVariant,,}\" does not meet matching threshold (Distance=${diff}), skipping..."
-                continue
-            fi
-
-            # Check if lyric type is preferred
-            local lyricTypePreferred=true
-            case "${AUDIO_LYRIC_TYPE}" in
-            prefer-clean)
-                if [ "${deezerAlbumExplicitLyrics}" == "true" ]; then
-                    lyricTypePreferred=false
-                fi
-                ;;
-            prefer-explicit)
-                if [ "${deezerAlbumExplicitLyrics}" == "false" ]; then
-                    lyricTypePreferred=false
-                fi
-                ;;
-            esac
-
-            # Keep track of the best match so far, using this criteria:
-            # 1. Lowest Levenshtein distance
-            # 2. Lowest track count difference
-            # 3. Closest release year to Lidarr album
-            # 4. Highest number of tracks
-            # 5. Preferred lyric type
-            # 6. Preferred format priority
-            # 7. Preferred country priority
-            if isBetterMatch "$diff" "$trackDiff" "$deezerAlbumTrackCount" "$lyricTypePreferred" "$lidarrReleaseFormatPriority" "$lidarrReleaseCountryPriority" "$deezerReleaseYear"; then
-                # Check if we tried and failed to download this album before
-                if [ -f "${AUDIO_DATA_PATH}/failed/${deezerAlbumID}" ]; then
-                    log "WARNING :: Album \"${titleVariant}\" previously failed to download (deezer: ${deezerAlbumID})...Looking for a different match..."
-                    continue
-                fi
-
-                # Update best match globals
-                set_state "bestMatchID" "${deezerAlbumID}"
-                set_state "bestMatchTitle" "${titleVariant}"
-                set_state "bestMatchYear" "${deezerReleaseYear}"
-                set_state "bestMatchDistance" "${diff}"
-                set_state "bestMatchTrackDiff" "${trackDiff}"
-                set_state "bestMatchNumTracks" "${deezerAlbumTrackCount}"
-                set_state "bestMatchFormatPriority" "${lidarrReleaseFormatPriority}"
-                set_state "bestMatchCountryPriority" "${lidarrReleaseCountryPriority}"
-                set_state "bestMatchLyricTypePreferred" "${lyricTypePreferred}"
-                set_state "bestMatchContainsCommentary" "${lidarrReleaseContainsCommentary}"
-                set_state "bestMatchLidarrReleaseInfo" "${lidarrReleaseInfo}"
-                set_state "bestMatchYearDiff" "$(get_state "currentYearDiff")"
-                log "INFO :: New best match :: ${titleVariant} (${deezerReleaseYear}) :: Distance=${diff} TrackDiff=${trackDiff} NumTracks=${deezerAlbumTrackCount} YearDiff=$(get_state "currentYearDiff") LyricPreferred=${lyricTypePreferred} FormatPriority=${lidarrReleaseFormatPriority} CountryPriority=${lidarrReleaseCountryPriority}"
-                if ((diff == 0 && trackDiff == 0)); then
-                    log "INFO :: Exact match found :: ${titleVariant} (${deezerReleaseYear}) with ${deezerAlbumTrackCount} tracks"
-                    set_state "exactMatchFound" "true"
-                fi
-            fi
-        done
+        # Evaluate this candidate
+        EvaluateDeezerAlbumCandidate \
+            "${deezerAlbumID}" \
+            "${deezerAlbumTitle}" \
+            "${deezerAlbumExplicitLyrics}" \
+            "${searchReleaseTitleClean}" \
+            "${lidarrReleaseTrackCount}" \
+            "${lidarrReleaseFormatPriority}" \
+            "${lidarrReleaseCountryPriority}" \
+            "${lidarrReleaseContainsCommentary}" \
+            "${lidarrReleaseInfo}"
     done
 
     log "TRACE :: Exiting CalculateBestMatch..."
 }
 
-# Given a JSON array of Deezer albums, find the best match based on title similarity and track count
+# Download the best matching Deezer album found
 DownloadBestMatch() {
     log "TRACE :: Entering DownloadBestMatch..."
 
@@ -863,7 +762,7 @@ DownloadBestMatch() {
     set_state "downloadedLidarrReleaseInfo" "${downloadedLidarrReleaseInfo}"
 
     # Download the best match that was found
-    log "INFO :: Using best match :: ${bestMatchTitle} (${bestMatchYear}) :: Distance=${bestMatchDistance} TrackDiff=${bestMatchTrackDiff} NumTracks=${bestMatchNumTracks}"
+    log "INFO :: Downloading best match :: [${bestMatchID}] ${bestMatchTitle} (${bestMatchYear}) :: Distance=${bestMatchDistance} TrackDiff=${bestMatchTrackDiff} NumTracks=${bestMatchNumTracks}"
 
     GetDeezerAlbumInfo "${bestMatchID}"
     local returnCode=$?

@@ -29,14 +29,14 @@ fail=0
 init_state
 reset_state
 
-echo "Running tests for isBetterMatch..."
+echo "Running tests for IsBetterMatch..."
 echo "----------------------------------------------"
 
 # Test 1: Better because of lower distance
-STATE_STORE=()
+reset_state
 setup_best_match 5 2 10 "true" 1 1 2
 set_state "currentYearDiff" 2
-if isBetterMatch 3 2 10 "true" 1 1 "2020"; then
+if IsBetterMatch 3 2 10 "true" 1 1 "2020"; then
     echo "✅ PASS: Better match due to lower distance (3 < 5)"
     ((pass++))
 else
@@ -45,10 +45,10 @@ else
 fi
 
 # Test 2: Worse because of higher distance
-STATE_STORE=()
+reset_state
 setup_best_match 3 2 10 "true" 1 1 2
 set_state "currentYearDiff" 2
-if ! isBetterMatch 5 2 10 "true" 1 1 "2020"; then
+if ! IsBetterMatch 5 2 10 "true" 1 1 "2020"; then
     echo "✅ PASS: Worse match due to higher distance (5 > 3)"
     ((pass++))
 else
@@ -57,10 +57,10 @@ else
 fi
 
 # Test 3: Equal distance, better track diff
-STATE_STORE=()
+reset_state
 setup_best_match 5 5 10 "true" 1 1 2
 set_state "currentYearDiff" 2
-if isBetterMatch 5 3 10 "true" 1 1 "2020"; then
+if IsBetterMatch 5 3 10 "true" 1 1 "2020"; then
     echo "✅ PASS: Better match due to lower track diff (3 < 5)"
     ((pass++))
 else
@@ -69,10 +69,10 @@ else
 fi
 
 # Test 4: Equal distance and track diff, better year
-STATE_STORE=()
+reset_state
 setup_best_match 5 2 10 "true" 1 1 5
 set_state "currentYearDiff" 1
-if isBetterMatch 5 2 10 "true" 1 1 "2021"; then
+if IsBetterMatch 5 2 10 "true" 1 1 "2021"; then
     echo "✅ PASS: Better match due to closer year (diff 1 < 5)"
     ((pass++))
 else
@@ -81,10 +81,10 @@ else
 fi
 
 # Test 5: Equal distance, track diff, and year; more tracks wins
-STATE_STORE=()
+reset_state
 setup_best_match 5 2 10 "true" 1 1 2
 set_state "currentYearDiff" 2
-if isBetterMatch 5 2 15 "true" 1 1 "2022"; then
+if IsBetterMatch 5 2 15 "true" 1 1 "2022"; then
     echo "✅ PASS: Better match due to more tracks (15 > 10)"
     ((pass++))
 else
@@ -93,10 +93,10 @@ else
 fi
 
 # Test 6: All equal except lyric preference
-STATE_STORE=()
+reset_state
 setup_best_match 5 2 10 "false" 1 1 2
 set_state "currentYearDiff" 2
-if isBetterMatch 5 2 10 "true" 1 1 "2022"; then
+if IsBetterMatch 5 2 10 "true" 1 1 "2022"; then
     echo "✅ PASS: Better match due to preferred lyric type"
     ((pass++))
 else
@@ -105,10 +105,10 @@ else
 fi
 
 # Test 7: All equal except format priority
-STATE_STORE=()
+reset_state
 setup_best_match 5 2 10 "true" 3 1 2
 set_state "currentYearDiff" 2
-if isBetterMatch 5 2 10 "true" 1 1 "2022"; then
+if IsBetterMatch 5 2 10 "true" 1 1 "2022"; then
     echo "✅ PASS: Better match due to better format priority (1 < 3)"
     ((pass++))
 else
@@ -117,10 +117,10 @@ else
 fi
 
 # Test 8: All equal except country priority
-STATE_STORE=()
+reset_state
 setup_best_match 5 2 10 "true" 1 3 2
 set_state "currentYearDiff" 2
-if isBetterMatch 5 2 10 "true" 1 1 "2022"; then
+if IsBetterMatch 5 2 10 "true" 1 1 "2022"; then
     echo "✅ PASS: Better match due to better country priority (1 < 3)"
     ((pass++))
 else
@@ -129,10 +129,10 @@ else
 fi
 
 # Test 9: Worse in all criteria
-STATE_STORE=()
+reset_state
 setup_best_match 2 1 15 "true" 0 0 1
 set_state "currentYearDiff" 5
-if ! isBetterMatch 8 5 10 "false" 5 5 "2015"; then
+if ! IsBetterMatch 8 5 10 "false" 5 5 "2015"; then
     echo "✅ PASS: Worse in all criteria"
     ((pass++))
 else
@@ -141,10 +141,10 @@ else
 fi
 
 # Test 10: First match (best match is at defaults)
-STATE_STORE=()
+reset_state
 setup_best_match 9999 9999 0 "" 999 999 -1
 set_state "currentYearDiff" 1
-if isBetterMatch 5 2 10 "true" 1 1 "2021"; then
+if IsBetterMatch 5 2 10 "true" 1 1 "2021"; then
     echo "✅ PASS: First match is better than defaults"
     ((pass++))
 else
@@ -153,10 +153,10 @@ else
 fi
 
 # Test 11: Year diff evaluation - no year info for candidate
-STATE_STORE=()
+reset_state
 setup_best_match 5 2 10 "true" 1 1 2
 set_state "currentYearDiff" -1
-if ! isBetterMatch 5 2 10 "true" 1 1 ""; then
+if ! IsBetterMatch 5 2 10 "true" 1 1 ""; then
     echo "✅ PASS: Candidate with no year is worse"
     ((pass++))
 else
@@ -165,10 +165,10 @@ else
 fi
 
 # Test 12: Year diff evaluation - best match has no year, candidate does
-STATE_STORE=()
+reset_state
 setup_best_match 5 2 10 "true" 1 1 -1
 set_state "currentYearDiff" 2
-if isBetterMatch 5 2 10 "true" 1 1 "2022"; then
+if IsBetterMatch 5 2 10 "true" 1 1 "2022"; then
     echo "✅ PASS: Candidate with year is better than best match without year"
     ((pass++))
 else
@@ -177,10 +177,10 @@ else
 fi
 
 # Test 13: Exact tie - should not be better
-STATE_STORE=()
+reset_state
 setup_best_match 5 2 10 "true" 1 1 2
 set_state "currentYearDiff" 2
-if ! isBetterMatch 5 2 10 "true" 1 1 "2022"; then
+if ! IsBetterMatch 5 2 10 "true" 1 1 "2022"; then
     echo "✅ PASS: Exact tie is not considered better"
     ((pass++))
 else
@@ -189,10 +189,10 @@ else
 fi
 
 # Test 14: Better distance trumps everything else
-STATE_STORE=()
+reset_state
 setup_best_match 10 1 20 "true" 0 0 0
 set_state "currentYearDiff" 10
-if isBetterMatch 5 10 5 "false" 10 10 "2010"; then
+if IsBetterMatch 5 10 5 "false" 10 10 "2010"; then
     echo "✅ PASS: Lower distance wins despite worse other metrics"
     ((pass++))
 else
@@ -201,10 +201,10 @@ else
 fi
 
 # Test 15: Same distance, better track diff trumps other metrics
-STATE_STORE=()
+reset_state
 setup_best_match 5 10 20 "true" 0 0 0
 set_state "currentYearDiff" 10
-if isBetterMatch 5 5 5 "false" 10 10 "2010"; then
+if IsBetterMatch 5 5 5 "false" 10 10 "2010"; then
     echo "✅ PASS: Lower track diff wins despite worse other metrics"
     ((pass++))
 else

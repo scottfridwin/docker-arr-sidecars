@@ -1,120 +1,46 @@
 #!/usr/bin/env bash
 
-# Remove common edition keywords from the end of an album title
-RemoveEditionsFromAlbumTitle() {
+# Get release title with disambiguation if available
+AddDisambiguationToTitle() {
+    # $1 -> The title
+    # $2 -> The disambiguation
+    local title="$1"
+    local disambiguation="$2"
+    if [[ -n "${disambiguation}" && "${disambiguation}" != "null" && "${disambiguation}" != "" ]]; then
+        echo "${title} (${disambiguation})"
+    else
+        echo "${title}"
+    fi
+}
+
+# Apply title replacements from custom replacement rules
+ApplyTitleReplacements() {
     local title="$1"
 
-    # Define edition patterns to remove
-    local edition_patterns=(
-        "Deluxe Edition"
-        "Super Deluxe Version"
-        "Collector's Edition"
-        "Platinum Edition"
-        "Deluxe Version"
-        "Special Edition"
-        "Limited Edition"
-        "Expanded Edition"
-        "Remastered"
-        "Anniversary Edition"
-    )
-
-    # Remove " - Deluxe Edition" style suffixes
-    for pattern in "${edition_patterns[@]}"; do
-        title="${title% - $pattern}"
-    done
-
-    # Remove edition patterns from within parentheses
-    # First, handle patterns like "(Deluxe Edition)" or "(Something / Deluxe Edition)"
-    for pattern in "${edition_patterns[@]}"; do
-        # Remove standalone edition in parentheses: "(Deluxe Edition)"
-        title="${title//\($pattern\)/}"
-
-        # Remove edition after slash: "(Something / Deluxe Edition)"
-        title="${title// \/ $pattern)/\)}"
-
-        # Remove edition before slash: "(Deluxe Edition / Something)"
-        title="${title//\($pattern \/ /\(}"
-    done
-
-    # Clean up empty or malformed parentheses
-    title="${title//\( \/ /\(}" # "( / " -> "("
-    title="${title// \/ \)/\)}" # " / )" -> ")"
-    title="${title//\( \)/}"    # "( )" -> ""
-    title="${title//\(\)/}"     # "()" -> ""
-
-    # Trim trailing/leading spaces
-    title="${title#"${title%%[![:space:]]*}"}"
-    title="${title%"${title##*[![:space:]]}"}"
-
-    echo "$title"
-}
-
-# Calculate Levenshtein distance between two strings
-LevenshteinDistance() {
-    local s1="${1}"
-    local s2="${2}"
-    local len_s1=${#s1}
-    local len_s2=${#s2}
-
-    # If either string is empty, distance is the other's length
-    if ((len_s1 == 0)); then
-        echo "${len_s2}"
-        return
-    elif ((len_s2 == 0)); then
-        echo "${len_s1}"
-        return
-    fi
-
-    # Initialize 2 arrays for the current and previous row
-    local -a prev curr
-    for ((j = 0; j <= len_s2; j++)); do
-        prev[j]=${j}
-    done
-
-    for ((i = 1; i <= len_s1; i++)); do
-        curr[0]=${i}
-        local s1_char="${s1:i-1:1}"
-        for ((j = 1; j <= len_s2; j++)); do
-            local s2_char="${s2:j-1:1}"
-            local cost=1
-            [[ "$s1_char" == "$s2_char" ]] && cost=0
-
-            local del=$((prev[j] + 1))
-            local ins=$((curr[j - 1] + 1))
-            local sub=$((prev[j - 1] + cost))
-
-            local min=${del}
-            ((ins < min)) && min=${ins}
-            ((sub < min)) && min=${sub}
-
-            curr[j]=${min}
-        done
-        prev=("${curr[@]}")
-    done
-
-    echo "${curr[len_s2]}"
-}
-
-# Determine priority for a format string based on AUDIO_PREFERED_FORMATS
-FormatPriority() {
-    local formatString="${1}"
-    local preferredFormats="${2:-}"
-    local priority=999 # Default low priority
-
-    # If preferredFormats is blank, all formats are equal priority
-    if [[ -z "${preferredFormats}" ]]; then
-        priority=0
+    # Check for custom replacement
+    local replacement="$(get_state "titleReplacement_${title}")"
+    if [[ -n "$replacement" ]]; then
+        log "DEBUG :: Title matched replacement rule: \"${title}\" → \"${replacement}\""
+        echo "${replacement}"
     else
-        IFS=',' read -r -a formatArray <<<"${preferredFormats}"
-        for i in "${!formatArray[@]}"; do
-            if [[ "${formatString,,}" == *"${formatArray[$i],,}"* ]]; then
-                priority=$i
-                break
-            fi
-        done
+        echo "${title}"
+    fi
+}
+
+# Calculate year difference between two years (returns absolute value)
+CalculateYearDifference() {
+    local year1="$1"
+    local year2="$2"
+
+    # Return -1 if either year is invalid
+    if [[ -z "${year1}" || "${year1}" == "null" || -z "${year2}" || "${year2}" == "null" ]]; then
+        echo "-1"
+        return
     fi
 
-    echo "${priority}"
+    local diff=$((year1 - year2))
+    # Return absolute value
+    echo "${diff#-}"
 }
 
 # Determine priority for a countries string based on AUDIO_PREFERED_COUNTRIES
@@ -139,31 +65,99 @@ CountriesPriority() {
     echo "${priority}"
 }
 
-# Get release title with disambiguation if available
-AddDisambiguationToTitle() {
-    # $1 -> The title
-    # $2 -> The disambiguation
-    local title="$1"
-    local disambiguation="$2"
-    if [[ -n "${disambiguation}" && "${disambiguation}" != "null" && "${disambiguation}" != "" ]]; then
-        echo "${title} (${disambiguation})"
-    else
-        echo "${title}"
+# Evaluate a single Deezer album candidate and update best match if better
+EvaluateDeezerAlbumCandidate() {
+    local deezerAlbumID="$1"
+    local deezerAlbumTitle="$2"
+    local deezerAlbumExplicitLyrics="$3"
+    local searchReleaseTitleClean="$4"
+    local lidarrReleaseTrackCount="$5"
+    local lidarrReleaseFormatPriority="$6"
+    local lidarrReleaseCountryPriority="$7"
+    local lidarrReleaseContainsCommentary="$8"
+    local lidarrReleaseInfo="$9"
+
+    # Get album info from Deezer
+    GetDeezerAlbumInfo "${deezerAlbumID}"
+    local returnCode=$?
+    if [ "$returnCode" -ne 0 ]; then
+        log "WARNING :: Failed to fetch album info for Deezer album ID ${deezerAlbumID}, skipping..."
+        return 1
     fi
-}
 
-# Extract artist info from JSON and set state variables
-ExtractArtistInfo() {
-    local artist_json="$1"
+    local deezerAlbumData="$(get_state "deezerAlbumInfo")"
+    local deezerAlbumTrackCount=$(jq -r .nb_tracks <<<"${deezerAlbumData}")
+    local deezerReleaseYear=$(jq -r .release_date <<<"${deezerAlbumData}")
+    deezerReleaseYear="${deezerReleaseYear:0:4}"
 
-    local lidarrArtistName lidarrArtistId lidarrArtistForeignArtistId
-    lidarrArtistName=$(jq -r ".artistName" <<<"$artist_json")
-    lidarrArtistId=$(jq -r ".artistMetadataId" <<<"$artist_json")
-    lidarrArtistForeignArtistId=$(jq -r ".foreignArtistId" <<<"$artist_json")
-    set_state "lidarrArtistInfo" "${artist_json}"
-    set_state "lidarrArtistName" "${lidarrArtistName}"
-    set_state "lidarrArtistId" "${lidarrArtistId}"
-    set_state "lidarrArtistForeignArtistId" "${lidarrArtistForeignArtistId}"
+    # Calculate year difference
+    local lidarrReleaseYear=$(get_state "lidarrReleaseYear")
+    local yearDiff=$(CalculateYearDifference "${deezerReleaseYear}" "${lidarrReleaseYear}")
+    set_state "currentYearDiff" "${yearDiff}"
+
+    # Get normalized titles
+    NormalizeDeezerAlbumTitle "${deezerAlbumTitle}"
+    local deezerAlbumTitleClean="$(get_state "deezerAlbumTitleClean")"
+    local deezerAlbumTitleEditionless="$(get_state "deezerAlbumTitleEditionless")"
+
+    log "DEBUG :: Comparing lidarr release \"${searchReleaseTitleClean}\" to Deezer album ID ${deezerAlbumID} with title \"${deezerAlbumTitleClean}\" (editionless: \"${deezerAlbumTitleEditionless}\" and explicit=${deezerAlbumExplicitLyrics})"
+
+    # Check both with and without edition info
+    local titlesToCheck=()
+    titlesToCheck+=("${deezerAlbumTitleClean}")
+    if [[ "${deezerAlbumTitleClean}" != "${deezerAlbumTitleEditionless}" ]]; then
+        titlesToCheck+=("${deezerAlbumTitleEditionless}")
+        log "DEBUG :: Checking both edition and editionless titles: \"${deezerAlbumTitleClean}\", \"${deezerAlbumTitleEditionless}\""
+    fi
+
+    local lyricTypeSetting="${AUDIO_LYRIC_TYPE:-}"
+
+    for titleVariant in "${titlesToCheck[@]}"; do
+        # Compute Levenshtein distance and track count difference
+        local diff=$(LevenshteinDistance "${searchReleaseTitleClean,,}" "${titleVariant,,}")
+        local trackDiff=$((lidarrReleaseTrackCount > deezerAlbumTrackCount ? lidarrReleaseTrackCount - deezerAlbumTrackCount : deezerAlbumTrackCount - lidarrReleaseTrackCount))
+
+        if ((diff > ${AUDIO_MATCH_DISTANCE_THRESHOLD})); then
+            log "DEBUG :: Album \"${titleVariant,,}\" does not meet matching threshold (Distance=${diff}), skipping..."
+            continue
+        fi
+
+        log "INFO :: Potential match found :: \"${titleVariant,,}\" :: Distance=${diff} TrackDiff=${trackDiff} LidarrYear=${lidarrReleaseYear}"
+
+        # Check if lyric type is preferred
+        local lyricTypePreferred=$(IsLyricTypePreferred "${deezerAlbumExplicitLyrics}" "${lyricTypeSetting}")
+
+        # Check if this is a better match
+        if IsBetterMatch "$diff" "$trackDiff" "$deezerAlbumTrackCount" "$lyricTypePreferred" "$lidarrReleaseFormatPriority" "$lidarrReleaseCountryPriority" "$deezerReleaseYear"; then
+            # Check if we tried and failed to download this album before
+            if [ -f "${AUDIO_DATA_PATH}/failed/${deezerAlbumID}" ]; then
+                log "WARNING :: Album \"${titleVariant}\" previously failed to download (deezer: ${deezerAlbumID})...Looking for a different match..."
+                continue
+            fi
+
+            # Update best match globals
+            set_state "bestMatchID" "${deezerAlbumID}"
+            set_state "bestMatchTitle" "${titleVariant}"
+            set_state "bestMatchYear" "${deezerReleaseYear}"
+            set_state "bestMatchDistance" "${diff}"
+            set_state "bestMatchTrackDiff" "${trackDiff}"
+            set_state "bestMatchNumTracks" "${deezerAlbumTrackCount}"
+            set_state "bestMatchFormatPriority" "${lidarrReleaseFormatPriority}"
+            set_state "bestMatchCountryPriority" "${lidarrReleaseCountryPriority}"
+            set_state "bestMatchLyricTypePreferred" "${lyricTypePreferred}"
+            set_state "bestMatchContainsCommentary" "${lidarrReleaseContainsCommentary}"
+            set_state "bestMatchLidarrReleaseInfo" "${lidarrReleaseInfo}"
+            set_state "bestMatchYearDiff" "$(get_state "currentYearDiff")"
+            log "INFO :: New best match :: ${titleVariant} (${deezerReleaseYear}) :: Distance=${diff} TrackDiff=${trackDiff} NumTracks=${deezerAlbumTrackCount} YearDiff=$(get_state "currentYearDiff") LyricPreferred=${lyricTypePreferred} FormatPriority=${lidarrReleaseFormatPriority} CountryPriority=${lidarrReleaseCountryPriority}"
+
+            if ((diff == 0 && trackDiff == 0)); then
+                log "INFO :: Exact match found :: ${titleVariant} (${deezerReleaseYear}) with ${deezerAlbumTrackCount} tracks"
+                set_state "exactMatchFound" "true"
+            fi
+        fi
+    done
+
+    return 0
 }
 
 # Extract album info from JSON and set state variables
@@ -199,6 +193,20 @@ ExtractAlbumInfo() {
     set_state "lidarrAlbumReleaseYear" "${albumReleaseYear}"
 }
 
+# Extract artist info from JSON and set state variables
+ExtractArtistInfo() {
+    local artist_json="$1"
+
+    local lidarrArtistName lidarrArtistId lidarrArtistForeignArtistId
+    lidarrArtistName=$(jq -r ".artistName" <<<"$artist_json")
+    lidarrArtistId=$(jq -r ".artistMetadataId" <<<"$artist_json")
+    lidarrArtistForeignArtistId=$(jq -r ".foreignArtistId" <<<"$artist_json")
+    set_state "lidarrArtistInfo" "${artist_json}"
+    set_state "lidarrArtistName" "${lidarrArtistName}"
+    set_state "lidarrArtistId" "${lidarrArtistId}"
+    set_state "lidarrArtistForeignArtistId" "${lidarrArtistForeignArtistId}"
+}
+
 # Extract release info from JSON and set state variables
 ExtractReleaseInfo() {
     local release_json="$1"
@@ -231,72 +239,30 @@ ExtractReleaseInfo() {
     set_state "lidarrReleaseYear" "${lidarrReleaseYear}"
 }
 
-# Set lidarrTitlesToSearch state variable with various title permutations
-SetLidarrTitlesToSearch() {
-    local lidarrReleaseTitle="$1"
-    local lidarrReleaseDisambiguation="$2"
+# Determine priority for a format string based on AUDIO_PREFERED_FORMATS
+FormatPriority() {
+    local formatString="${1}"
+    local preferredFormats="${2:-}"
+    local priority=999 # Default low priority
 
-    # Search for base title
-    local lidarrTitlesToSearch=()
-    lidarrTitlesToSearch+=("${lidarrReleaseTitle}")
-
-    _add_unique() {
-        local value="$1"
-        shift
-        if [[ -z "${value}" ]]; then
-            return 0
-        fi
-        for existing in "$@"; do
-            [[ "$existing" == "$value" ]] && return 0 # already exists, do nothing
+    # If preferredFormats is blank, all formats are equal priority
+    if [[ -z "${preferredFormats}" ]]; then
+        priority=0
+    else
+        IFS=',' read -r -a formatArray <<<"${preferredFormats}"
+        for i in "${!formatArray[@]}"; do
+            if [[ "${formatString,,}" == *"${formatArray[$i],,}"* ]]; then
+                priority=$i
+                break
+            fi
         done
-        lidarrTitlesToSearch+=("$value")
-    }
-
-    # Search for title without edition suffixes
-    local titleNoEditions=$(RemoveEditionsFromAlbumTitle "${lidarrReleaseTitle}")
-    _add_unique "${titleNoEditions}" "${lidarrTitlesToSearch[@]}"
-
-    # Search for title with release disambiguation
-    local lidarrReleaseTitleWithReleaseDisambiguation="$(AddDisambiguationToTitle "${lidarrReleaseTitle}" "${lidarrReleaseDisambiguation}")"
-    _add_unique "${lidarrReleaseTitleWithReleaseDisambiguation}" "${lidarrTitlesToSearch[@]}"
-
-    # Search for title with album disambiguation
-    local albumDisambiguation=$(get_state "lidarrAlbumDisambiguation")
-    if [[ -n "${albumDisambiguation}" && "${albumDisambiguation}" != "null" && "${albumDisambiguation}" != "" ]]; then
-        local lidarrTitleWithAlbumDisambiguation="$(AddDisambiguationToTitle "${lidarrReleaseTitle}" "${albumDisambiguation}")"
-        _add_unique "${lidarrTitleWithAlbumDisambiguation}" "${lidarrTitlesToSearch[@]}"
     fi
 
-    # Search for title without edition suffixes and added album disambiguation
-    if [[ -n "${albumDisambiguation}" && "${albumDisambiguation}" != "null" && "${albumDisambiguation}" != "" ]]; then
-        local titleNoEditionsWithAlbumDisambiguation="$(AddDisambiguationToTitle "${titleNoEditions}" "${albumDisambiguation}")"
-        _add_unique "${titleNoEditionsWithAlbumDisambiguation}" "${lidarrTitlesToSearch[@]}"
-    fi
-
-    set_state "lidarrTitlesToSearch" "$(
-        printf '%s\n' "${lidarrTitlesToSearch[@]}"
-    )"
-}
-
-# Reset best match state variables
-ResetBestMatch() {
-    set_state "bestMatchID" ""
-    set_state "bestMatchTitle" ""
-    set_state "bestMatchYear" ""
-    set_state "bestMatchDistance" 9999
-    set_state "bestMatchTrackDiff" 9999
-    set_state "bestMatchNumTracks" 0
-    set_state "bestMatchContainsCommentary" "false"
-    set_state "bestMatchLidarrReleaseInfo" ""
-    set_state "bestMatchFormatPriority" ""
-    set_state "bestMatchCountryPriority" ""
-    set_state "bestMatchLyricTypePreferred" ""
-    set_state "bestMatchYearDiff" -1
-    set_state "exactMatchFound" "false"
+    echo "${priority}"
 }
 
 # Determine if the current candidate is a better match than the best match so far
-isBetterMatch() {
+IsBetterMatch() {
     local diff="$1"
     local trackDiff="$2"
     local deezerAlbumTrackCount="$3"
@@ -363,4 +329,223 @@ isBetterMatch() {
     fi
 
     return 1
+}
+
+# Check if lyric type is preferred based on AUDIO_LYRIC_TYPE setting
+IsLyricTypePreferred() {
+    local explicitLyrics="$1"
+    local lyricTypeSetting="$2"
+
+    case "${lyricTypeSetting}" in
+    prefer-clean)
+        if [ "${explicitLyrics}" == "true" ]; then
+            echo "false"
+        else
+            echo "true"
+        fi
+        ;;
+    prefer-explicit)
+        if [ "${explicitLyrics}" == "false" ]; then
+            echo "false"
+        else
+            echo "true"
+        fi
+        ;;
+    *)
+        echo "true"
+        ;;
+    esac
+}
+
+# Calculate Levenshtein distance between two strings
+LevenshteinDistance() {
+    local s1="${1}"
+    local s2="${2}"
+    local len_s1=${#s1}
+    local len_s2=${#s2}
+
+    # If either string is empty, distance is the other's length
+    if ((len_s1 == 0)); then
+        echo "${len_s2}"
+        return
+    elif ((len_s2 == 0)); then
+        echo "${len_s1}"
+        return
+    fi
+
+    # Initialize 2 arrays for the current and previous row
+    local -a prev curr
+    for ((j = 0; j <= len_s2; j++)); do
+        prev[j]=${j}
+    done
+
+    for ((i = 1; i <= len_s1; i++)); do
+        curr[0]=${i}
+        local s1_char="${s1:i-1:1}"
+        for ((j = 1; j <= len_s2; j++)); do
+            local s2_char="${s2:j-1:1}"
+            local cost=1
+            [[ "$s1_char" == "$s2_char" ]] && cost=0
+
+            local del=$((prev[j] + 1))
+            local ins=$((curr[j - 1] + 1))
+            local sub=$((prev[j - 1] + cost))
+
+            local min=${del}
+            ((ins < min)) && min=${ins}
+            ((sub < min)) && min=${sub}
+
+            curr[j]=${min}
+        done
+        prev=("${curr[@]}")
+    done
+
+    echo "${curr[len_s2]}"
+}
+
+# Normalize a Deezer album title (truncate and apply replacements)
+NormalizeDeezerAlbumTitle() {
+    local deezerAlbumTitle="$1"
+
+    # Normalize title
+    local titleClean="$(normalize_string "$deezerAlbumTitle")"
+    titleClean="${titleClean:0:130}"
+
+    # Get editionless version
+    local titleEditionless="$(RemoveEditionsFromAlbumTitle "${titleClean}")"
+
+    # Apply replacements to both versions
+    titleClean="$(ApplyTitleReplacements "${titleClean}")"
+    titleEditionless="$(ApplyTitleReplacements "${titleEditionless}")"
+
+    # Return both as newline-separated values
+    set_state "deezerAlbumTitleClean" "${titleClean}"
+    set_state "deezerAlbumTitleEditionless" "${titleEditionless}"
+}
+
+# Remove common edition keywords from the end of an album title
+RemoveEditionsFromAlbumTitle() {
+    local title="$1"
+
+    # Define edition patterns to remove
+    local edition_patterns=(
+        "Deluxe Edition"
+        "Super Deluxe Version"
+        "Collector's Edition"
+        "Platinum Edition"
+        "Deluxe Version"
+        "Special Edition"
+        "Limited Edition"
+        "Expanded Edition"
+        "Remastered"
+        "Anniversary Edition"
+    )
+
+    # Remove " - Deluxe Edition" style suffixes
+    for pattern in "${edition_patterns[@]}"; do
+        title="${title% - $pattern}"
+    done
+
+    # Remove edition patterns from within parentheses
+    # First, handle patterns like "(Deluxe Edition)" or "(Something / Deluxe Edition)"
+    for pattern in "${edition_patterns[@]}"; do
+        # Remove standalone edition in parentheses: "(Deluxe Edition)"
+        title="${title//\($pattern\)/}"
+
+        # Remove edition after slash: "(Something / Deluxe Edition)"
+        title="${title// \/ $pattern)/\)}"
+
+        # Remove edition before slash: "(Deluxe Edition / Something)"
+        title="${title//\($pattern \/ /\(}"
+    done
+
+    # Clean up empty or malformed parentheses
+    title="${title//\( \/ /\(}" # "( / " -> "("
+    title="${title// \/ \)/\)}" # " / )" -> ")"
+    title="${title//\( \)/}"    # "( )" -> ""
+    title="${title//\(\)/}"     # "()" -> ""
+
+    # Trim trailing/leading spaces
+    title="${title#"${title%%[![:space:]]*}"}"
+    title="${title%"${title##*[![:space:]]}"}"
+
+    echo "$title"
+}
+
+# Reset best match state variables
+ResetBestMatch() {
+    set_state "bestMatchID" ""
+    set_state "bestMatchTitle" ""
+    set_state "bestMatchYear" ""
+    set_state "bestMatchDistance" 9999
+    set_state "bestMatchTrackDiff" 9999
+    set_state "bestMatchNumTracks" 0
+    set_state "bestMatchContainsCommentary" "false"
+    set_state "bestMatchLidarrReleaseInfo" ""
+    set_state "bestMatchFormatPriority" ""
+    set_state "bestMatchCountryPriority" ""
+    set_state "bestMatchLyricTypePreferred" ""
+    set_state "bestMatchYearDiff" -1
+    set_state "exactMatchFound" "false"
+}
+
+# Set lidarrTitlesToSearch state variable with various title permutations
+SetLidarrTitlesToSearch() {
+    local lidarrReleaseTitle="$1"
+    local lidarrReleaseDisambiguation="$2"
+
+    # Search for base title
+    local lidarrTitlesToSearch=()
+    lidarrTitlesToSearch+=("${lidarrReleaseTitle}")
+
+    _add_unique() {
+        local value="$1"
+        shift
+        if [[ -z "${value}" ]]; then
+            return 0
+        fi
+        for existing in "$@"; do
+            [[ "$existing" == "$value" ]] && return 0 # already exists, do nothing
+        done
+        lidarrTitlesToSearch+=("$value")
+    }
+
+    # Search for title without edition suffixes
+    local titleNoEditions=$(RemoveEditionsFromAlbumTitle "${lidarrReleaseTitle}")
+    _add_unique "${titleNoEditions}" "${lidarrTitlesToSearch[@]}"
+
+    # Search for title with release disambiguation
+    local lidarrReleaseTitleWithReleaseDisambiguation="$(AddDisambiguationToTitle "${lidarrReleaseTitle}" "${lidarrReleaseDisambiguation}")"
+    _add_unique "${lidarrReleaseTitleWithReleaseDisambiguation}" "${lidarrTitlesToSearch[@]}"
+
+    # Search for title with album disambiguation
+    local albumDisambiguation=$(get_state "lidarrAlbumDisambiguation")
+    if [[ -n "${albumDisambiguation}" && "${albumDisambiguation}" != "null" && "${albumDisambiguation}" != "" ]]; then
+        local lidarrTitleWithAlbumDisambiguation="$(AddDisambiguationToTitle "${lidarrReleaseTitle}" "${albumDisambiguation}")"
+        _add_unique "${lidarrTitleWithAlbumDisambiguation}" "${lidarrTitlesToSearch[@]}"
+    fi
+
+    # Search for title without edition suffixes and added album disambiguation
+    if [[ -n "${albumDisambiguation}" && "${albumDisambiguation}" != "null" && "${albumDisambiguation}" != "" ]]; then
+        local titleNoEditionsWithAlbumDisambiguation="$(AddDisambiguationToTitle "${titleNoEditions}" "${albumDisambiguation}")"
+        _add_unique "${titleNoEditionsWithAlbumDisambiguation}" "${lidarrTitlesToSearch[@]}"
+    fi
+
+    set_state "lidarrTitlesToSearch" "$(
+        printf '%s\n' "${lidarrTitlesToSearch[@]}"
+    )"
+}
+
+# Check if an album should be skipped based on lyric type filter
+ShouldSkipAlbumByLyricType() {
+    local explicitLyrics="$1"
+    local lyricTypeSetting="$2"
+
+    if [[ "${lyricTypeSetting}" == "require-clean" && "${explicitLyrics}" == "true" ]]; then
+        echo "true"
+    elif [[ "${lyricTypeSetting}" == "require-explicit" && "${explicitLyrics}" == "false" ]]; then
+        echo "true"
+    else
+        echo "false"
+    fi
 }
