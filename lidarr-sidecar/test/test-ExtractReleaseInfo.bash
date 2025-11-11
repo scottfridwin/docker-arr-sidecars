@@ -11,8 +11,8 @@ log() {
     : # Do nothing, suppress logs in tests
 }
 # Mock environment variables
-export AUDIO_PREFERED_FORMATS="CD,Vinyl,Digital"
-export AUDIO_PREFERED_COUNTRIES="US,UK,JP"
+export AUDIO_PREFERRED_FORMATS="CD,Vinyl,Digital"
+export AUDIO_PREFERRED_COUNTRIES="US,UK,JP"
 
 # --- Run tests ---
 pass=0
