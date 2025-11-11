@@ -487,7 +487,7 @@ NormalizeDeezerAlbumTitle() {
 RemoveEditionsFromAlbumTitle() {
     local title="$1"
 
-    # Define edition patterns to remove
+    # Define edition patterns to remove (case-insensitive match later)
     local edition_patterns=(
         "Deluxe Edition"
         "Super Deluxe Version"
@@ -501,31 +501,33 @@ RemoveEditionsFromAlbumTitle() {
         "Anniversary Edition"
     )
 
+    # Normalize spacing
+    title="${title//  / }"
+
     # Remove " - Deluxe Edition" style suffixes
     for pattern in "${edition_patterns[@]}"; do
         title="${title% - $pattern}"
     done
 
-    # Remove edition patterns from within parentheses
-    # First, handle patterns like "(Deluxe Edition)" or "(Something / Deluxe Edition)"
+    # Remove edition suffix if it appears at the very end (space + pattern)
     for pattern in "${edition_patterns[@]}"; do
-        # Remove standalone edition in parentheses: "(Deluxe Edition)"
-        title="${title//\($pattern\)/}"
-
-        # Remove edition after slash: "(Something / Deluxe Edition)"
-        title="${title// \/ $pattern)/\)}"
-
-        # Remove edition before slash: "(Deluxe Edition / Something)"
-        title="${title//\($pattern \/ /\(}"
+        title="${title/% $pattern/}"
     done
 
-    # Clean up empty or malformed parentheses
-    title="${title//\( \/ /\(}" # "( / " -> "("
-    title="${title// \/ \)/\)}" # " / )" -> ")"
-    title="${title//\( \)/}"    # "( )" -> ""
-    title="${title//\(\)/}"     # "()" -> ""
+    # Remove edition patterns from within parentheses
+    for pattern in "${edition_patterns[@]}"; do
+        title="${title//\($pattern\)/}"     # (Deluxe Edition)
+        title="${title// \/ $pattern)/\)}"  # (Something / Deluxe Edition)
+        title="${title//\($pattern \/ /\(}" # (Deluxe Edition / Something)
+    done
 
-    # Trim trailing/leading spaces
+    # Clean up malformed parentheses
+    title="${title//\( \/ /\(}"
+    title="${title// \/ \)/\)}"
+    title="${title//\( \)/}"
+    title="${title//\(\)/}"
+
+    # Trim spaces
     title="${title#"${title%%[![:space:]]*}"}"
     title="${title%"${title##*[![:space:]]}"}"
 

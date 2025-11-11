@@ -26,6 +26,10 @@ declare -A TESTS=(
     ["Taylor Swift (Platinum Edition)"]="Taylor Swift"
     ["Taylor Swift 1989 (Deluxe Edition)"]="Taylor Swift 1989"
     ["Scoundrel Days"]="Scoundrel Days"
+    ["Minor Earth Major Sky Deluxe Edition"]="Minor Earth Major Sky"
+    ["Minor Earth, Major Sky Deluxe Edition"]="Minor Earth, Major Sky"
+    ["Minor Earth Major Sky (Deluxe Edition)"]="Minor Earth Major Sky"
+    ["Minor Earth, Major Sky (Deluxe Edition)"]="Minor Earth, Major Sky"
 )
 
 # --- Run tests ---
