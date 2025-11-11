@@ -504,21 +504,15 @@ RemoveEditionsFromAlbumTitle() {
     # Normalize spacing
     title="${title//  / }"
 
-    # Remove " - Deluxe Edition" style suffixes
-    for pattern in "${edition_patterns[@]}"; do
-        title="${title% - $pattern}"
-    done
-
-    # Remove edition suffix if it appears at the very end (space + pattern)
-    for pattern in "${edition_patterns[@]}"; do
-        title="${title/% $pattern/}"
-    done
-
     # Remove edition patterns from within parentheses
     for pattern in "${edition_patterns[@]}"; do
+        title="${title% - $pattern}"        # - Deluxe Edition
         title="${title//\($pattern\)/}"     # (Deluxe Edition)
         title="${title// \/ $pattern)/\)}"  # (Something / Deluxe Edition)
         title="${title//\($pattern \/ /\(}" # (Deluxe Edition / Something)
+        title="${title// \/ $pattern/}"     # / Deluxe Edition
+        title="${title//$pattern \/ /}"     # Deluxe Edition /
+        title="${title/% $pattern/}"        # Ending with Deluxe Edition
     done
 
     # Clean up malformed parentheses

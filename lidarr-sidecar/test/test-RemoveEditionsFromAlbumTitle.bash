@@ -15,7 +15,9 @@ log() {
 declare -A TESTS=(
     ["Weezer (Deluxe Edition)"]="Weezer"
     ["Weezer (Deluxe Edition / Blue Album)"]="Weezer (Blue Album)"
+    ["Weezer Deluxe Edition / Blue Album"]="Weezer Blue Album"
     ["Weezer (Blue Album / Deluxe Edition)"]="Weezer (Blue Album)"
+    ["Weezer Blue Album / Deluxe Edition"]="Weezer Blue Album"
     ["Weezer (Super Deluxe Version)"]="Weezer"
     ["Weezer (Collector's Edition / Remastered)"]="Weezer"
     ["Weezer - Deluxe Edition"]="Weezer"
