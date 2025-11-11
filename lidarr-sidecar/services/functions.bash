@@ -138,3 +138,159 @@ CountriesPriority() {
 
     echo "${priority}"
 }
+
+# Get release title with disambiguation if available
+AddDisambiguationToTitle() {
+    # $1 -> The title
+    # $2 -> The disambiguation
+    local title="$1"
+    local disambiguation="$2"
+    if [[ -n "${disambiguation}" && "${disambiguation}" != "null" && "${disambiguation}" != "" ]]; then
+        echo "${title} (${disambiguation})"
+    else
+        echo "${title}"
+    fi
+}
+
+# Extract artist info from JSON and set state variables
+ExtractArtistInfo() {
+    local artist_json="$1"
+
+    local lidarrArtistName lidarrArtistId lidarrArtistForeignArtistId
+    lidarrArtistName=$(jq -r ".artistName" <<<"$artist_json")
+    lidarrArtistId=$(jq -r ".artistMetadataId" <<<"$artist_json")
+    lidarrArtistForeignArtistId=$(jq -r ".foreignArtistId" <<<"$artist_json")
+    set_state "lidarrArtistInfo" "${artist_json}"
+    set_state "lidarrArtistName" "${lidarrArtistName}"
+    set_state "lidarrArtistId" "${lidarrArtistId}"
+    set_state "lidarrArtistForeignArtistId" "${lidarrArtistForeignArtistId}"
+}
+
+# Extract album info from JSON and set state variables
+ExtractAlbumInfo() {
+    local album_json="$1"
+
+    local lidarrAlbumTitle lidarrAlbumType lidarrAlbumForeignAlbumId
+    lidarrAlbumTitle=$(jq -r ".title" <<<"$album_json")
+    lidarrAlbumType=$(jq -r ".albumType" <<<"$album_json")
+    lidarrAlbumForeignAlbumId=$(jq -r ".foreignAlbumId" <<<"$album_json")
+
+    # Extract disambiguation from album info
+    local lidarrAlbumDisambiguation
+    lidarrAlbumDisambiguation=$(jq -r ".disambiguation" <<<"$album_json")
+
+    local albumReleaseYear
+    local albumReleaseDate="$(jq -r '.releaseDate' <<<"${album_json}")"
+    if [ -n "${albumReleaseDate}" ] && [ "${albumReleaseDate}" != "null" ]; then
+        albumReleaseYear="${albumReleaseDate:0:4}"
+    else
+        albumReleaseYear=""
+    fi
+    releaseDateClean=${albumReleaseDate:0:10}                             # YYYY-MM-DD
+    releaseDateClean=$(echo "${releaseDateClean}" | sed -e 's/[^0-9]//g') # YYYYMMDD
+
+    set_state "lidarrAlbumInfo" "${album_json}"
+    set_state "lidarrAlbumTitle" "${lidarrAlbumTitle}"
+    set_state "lidarrAlbumType" "${lidarrAlbumType}"
+    set_state "lidarrAlbumForeignAlbumId" "${lidarrAlbumForeignAlbumId}"
+    set_state "lidarrAlbumDisambiguation" "${lidarrAlbumDisambiguation}"
+    set_state "lidarrAlbumReleaseDate" "${albumReleaseDate}"
+    set_state "lidarrAlbumReleaseDateClean" "${releaseDateClean}"
+    set_state "lidarrAlbumReleaseYear" "${albumReleaseYear}"
+}
+
+# Extract release info from JSON and set state variables
+ExtractReleaseInfo() {
+    local release_json="$1"
+
+    local lidarrReleaseTitle="$(jq -r ".title" <<<"${release_json}")"
+    local lidarrReleaseDisambiguation="$(jq -r ".disambiguation" <<<"${release_json}")"
+    local lidarrReleaseTrackCount="$(jq -r ".trackCount" <<<"${release_json}")"
+    local lidarrReleaseForeignId="$(jq -r ".foreignReleaseId" <<<"${release_json}")"
+    local lidarrReleaseFormat="$(jq -r ".format" <<<"${release_json}")"
+    local lidarrReleaseCountries="$(jq -r '.country // [] | join(",")' <<<"${release_json}")"
+    local lidarrReleaseFormatPriority="$(FormatPriority "${lidarrReleaseFormat}" "${AUDIO_PREFERED_FORMATS}")"
+    local lidarrReleaseCountryPriority="$(CountriesPriority "${lidarrReleaseCountries}" "${AUDIO_PREFERED_COUNTRIES}")"
+    local lidarrReleaseDate=$(jq -r '.releaseDate' <<<"${release_json}")
+    local lidarrReleaseYear=""
+    local albumReleaseYear="$(get_state "lidarrAlbumReleaseYear")"
+    if [ -n "${lidarrReleaseDate}" ] && [ "${lidarrReleaseDate}" != "null" ]; then
+        lidarrReleaseYear="${lidarrReleaseDate:0:4}"
+    elif [ -n "${albumReleaseYear}" ] && [ "${albumReleaseYear}" != "null" ]; then
+        lidarrReleaseYear="${albumReleaseYear}"
+    else
+        lidarrReleaseYear=""
+    fi
+    set_state "lidarrReleaseInfo" "${release_json}"
+    set_state "lidarrReleaseTitle" "${lidarrReleaseTitle}"
+    set_state "lidarrReleaseDisambiguation" "${lidarrReleaseDisambiguation}"
+    set_state "lidarrReleaseTrackCount" "${lidarrReleaseTrackCount}"
+    set_state "lidarrReleaseForeignId" "${lidarrReleaseForeignId}"
+    set_state "lidarrReleaseFormatPriority" "${lidarrReleaseFormatPriority}"
+    set_state "lidarrReleaseCountryPriority" "${lidarrReleaseCountryPriority}"
+    set_state "lidarrReleaseYear" "${lidarrReleaseYear}"
+}
+
+# Set lidarrTitlesToSearch state variable with various title permutations
+SetLidarrTitlesToSearch() {
+    local lidarrReleaseTitle="$1"
+    local lidarrReleaseDisambiguation="$2"
+
+    # Search for base title
+    local lidarrTitlesToSearch=()
+    lidarrTitlesToSearch+=("${lidarrReleaseTitle}")
+
+    _add_unique() {
+        local value="$1"
+        shift
+        if [[ -z "${value}" ]]; then
+            return 0
+        fi
+        for existing in "$@"; do
+            [[ "$existing" == "$value" ]] && return 0 # already exists, do nothing
+        done
+        lidarrTitlesToSearch+=("$value")
+    }
+
+    # Search for title without edition suffixes
+    local titleNoEditions=$(RemoveEditionsFromAlbumTitle "${lidarrReleaseTitle}")
+    _add_unique "${titleNoEditions}" "${lidarrTitlesToSearch[@]}"
+
+    # Search for title with release disambiguation
+    local lidarrReleaseTitleWithReleaseDisambiguation="$(AddDisambiguationToTitle "${lidarrReleaseTitle}" "${lidarrReleaseDisambiguation}")"
+    _add_unique "${lidarrReleaseTitleWithReleaseDisambiguation}" "${lidarrTitlesToSearch[@]}"
+
+    # Search for title with album disambiguation
+    local albumDisambiguation=$(get_state "lidarrAlbumDisambiguation")
+    if [[ -n "${albumDisambiguation}" && "${albumDisambiguation}" != "null" && "${albumDisambiguation}" != "" ]]; then
+        local lidarrTitleWithAlbumDisambiguation="$(AddDisambiguationToTitle "${lidarrReleaseTitle}" "${albumDisambiguation}")"
+        _add_unique "${lidarrTitleWithAlbumDisambiguation}" "${lidarrTitlesToSearch[@]}"
+    fi
+
+    # Search for title without edition suffixes and added album disambiguation
+    if [[ -n "${albumDisambiguation}" && "${albumDisambiguation}" != "null" && "${albumDisambiguation}" != "" ]]; then
+        local titleNoEditionsWithAlbumDisambiguation="$(AddDisambiguationToTitle "${titleNoEditions}" "${albumDisambiguation}")"
+        _add_unique "${titleNoEditionsWithAlbumDisambiguation}" "${lidarrTitlesToSearch[@]}"
+    fi
+
+    set_state "lidarrTitlesToSearch" "$(
+        printf '%s\n' "${lidarrTitlesToSearch[@]}"
+    )"
+}
+
+# Reset best match state variables
+ResetBestMatch() {
+    set_state "bestMatchID" ""
+    set_state "bestMatchTitle" ""
+    set_state "bestMatchYear" ""
+    set_state "bestMatchDistance" 9999
+    set_state "bestMatchTrackDiff" 9999
+    set_state "bestMatchNumTracks" 0
+    set_state "bestMatchContainsCommentary" "false"
+    set_state "bestMatchLidarrReleaseInfo" ""
+    set_state "bestMatchFormatPriority" ""
+    set_state "bestMatchCountryPriority" ""
+    set_state "bestMatchLyricTypePreferred" ""
+    set_state "bestMatchYearDiff" -1
+    set_state "exactMatchFound" "false"
+}

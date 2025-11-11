@@ -467,6 +467,34 @@ remove_quotes() {
     echo "$1" | sed -e "s/['\"]//g"
 }
 
+# Helper function to check if a value exists in multiline string
+contains_line() {
+    local needle="${@: -1}" # last argument
+    shift $(($# - 1))
+    local haystack=("$@")
+
+    # If only one arg was passed, assume it’s a newline string
+    if [[ ${#haystack[@]} -eq 1 ]]; then
+        while IFS= read -r line; do
+            [[ "$line" == "$needle" ]] && return 0
+        done <<<"${haystack[0]}"
+        return 1
+    fi
+
+    # Otherwise treat as an array
+    for line in "${haystack[@]}"; do
+        [[ "$line" == "$needle" ]] && return 0
+    done
+    return 1
+}
+
+# Helper function to count lines in multiline string
+count_lines() {
+    local text="$1"
+    [[ -z "$text" ]] && echo 0 && return
+    echo "$text" | grep -c '^'
+}
+
 # Cleans a string for safe use in file or folder names
 CleanPathString() {
     local input="$1"
@@ -515,6 +543,20 @@ init_state() {
     eval "declare -gA ${name}=()"
 }
 
+reset_state() {
+    local name=$(_get_state_name)
+
+    # Check if the state object exists
+    if ! declare -p "$name" &>/dev/null; then
+        log "ERROR :: State object '$name' not found for reset."
+        setUnhealthy
+        exit 1
+    fi
+
+    # Clear the associative array
+    eval "$name=()"
+}
+
 # Internal helper to resolve current state object name
 _get_state_name() {
     echo "state_$$"
@@ -536,8 +578,9 @@ get_state() {
 
     # Check if the state object exists
     if ! declare -p "$name" &>/dev/null; then
-        echo "Error: State object '$name' not found" >&2
-        return 1
+        log "ERROR :: State object '$name' not found for reset."
+        setUnhealthy
+        exit 1
     fi
 
     local -n obj="$name"

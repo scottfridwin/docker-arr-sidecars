@@ -5,7 +5,7 @@ set -euo pipefail
 ### Script values
 scriptName="AutoConfig"
 
-#### Import shared utilities
+#### Imports
 source /app/utilities.sh
 
 ### Preamble ###

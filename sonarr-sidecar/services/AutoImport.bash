@@ -5,7 +5,7 @@ set -euo pipefail
 ### Script values
 scriptName="AutoImport"
 
-#### Import shared utilities
+#### Imports
 source /app/utilities.sh
 
 #### Constants

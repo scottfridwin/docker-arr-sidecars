@@ -5,7 +5,7 @@ set -euo pipefail
 ### Script values
 scriptName="ARLChecker"
 
-#### Import shared utilities
+#### Imports
 source /app/utilities.sh
 
 ### Preamble ###

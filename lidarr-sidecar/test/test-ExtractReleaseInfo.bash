@@ -1,0 +1,184 @@
+#!/usr/bin/env bash
+set -uo pipefail
+
+# --- Source the function under test ---
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/../../shared/utilities.sh"
+source "${SCRIPT_DIR}/../services/functions.bash"
+
+# Mock environment variables
+export AUDIO_PREFERED_FORMATS="CD,Vinyl,Digital"
+export AUDIO_PREFERED_COUNTRIES="US,UK,JP"
+
+# --- Run tests ---
+pass=0
+fail=0
+init_state
+reset_state
+
+echo "Running tests for ExtractReleaseInfo..."
+echo "----------------------------------------------"
+
+# Test 1: Extract basic release info
+reset_state
+release_json='{
+  "title": "1989",
+  "disambiguation": "Deluxe Edition",
+  "trackCount": 13,
+  "foreignReleaseId": "abc123-def456",
+  "format": "CD",
+  "country": ["US"],
+  "releaseDate": "2014-10-27T00:00:00Z"
+}'
+
+ExtractReleaseInfo "$release_json"
+
+if [[ "$(get_state "lidarrReleaseTitle")" == "1989" ]] &&
+    [[ "$(get_state "lidarrReleaseDisambiguation")" == "Deluxe Edition" ]] &&
+    [[ "$(get_state "lidarrReleaseTrackCount")" == "13" ]] &&
+    [[ "$(get_state "lidarrReleaseForeignId")" == "abc123-def456" ]] &&
+    [[ "$(get_state "lidarrReleaseYear")" == "2014" ]]; then
+    echo "✅ PASS: Extract basic release info"
+    ((pass++))
+else
+    echo "❌ FAIL: Extract basic release info"
+    echo "  title: '$(get_state "lidarrReleaseTitle")'"
+    echo "  trackCount: '$(get_state "lidarrReleaseTrackCount")'"
+    echo "  year: '$(get_state "lidarrReleaseYear")'"
+    ((fail++))
+fi
+
+# Test 2: Format priority calculation
+reset_state
+release_json='{
+  "title": "Test Album",
+  "disambiguation": "",
+  "trackCount": 10,
+  "foreignReleaseId": "test-123",
+  "format": "Vinyl",
+  "country": ["UK"],
+  "releaseDate": "2020-01-01T00:00:00Z"
+}'
+
+ExtractReleaseInfo "$release_json"
+
+if [[ "$(get_state "lidarrReleaseFormatPriority")" == "1" ]]; then
+    echo "✅ PASS: Format priority calculation (Vinyl=1)"
+    ((pass++))
+else
+    echo "❌ FAIL: Format priority (got '$(get_state "lidarrReleaseFormatPriority")')"
+    ((fail++))
+fi
+
+# Test 3: Country priority calculation
+reset_state
+release_json='{
+  "title": "Test Album",
+  "disambiguation": "",
+  "trackCount": 10,
+  "foreignReleaseId": "test-456",
+  "format": "CD",
+  "country": ["JP"],
+  "releaseDate": "2020-01-01T00:00:00Z"
+}'
+
+ExtractReleaseInfo "$release_json"
+
+if [[ "$(get_state "lidarrReleaseCountryPriority")" == "2" ]]; then
+    echo "✅ PASS: Country priority calculation (JP=2)"
+    ((pass++))
+else
+    echo "❌ FAIL: Country priority (got '$(get_state "lidarrReleaseCountryPriority")')"
+    ((fail++))
+fi
+
+# Test 4: Release without disambiguation
+reset_state
+release_json='{
+  "title": "Abbey Road",
+  "disambiguation": null,
+  "trackCount": 17,
+  "foreignReleaseId": "beatles-ar-001",
+  "format": "CD",
+  "country": ["US"],
+  "releaseDate": "1969-09-26T00:00:00Z"
+}'
+
+ExtractReleaseInfo "$release_json"
+
+if [[ "$(get_state "lidarrReleaseDisambiguation")" == "null" ]]; then
+    echo "✅ PASS: Release without disambiguation"
+    ((pass++))
+else
+    echo "❌ FAIL: Release without disambiguation"
+    ((fail++))
+fi
+
+# Test 5: Release with null date falls back to album year
+reset_state
+set_state "lidarrAlbumReleaseYear" "2015"
+release_json='{
+  "title": "Test Release",
+  "disambiguation": "",
+  "trackCount": 12,
+  "foreignReleaseId": "test-789",
+  "format": "Digital",
+  "country": ["US"],
+  "releaseDate": null
+}'
+
+ExtractReleaseInfo "$release_json"
+
+if [[ "$(get_state "lidarrReleaseYear")" == "2015" ]]; then
+    echo "✅ PASS: Release year falls back to album year"
+    ((pass++))
+else
+    echo "❌ FAIL: Release year fallback (got '$(get_state "lidarrReleaseYear")')"
+    ((fail++))
+fi
+
+# Test 6: Verify JSON stored correctly
+reset_state
+release_json='{"title":"Test","disambiguation":"","trackCount":5,"foreignReleaseId":"id","format":"CD","country":["US"],"releaseDate":"2020-01-01T00:00:00Z"}'
+
+ExtractReleaseInfo "$release_json"
+
+if [[ "$(get_state "lidarrReleaseInfo")" == "$release_json" ]]; then
+    echo "✅ PASS: JSON stored correctly"
+    ((pass++))
+else
+    echo "❌ FAIL: JSON not stored correctly"
+    ((fail++))
+fi
+
+# Test 7: Unknown format gets low priority
+reset_state
+release_json='{
+  "title": "Test",
+  "disambiguation": "",
+  "trackCount": 8,
+  "foreignReleaseId": "test-cassette",
+  "format": "Cassette",
+  "country": ["US"],
+  "releaseDate": "1990-01-01T00:00:00Z"
+}'
+
+ExtractReleaseInfo "$release_json"
+
+if [[ "$(get_state "lidarrReleaseFormatPriority")" == "999" ]]; then
+    echo "✅ PASS: Unknown format gets low priority"
+    ((pass++))
+else
+    echo "❌ FAIL: Unknown format priority (got '$(get_state "lidarrReleaseFormatPriority")')"
+    ((fail++))
+fi
+
+echo "----------------------------------------------"
+echo "Passed: $pass, Failed: $fail"
+
+# --- Exit nonzero if any failed ---
+if ((fail > 0)); then
+    exit 1
+fi
+
+exit 0

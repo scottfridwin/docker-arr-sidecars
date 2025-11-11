@@ -5,7 +5,7 @@ set -euo pipefail
 ### Script values
 scriptName="DeemixDownloader"
 
-#### Import shared utilities
+#### Imports
 source /app/utilities.sh
 source /app/services/functions.bash
 
@@ -235,29 +235,6 @@ FolderCleaner() {
     log "TRACE :: Exiting FolderCleaner..."
 }
 
-# Given a MusicBrainz release JSON object, return the title with disambiguation if present
-GetReleaseTitleDisambiguation() {
-    log "TRACE :: Entering GetReleaseTitleDisambiguation..."
-    # $1 -> JSON object for a MusicBrainz release
-    local release_json="$1"
-    local releaseTitle releaseDisambiguation
-    releaseTitle="$(jq -r ".title" <<<"${release_json}")"
-    releaseDisambiguation="$(jq -r ".disambiguation" <<<"${release_json}")"
-    albumDisambiguation=$(get_state "lidarrAlbumDisambiguation")
-    log "DEBUG :: albumDisambiguation=${albumDisambiguation}"
-    # Determine which disambiguation to use
-    if [[ -n "$(releaseDisambiguation)" && "$(releaseDisambiguation) " != "null" && "${releaseDisambiguation}" != "" ]]; then
-        releaseDisambiguation=" ($(releaseDisambiguation))"
-    elif [[ -n "${albumDisambiguation}" && "${albumDisambiguation}" != "null" && "${albumDisambiguation}" != "" ]]; then
-        releaseDisambiguation=" (${albumDisambiguation})"
-    else
-        releaseDisambiguation=""
-    fi
-
-    echo "${releaseTitle}${releaseDisambiguation}"
-    log "TRACE :: Exiting GetReleaseTitleDisambiguation..."
-}
-
 # Notify Lidarr to import the downloaded album
 NotifyLidarrForImport() {
     log "TRACE :: Entering NotifyLidarrForImport..."
@@ -463,68 +440,43 @@ SearchProcess() {
     fi
     set_state "lidarrAlbumData" "${lidarrAlbumData}" # Cache response in state object
 
-    # Extract artist and album info
-    local lidarrArtistData lidarrArtistName lidarrArtistId lidarrArtistForeignArtistId
-    lidarrArtistData=$(jq -r ".artist" <<<"$lidarrAlbumData")
-    lidarrArtistName=$(jq -r ".artistName" <<<"$lidarrArtistData")
-    lidarrArtistId=$(jq -r ".artistMetadataId" <<<"$lidarrArtistData")
-    lidarrArtistForeignArtistId=$(jq -r ".foreignArtistId" <<<"$lidarrArtistData")
-    set_state "lidarrArtistName" "${lidarrArtistName}"
-    set_state "lidarrArtistId" "${lidarrArtistId}"
-    set_state "lidarrArtistForeignArtistId" "${lidarrArtistForeignArtistId}"
-
-    local lidarrAlbumTitle lidarrAlbumType lidarrAlbumForeignAlbumId
-    lidarrAlbumTitle=$(jq -r ".title" <<<"$lidarrAlbumData")
-    lidarrAlbumType=$(jq -r ".albumType" <<<"$lidarrAlbumData")
-    lidarrAlbumForeignAlbumId=$(jq -r ".foreignAlbumId" <<<"$lidarrAlbumData")
-    set_state "lidarrAlbumForeignAlbumId" "${lidarrAlbumForeignAlbumId}"
-
-    # Extract disambiguation from album info
-    local lidarrAlbumDisambiguation
-    lidarrAlbumDisambiguation=$(jq -r ".disambiguation" <<<"$lidarrAlbumData")
-    set_state "lidarrAlbumDisambiguation" "${lidarrAlbumDisambiguation}"
-    if [ -z "$lidarrAlbumDisambiguation" ] || [ "$lidarrAlbumDisambiguation" == "null" ]; then
-        lidarrAlbumDisambiguation=""
-    else
-        lidarrAlbumDisambiguation=" ($lidarrAlbumDisambiguation)"
-    fi
-    lidarrAlbumTitleWithDisambiguation="${lidarrAlbumTitle}${lidarrAlbumDisambiguation}"
-    set_state "lidarrAlbumTitleWithDisambiguation" "${lidarrAlbumTitleWithDisambiguation}"
-    log "DEBUG :: lidarrAlbumDisambiguation: ${lidarrAlbumDisambiguation}"
-    log "DEBUG :: lidarrAlbumTitleWithDisambiguation: ${lidarrAlbumTitleWithDisambiguation}"
+    ExtractArtistInfo "$(jq -r '.artist' <<<"$lidarrAlbumData")"
+    ExtractAlbumInfo "$(jq -r '.' <<<"$lidarrAlbumData")"
+    local lidarrArtistForeignArtistId=$(get_state "lidarrArtistForeignArtistId")
+    local lidarrAlbumForeignAlbumId=$(get_state "lidarrAlbumForeignAlbumId")
+    local lidarrArtistName=$(get_state "lidarrArtistName")
+    local lidarrAlbumTitle=$(get_state "lidarrAlbumTitle")
 
     # Check if album was previously marked "not found"
     if [ -f "${AUDIO_DATA_PATH}/notfound/${lidarrAlbumId}--${lidarrArtistForeignArtistId}--${lidarrAlbumForeignAlbumId}" ]; then
-        log "INFO :: Album \"${lidarrAlbumTitleWithDisambiguation}\" by artist \"${lidarrArtistName}\" was previously marked as not found, skipping..."
+        log "INFO :: Album \"${lidarrAlbumTitle}\" by artist \"${lidarrArtistName}\" was previously marked as not found, skipping..."
         return
     fi
 
     # Check if album was previously marked "downloaded"
     if [ -f "${AUDIO_DATA_PATH}/downloaded/${lidarrAlbumId}--${lidarrArtistForeignArtistId}--${lidarrAlbumForeignAlbumId}" ]; then
-        log "INFO :: Album \"${lidarrAlbumTitleWithDisambiguation}\" by artist \"${lidarrArtistName}\" was previously marked as downloaded, skipping..."
+        log "INFO :: Album \"${lidarrAlbumTitle}\" by artist \"${lidarrArtistName}\" was previously marked as downloaded, skipping..."
         return
     fi
 
     # Release date check
-    local releaseDate releaseDateClean currentDateClean albumIsNewRelease albumReleaseYear
-    releaseDate=$(jq -r ".releaseDate" <<<"$lidarrAlbumData")
-    releaseDate=${releaseDate:0:10}                                  # YYYY-MM-DD
-    releaseDateClean=$(echo "${releaseDate}" | sed -e 's/[^0-9]//g') # YYYYMMDD
-    albumReleaseYear="${releaseDate:0:4}"
+    local albumIsNewRelease=false
+    local lidarrAlbumReleaseDate=$(get_state "lidarrAlbumReleaseDate")
+    local lidarrAlbumReleaseDateClean=$(get_state "lidarrAlbumReleaseDateClean")
 
     currentDateClean=$(date "+%Y%m%d")
-    albumIsNewRelease="false"
-    if [[ "${currentDateClean}" -lt "${releaseDateClean}" ]]; then
-        log "INFO :: Album \"${lidarrAlbumTitleWithDisambiguation}\" by artist \"${lidarrArtistName}\" has not been released yet (${releaseDate}), skipping..."
+    if [[ "${currentDateClean}" -lt "${lidarrAlbumReleaseDateClean}" ]]; then
+        log "INFO :: Album \"${lidarrAlbumTitle}\" by artist \"${lidarrArtistName}\" has not been released yet (${lidarrAlbumReleaseDate}), skipping..."
         return
-    elif ((currentDateClean - releaseDateClean < 8)); then
-        albumIsNewRelease="true"
+    elif ((currentDateClean - lidarrAlbumReleaseDateClean < 8)); then
+        albumIsNewRelease=true
     fi
 
-    log "INFO :: Starting search for album \"${lidarrAlbumTitleWithDisambiguation}\" by artist \"${lidarrArtistName}\""
+    log "INFO :: Starting search for album \"${lidarrAlbumTitle}\" by artist \"${lidarrArtistName}\""
 
     # Extract artist links
-    local deezerArtistUrl=$(jq -r '.links[]? | select(.name=="deezer") | .url' <<<"${lidarrArtistData}")
+    local lidarrArtistInfo="$(get_state "lidarrArtistInfo")"
+    local deezerArtistUrl=$(jq -r '.links[]? | select(.name=="deezer") | .url' <<<"${lidarrArtistInfo}")
     if [ -z "${deezerArtistUrl}" ]; then
         log "WARNING :: Missing Deezer link for artist ${lidarrArtistName}, skipping..."
         return
@@ -535,118 +487,89 @@ SearchProcess() {
     #  - Track count (descending)
     #  - Title length (ascending, as a consistent tiebreaker)
 
+    local lidarrAlbumInfo="$(get_state "lidarrAlbumInfo")"
     jq_filter="[.releases[]
     | .normalized_title = (.title | ascii_downcase)
     | .title_length = (.title | length)
 ] | sort_by(-.trackCount, .title_length)"
-    sorted_releases=$(jq -c "${jq_filter}" <<<"${lidarrAlbumData}")
+    sorted_releases=$(jq -c "${jq_filter}" <<<"${lidarrAlbumInfo}")
 
     # Reset search variables
-    set_state "bestMatchID" ""
-    set_state "bestMatchTitle" ""
-    set_state "bestMatchYear" ""
-    set_state "bestMatchDistance" 9999
-    set_state "bestMatchTrackDiff" 9999
-    set_state "bestMatchNumTracks" 0
-    set_state "bestMatchContainsCommentary" "false"
-    set_state "bestMatchLidarrReleaseInfo" ""
-    set_state "bestMatchFormatPriority" ""
-    set_state "bestMatchCountryPriority" ""
-    set_state "bestMatchLyricTypePreferred" ""
-    set_state "bestMatchYearDiff" -1
-    set_state "exactMatchFound" "false"
+    ResetBestMatch
 
     # Start search loop
     local exactMatchFound="false"
-    # Process each release from Lidarr in sorted order
-    local releases
     mapfile -t releasesArray < <(jq -c '.[]' <<<"$sorted_releases")
     for release_json in "${releasesArray[@]}"; do
-        local lidarrReleaseTitle="$(jq -r ".title" <<<"${release_json}")"
-        local lidarrReleaseTitleWithDisambiguation="$(GetReleaseTitleDisambiguation "${release_json}")"
-        local lidarrReleaseTrackCount="$(jq -r ".trackCount" <<<"${release_json}")"
-        local lidarrReleaseForeignId="$(jq -r ".foreignReleaseId" <<<"${release_json}")"
-        local lidarrReleaseFormat="$(jq -r ".format" <<<"${release_json}")"
-        local lidarrReleaseCountries="$(jq -r '.country // [] | join(",")' <<<"${release_json}")"
-        local lidarrReleaseFormatPriority="$(FormatPriority "${lidarrReleaseFormat}" "${AUDIO_PREFERED_FORMATS}")"
-        local lidarrReleaseCountryPriority="$(CountriesPriority "${lidarrReleaseCountries}" "${AUDIO_PREFERED_COUNTRIES}")"
-        local lidarrReleaseDate=$(jq -r '.releaseDate' <<<"${release_json}")
-        if [ -n "${lidarrReleaseDate}" ] && [ "${lidarrReleaseDate}" != "null" ]; then
-            lidarrReleaseYear="${lidarrReleaseDate:0:4}"
-        elif [ -n "${albumReleaseYear}" ] && [ "${albumReleaseYear}" != "null" ]; then
-            lidarrReleaseYear="${albumReleaseYear}"
-        else
-            lidarrReleaseYear=""
-        fi
-        set_state "lidarrReleaseInfo" "${release_json}"
-        set_state "lidarrReleaseTitle" "${lidarrReleaseTitle}"
-        set_state "lidarrReleaseTitleWithDisambiguation" "${lidarrReleaseTitleWithDisambiguation}"
-        set_state "lidarrReleaseTrackCount" "${lidarrReleaseTrackCount}"
-        set_state "lidarrReleaseForeignId" "${lidarrReleaseForeignId}"
-        set_state "lidarrReleaseFormatPriority" "${lidarrReleaseFormatPriority}"
-        set_state "lidarrReleaseCountryPriority" "${lidarrReleaseCountryPriority}"
-        set_state "lidarrReleaseYear" "${lidarrReleaseYear}"
-        log "DEBUG :: Processing Lidarr release \"${lidarrReleaseTitleWithDisambiguation}\" with ${lidarrReleaseTrackCount} tracks, format: ${lidarrReleaseFormat} (priority ${lidarrReleaseFormatPriority}), countries: ${lidarrReleaseCountries} (priority ${lidarrReleaseCountryPriority}), year: ${lidarrReleaseYear}"
+        ExtractReleaseInfo "${release_json}"
+        local lidarrReleaseTitle="$(get_state "lidarrReleaseTitle")"
+        local lidarrReleaseDisambiguation="$(get_state "lidarrReleaseDisambiguation")"
+
+        SetLidarrTitlesToSearch "${lidarrReleaseTitle}" "${lidarrReleaseDisambiguation}"
+        local lidarrTitlesToSearch=$(get_state "lidarrTitlesToSearch")
+
+        log "DEBUG :: Processing Lidarr release \"${lidarrReleaseTitle}\""
 
         # If a exact match was already found, only process releases with more tracks
         exactMatchFound="$(get_state "exactMatchFound")"
         if [ "${exactMatchFound}" == "true" ]; then
             # If current release has fewer tracks than best match, skip it
-            local bestMatchNumTracks
+            local bestMatchNumTracks lidarrReleaseTrackCount
             bestMatchNumTracks="$(get_state "bestMatchNumTracks")"
+            lidarrReleaseTrackCount="$(get_state "lidarrReleaseTrackCount")"
             if ((lidarrReleaseTrackCount < bestMatchNumTracks)); then
-                log "DEBUG :: Already found an exact match with ${bestMatchNumTracks} tracks, skipping release \"${lidarrReleaseTitleWithDisambiguation}\" with ${lidarrReleaseTrackCount} tracks"
+                log "DEBUG :: Already found an exact match with ${bestMatchNumTracks} tracks, skipping release \"${lidarrReleaseTitle}\" with ${lidarrReleaseTrackCount} tracks"
                 continue
             fi
         fi
 
-        # TODO: Enhance this functionality to intelligently handle releases that are expected to have these keywords
-        # Ignore instrumental-like releases if configured
-        if [[ "${AUDIO_IGNORE_INSTRUMENTAL_RELEASES}" == "true" ]]; then
-            # Convert comma-separated list into an alternation pattern for Bash regex
-            IFS=',' read -r -a keywordArray <<<"${AUDIO_INSTRUMENTAL_KEYWORDS}"
-            keywordPattern="($(
+        # Loop over all titles to search for this release
+        for searchReleaseTitle in ${lidarrTitlesToSearch}; do
+            set_state "searchReleaseTitle" "${searchReleaseTitle}"
+
+            # TODO: Enhance this functionality to intelligently handle releases that are expected to have these keywords
+            # Ignore instrumental-like titles if configured
+            if [[ "${AUDIO_IGNORE_INSTRUMENTAL_RELEASES}" == "true" ]]; then
+                # Convert comma-separated list into an alternation pattern for Bash regex
+                IFS=',' read -r -a keywordArray <<<"${AUDIO_INSTRUMENTAL_KEYWORDS}"
+                keywordPattern="($(
+                    IFS="|"
+                    echo "${keywordArray[*]}"
+                ))" # join array with | for pattern matching
+
+                if [[ "${searchReleaseTitle}" =~ ${keywordPattern} ]]; then
+                    log "INFO :: Search title \"${searchReleaseTitle}\" matched instrumental keyword (${AUDIO_INSTRUMENTAL_KEYWORDS}), skipping..."
+                    continue
+                elif [[ "${searchReleaseTitle,,}" =~ ${keywordPattern,,} ]]; then
+                    log "INFO :: Search title \"${searchReleaseTitle}\" matched instrumental keyword (${AUDIO_INSTRUMENTAL_KEYWORDS}), skipping..."
+                    continue
+                fi
+            fi
+
+            # Check for commentary keywords in the search title
+            local lidarrReleaseContainsCommentary="false"
+            IFS=',' read -r -a commentaryArray <<<"${AUDIO_COMMENTARY_KEYWORDS}"
+            commentaryPattern="($(
                 IFS="|"
-                echo "${keywordArray[*]}"
+                echo "${commentaryArray[*]}"
             ))" # join array with | for pattern matching
 
-            if [[ "${lidarrAlbumTitleWithDisambiguation}" =~ ${keywordPattern} ]]; then
-                log "INFO :: Album \"${lidarrAlbumTitleWithDisambiguation}\" matched instrumental keyword (${AUDIO_INSTRUMENTAL_KEYWORDS}), skipping..."
-                continue
-            elif [[ "${lidarrReleaseTitleWithDisambiguation,,}" =~ ${keywordPattern,,} ]]; then
-                log "INFO :: Release \"${lidarrReleaseTitleWithDisambiguation}\" matched instrumental keyword (${AUDIO_INSTRUMENTAL_KEYWORDS}), skipping..."
+            if [[ "${searchReleaseTitle,,}" =~ ${commentaryPattern,,} ]]; then
+                log "DEBUG :: Search title \"${searchReleaseTitle}\" matched commentary keyword (${AUDIO_COMMENTARY_KEYWORDS})"
+                lidarrReleaseContainsCommentary="true"
+            elif [[ "${searchReleaseTitle,,}" =~ ${commentaryPattern,,} ]]; then
+                log "DEBUG :: Search title \"${searchReleaseTitle}\" matched commentary keyword (${AUDIO_COMMENTARY_KEYWORDS})"
+                lidarrReleaseContainsCommentary="true"
+            fi
+            set_state "lidarrReleaseContainsCommentary" "${lidarrReleaseContainsCommentary}"
+
+            # Optionally de-prioritize releases that contain commentary tracks
+            bestMatchContainsCommentary=$(get_state "bestMatchContainsCommentary")
+            if [[ "${AUDIO_DEPRIORITIZE_COMMENTARY_RELEASES}" == "true" && "${lidarrReleaseContainsCommentary}" == "true" && "${bestMatchContainsCommentary}" == "false" ]]; then
+                log "INFO :: Already found a match without commentary. Skipping commentary album ${searchReleaseTitle}"
                 continue
             fi
-        fi
 
-        # Check for commentary keywords in the name of the album
-        # TODO: Currently just a text match in the name of the album. Could be better
-        local lidarrReleaseContainsCommentary="false"
-        IFS=',' read -r -a commentaryArray <<<"${AUDIO_COMMENTARY_KEYWORDS}"
-        commentaryPattern="($(
-            IFS="|"
-            echo "${commentaryArray[*]}"
-        ))" # join array with | for pattern matching
-
-        if [[ "${lidarrAlbumTitleWithDisambiguation,,}" =~ ${commentaryPattern,,} ]]; then
-            log "DEBUG :: Album \"${lidarrAlbumTitleWithDisambiguation}\" matched commentary keyword (${AUDIO_COMMENTARY_KEYWORDS})"
-            lidarrReleaseContainsCommentary="true"
-        elif [[ "${lidarrReleaseTitleWithDisambiguation,,}" =~ ${commentaryPattern,,} ]]; then
-            log "DEBUG :: Release \"${lidarrReleaseTitleWithDisambiguation}\" matched commentary keyword (${AUDIO_COMMENTARY_KEYWORDS})"
-            lidarrReleaseContainsCommentary="true"
-        fi
-        set_state "lidarrReleaseContainsCommentary" "${lidarrReleaseContainsCommentary}"
-
-        # Optionally de-prioritize releases that contain commentary tracks
-        bestMatchContainsCommentary=$(get_state "bestMatchContainsCommentary")
-        if [[ "${AUDIO_DEPRIORITIZE_COMMENTARY_RELEASES}" == "true" && "${lidarrReleaseContainsCommentary}" == "true" && "${bestMatchContainsCommentary}" == "false" ]]; then
-            log "INFO :: Already found a match without commentary. Skipping commentary album ${lidarrReleaseTitleWithDisambiguation}"
-            continue
-        fi
-
-        # Loop over lidarrReleaseTitle with disambiguation and without
-        for searchReleaseTitle in "${lidarrReleaseTitleWithDisambiguation}" "${lidarrReleaseTitle}"; do
-            set_state "searchReleaseTitle" "${searchReleaseTitle}"
             # First search through the artist's Deezer albums to find a match on album title and track count
             log "DEBUG :: Starting search with searchReleaseTitle: ${searchReleaseTitle}"
             if [ "${lidarrArtistForeignArtistId}" != "${VARIOUS_ARTIST_ID}" ]; then # Skip various artists
@@ -656,7 +579,7 @@ SearchProcess() {
                 done
             fi
 
-            # Fuzzy search
+            # Fuzzy search only if no exact match found yet
             exactMatchFound="$(get_state "exactMatchFound")"
             if [ "${exactMatchFound}" == "false" ]; then
                 FuzzyDeezerSearch
@@ -672,7 +595,7 @@ SearchProcess() {
         DownloadBestMatch
     else
         log "INFO :: Album not found"
-        if [ "${albumIsNewRelease}" == "true" ]; then
+        if [ ${albumIsNewRelease} == true ]; then
             log "INFO :: Skip marking album as not found because it's a new release..."
         else
             log "INFO :: Marking album as not found"
@@ -718,7 +641,7 @@ FuzzyDeezerSearch() {
     local resultsCount
     local url
 
-    local lidarrAlbumData="$(get_state "lidarrAlbumData")"
+    local lidarrAlbumInfo="$(get_state "lidarrAlbumInfo")"
     local searchReleaseTitle="$(get_state "searchReleaseTitle")"
     local lidarrArtistForeignArtistId="$(get_state "lidarrArtistForeignArtistId")"
     local lidarrArtistName="$(get_state "lidarrArtistName")"
@@ -937,7 +860,7 @@ isBetterMatch() {
     local bestMatchYearDiff="$(get_state "bestMatchYearDiff")"
 
     # Get the expected release year from Lidarr
-    local lidarrAlbumData="$(get_state "lidarrAlbumData")"
+    local lidarrAlbumInfo="$(get_state "lidarrAlbumInfo")"
     local lidarrReleaseYear=$(get_state "lidarrReleaseYear")
 
     # Calculate year difference
@@ -1168,9 +1091,9 @@ DownloadProcess() {
 
     # Add the MusicBrainz album info to FLAC and MP3 files
     if [ "$returnCode" -eq 0 ]; then
-        local lidarrAlbumData="$(get_state "lidarrAlbumData")"
-        local lidarrAlbumTitle="$(jq -r ".title" <<<"${lidarrAlbumData}")"
-        local lidarrAlbumForeignAlbumId="$(jq -r ".foreignAlbumId" <<<"${lidarrAlbumData}")"
+        local lidarrAlbumInfo="$(get_state "lidarrAlbumInfo")"
+        local lidarrAlbumTitle="$(jq -r ".title" <<<"${lidarrAlbumInfo}")"
+        local lidarrAlbumForeignAlbumId="$(jq -r ".foreignAlbumId" <<<"${lidarrAlbumInfo}")"
         local downloadedLidarrReleaseInfo="$(get_state "downloadedLidarrReleaseInfo")"
         local lidarrReleaseForeignId="$(jq -r ".foreignReleaseId" <<<"${downloadedLidarrReleaseInfo}")"
 

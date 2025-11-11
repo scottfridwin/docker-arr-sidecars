@@ -5,7 +5,7 @@ set -euo pipefail
 ### Script values
 scriptName="entrypoint"
 
-#### Import shared utilities
+#### Imports
 source /app/utilities.sh
 
 # Start with healthy status
