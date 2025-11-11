@@ -25,6 +25,7 @@ declare -A TESTS=(
     ["Weezer ( / Deluxe Edition)"]="Weezer"
     ["Taylor Swift (Platinum Edition)"]="Taylor Swift"
     ["Taylor Swift 1989 (Deluxe Edition)"]="Taylor Swift 1989"
+    ["Scoundrel Days"]="Scoundrel Days"
 )
 
 # --- Run tests ---

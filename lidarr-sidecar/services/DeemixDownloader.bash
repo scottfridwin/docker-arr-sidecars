@@ -507,6 +507,7 @@ SearchProcess() {
 
         SetLidarrTitlesToSearch "${lidarrReleaseTitle}" "${lidarrReleaseDisambiguation}"
         local lidarrTitlesToSearch=$(get_state "lidarrTitlesToSearch")
+        mapfile -t titleArray <<<"${lidarrTitlesToSearch}"
 
         log "DEBUG :: Processing Lidarr release \"${lidarrReleaseTitle}\""
 
@@ -524,7 +525,7 @@ SearchProcess() {
         fi
 
         # Loop over all titles to search for this release
-        for searchReleaseTitle in ${lidarrTitlesToSearch}; do
+        for searchReleaseTitle in "${titleArray[@]}"; do
             set_state "searchReleaseTitle" "${searchReleaseTitle}"
 
             # TODO: Enhance this functionality to intelligently handle releases that are expected to have these keywords

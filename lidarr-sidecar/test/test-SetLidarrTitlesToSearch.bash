@@ -29,6 +29,27 @@ AddDisambiguationToTitle() {
     fi
 }
 
+# --- Helpers ---
+# Compare two arrays for equality
+arrays_equal() {
+    local -n arr1=$1
+    local -n arr2=$2
+
+    # Compare lengths
+    if ((${#arr1[@]} != ${#arr2[@]})); then
+        return 1
+    fi
+
+    # Compare each element
+    for i in "${!arr1[@]}"; do
+        if [[ "${arr1[$i]}" != "${arr2[$i]}" ]]; then
+            return 1
+        fi
+    done
+
+    return 0
+}
+
 # --- Run tests ---
 pass=0
 fail=0
@@ -39,45 +60,48 @@ echo "----------------------------------------------"
 # Test 1: Basic title without disambiguation
 reset_state
 set_state "lidarrAlbumDisambiguation" ""
+expected=("1989")
+
 SetLidarrTitlesToSearch "1989" ""
-result=$(get_state "lidarrTitlesToSearch")
-expected_count=1
-actual_count=$(count_lines "$result")
-if [[ "$actual_count" -eq "$expected_count" ]] && contains_line "$result" "1989"; then
+tmpResult=$(get_state "lidarrTitlesToSearch")
+mapfile -t result <<<"${tmpResult}"
+if arrays_equal result expected; then
     echo "✅ PASS: Basic title without disambiguation"
     ((pass++))
 else
-    echo "❌ FAIL: Basic title without disambiguation (expected $expected_count titles, got $actual_count)"
+    echo "❌ FAIL: Basic title without disambiguation (expected ${expected[*]}, got ${result[*]})"
     ((fail++))
 fi
 
 # Test 2: Title with release disambiguation
 reset_state
 set_state "lidarrAlbumDisambiguation" ""
+expected=("1989" "1989 (Taylor's Version)")
+
 SetLidarrTitlesToSearch "1989" "Taylor's Version"
-result=$(get_state "lidarrTitlesToSearch")
-expected_count=2
-actual_count=$(count_lines "$result")
-if [[ "$actual_count" -eq "$expected_count" ]] && contains_line "$result" "1989" && contains_line "$result" "1989 (Taylor's Version)"; then
+tmpResult=$(get_state "lidarrTitlesToSearch")
+mapfile -t result <<<"${tmpResult}"
+if arrays_equal result expected; then
     echo "✅ PASS: Title with release disambiguation"
     ((pass++))
 else
-    echo "❌ FAIL: Title with release disambiguation (expected $expected_count titles, got $actual_count)"
+    echo "❌ FAIL: Title with release disambiguation (expected ${expected[*]}, got ${result[*]})"
     ((fail++))
 fi
 
 # Test 3: Title with edition suffix
 reset_state
 set_state "lidarrAlbumDisambiguation" ""
+expected=("Weezer (Deluxe Edition)" "Weezer")
+
 SetLidarrTitlesToSearch "Weezer (Deluxe Edition)" ""
-result=$(get_state "lidarrTitlesToSearch")
-expected_count=2
-actual_count=$(count_lines "$result")
-if [[ "$actual_count" -eq "$expected_count" ]] && contains_line "$result" "Weezer (Deluxe Edition)" && contains_line "$result" "Weezer"; then
+tmpResult=$(get_state "lidarrTitlesToSearch")
+mapfile -t result <<<"${tmpResult}"
+if arrays_equal result expected; then
     echo "✅ PASS: Title with edition suffix"
     ((pass++))
 else
-    echo "❌ FAIL: Title with edition suffix (expected $expected_count titles, got $actual_count)"
+    echo "❌ FAIL: Title with edition suffix (expected ${expected[*]}, got ${result[*]})"
     echo "  Got: $result"
     ((fail++))
 fi
@@ -85,88 +109,80 @@ fi
 # Test 4: Title with album disambiguation only
 reset_state
 set_state "lidarrAlbumDisambiguation" "Blue Album"
+expected=("Weezer" "Weezer (Blue Album)")
+
 SetLidarrTitlesToSearch "Weezer" ""
-result=$(get_state "lidarrTitlesToSearch")
-expected_count=2
-actual_count=$(count_lines "$result")
-if [[ "$actual_count" -eq "$expected_count" ]] && contains_line "$result" "Weezer" && contains_line "$result" "Weezer (Blue Album)"; then
+tmpResult=$(get_state "lidarrTitlesToSearch")
+mapfile -t result <<<"${tmpResult}"
+if arrays_equal result expected; then
     echo "✅ PASS: Title with album disambiguation only"
     ((pass++))
 else
-    echo "❌ FAIL: Title with album disambiguation only (expected $expected_count titles, got $actual_count)"
+    echo "❌ FAIL: Title with album disambiguation only (expected ${expected[*]}, got ${result[*]})"
     ((fail++))
 fi
 
 # Test 5: Title with both edition and album disambiguation
 reset_state
 set_state "lidarrAlbumDisambiguation" "Blue Album"
+expected=("Weezer (Deluxe Edition)" "Weezer" "Weezer (Deluxe Edition) (Blue Album)" "Weezer (Blue Album)")
+
 SetLidarrTitlesToSearch "Weezer (Deluxe Edition)" ""
-result=$(get_state "lidarrTitlesToSearch")
-expected_count=4
-actual_count=$(count_lines "$result")
-if [[ "$actual_count" -eq "$expected_count" ]] &&
-    contains_line "$result" "Weezer (Deluxe Edition)" &&
-    contains_line "$result" "Weezer" &&
-    contains_line "$result" "Weezer (Deluxe Edition) (Blue Album)" &&
-    contains_line "$result" "Weezer (Blue Album)"; then
+tmpResult=$(get_state "lidarrTitlesToSearch")
+mapfile -t result <<<"${tmpResult}"
+if arrays_equal result expected; then
     echo "✅ PASS: Title with both edition and album disambiguation"
     ((pass++))
 else
-    echo "❌ FAIL: Title with both edition and album disambiguation (expected $expected_count titles, got $actual_count)"
-    echo "  Got: $result"
+    echo "❌ FAIL: Title with both edition and album disambiguation (expected ${expected[*]}, got ${result[*]})"
     ((fail++))
 fi
 
 # Test 6: Title with release disambiguation and edition
 reset_state
 set_state "lidarrAlbumDisambiguation" ""
+expected=("1989 (Deluxe Edition)" "1989" "1989 (Deluxe Edition) (Taylor's Version)")
+
 SetLidarrTitlesToSearch "1989 (Deluxe Edition)" "Taylor's Version"
-result=$(get_state "lidarrTitlesToSearch")
-expected_count=3
-actual_count=$(count_lines "$result")
-if [[ "$actual_count" -eq "$expected_count" ]] &&
-    contains_line "$result" "1989 (Deluxe Edition)" &&
-    contains_line "$result" "1989" &&
-    contains_line "$result" "1989 (Deluxe Edition) (Taylor's Version)"; then
+tmpResult=$(get_state "lidarrTitlesToSearch")
+mapfile -t result <<<"${tmpResult}"
+if arrays_equal result expected; then
     echo "✅ PASS: Title with release disambiguation and edition"
     ((pass++))
 else
-    echo "❌ FAIL: Title with release disambiguation and edition (expected $expected_count titles, got $actual_count)"
-    echo "  Got: $result"
+    echo "❌ FAIL: Title with release disambiguation and edition (expected ${expected[*]}, got ${result[*]})"
     ((fail++))
 fi
 
 # Test 7: Complex case with all features
 reset_state
 set_state "lidarrAlbumDisambiguation" "Original"
+expected=("Abbey Road (Remastered)" "Abbey Road" "Abbey Road (Remastered) (50th Anniversary)" "Abbey Road (Remastered) (Original)" "Abbey Road (Original)")
+
 SetLidarrTitlesToSearch "Abbey Road (Remastered)" "50th Anniversary"
-result=$(get_state "lidarrTitlesToSearch")
-# Should have: original, editionless, with release disambig, with album disambig, editionless with album disambig
-expected_min=4
-actual_count=$(count_lines "$result")
-if [[ "$actual_count" -ge "$expected_min" ]] &&
-    contains_line "$result" "Abbey Road (Remastered)" &&
-    contains_line "$result" "Abbey Road"; then
+tmpResult=$(get_state "lidarrTitlesToSearch")
+mapfile -t result <<<"${tmpResult}"
+if arrays_equal result expected; then
     echo "✅ PASS: Complex case with all features"
     ((pass++))
 else
-    echo "❌ FAIL: Complex case with all features (expected at least $expected_min titles, got $actual_count)"
-    echo "  Got: $result"
+    echo "❌ FAIL: Complex case with all features (expected ${expected[*]}, got ${result[*]})"
     ((fail++))
 fi
 
 # Test 8: Null album disambiguation
 reset_state
 set_state "lidarrAlbumDisambiguation" "null"
+expected=("Folklore")
+
 SetLidarrTitlesToSearch "Folklore" ""
-result=$(get_state "lidarrTitlesToSearch")
-expected_count=1
-actual_count=$(count_lines "$result")
-if [[ "$actual_count" -eq "$expected_count" ]] && contains_line "$result" "Folklore"; then
+tmpResult=$(get_state "lidarrTitlesToSearch")
+mapfile -t result <<<"${tmpResult}"
+if arrays_equal result expected; then
     echo "✅ PASS: Null album disambiguation"
     ((pass++))
 else
-    echo "❌ FAIL: Null album disambiguation (expected $expected_count titles, got $actual_count)"
+    echo "❌ FAIL: Null album disambiguation (expected ${expected[*]}, got ${result[*]})"
     ((fail++))
 fi
 
