@@ -30,7 +30,6 @@ declare -A TESTS=(
 pass=0
 fail=0
 
-echo "Running tests for AddDisambiguationToTitle..."
 echo "----------------------------------------------"
 
 for test_case in "${!TESTS[@]}"; do

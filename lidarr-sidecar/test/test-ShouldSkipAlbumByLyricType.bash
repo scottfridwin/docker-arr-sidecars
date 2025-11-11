@@ -15,7 +15,6 @@ log() {
 pass=0
 fail=0
 
-echo "Running tests for ShouldSkipAlbumByLyricType..."
 echo "----------------------------------------------"
 
 # Test 1: require-clean with explicit album (should skip)

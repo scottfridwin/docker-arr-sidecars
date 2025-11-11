@@ -29,7 +29,6 @@ fail=0
 init_state
 reset_state
 
-echo "Running tests for IsBetterMatch..."
 echo "----------------------------------------------"
 
 # Test 1: Better because of lower distance

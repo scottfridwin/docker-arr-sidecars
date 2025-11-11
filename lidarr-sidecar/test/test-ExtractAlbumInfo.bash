@@ -17,7 +17,6 @@ fail=0
 init_state
 reset_state
 
-echo "Running tests for ExtractAlbumInfo..."
 echo "----------------------------------------------"
 
 # Test 1: Extract basic album info with valid date

@@ -46,7 +46,6 @@ fail=0
 init_state
 reset_state
 
-echo "Running tests for NormalizeDeezerAlbumTitle..."
 echo "----------------------------------------------"
 
 # Test 1: Basic title without edition

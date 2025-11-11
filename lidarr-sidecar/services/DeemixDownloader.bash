@@ -581,7 +581,7 @@ SearchProcess() {
 
             # Fuzzy search only if no exact match found yet
             exactMatchFound="$(get_state "exactMatchFound")"
-            if [ "${exactMatchFound}" == "false" ]; then
+            if [ "${exactMatchFound}" != "true" ]; then
                 FuzzyDeezerSearch
             fi
         done

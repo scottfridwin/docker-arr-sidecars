@@ -15,7 +15,6 @@ fail=0
 init_state
 reset_state
 
-echo "Running tests for ComputeMatchMetrics..."
 echo "----------------------------------------------"
 
 # Test 1: Identical titles

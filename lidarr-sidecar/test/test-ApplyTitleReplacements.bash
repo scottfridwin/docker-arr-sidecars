@@ -17,7 +17,6 @@ fail=0
 init_state
 reset_state
 
-echo "Running tests for ApplyTitleReplacements..."
 echo "----------------------------------------------"
 
 # Test 1: No replacement defined (title unchanged)

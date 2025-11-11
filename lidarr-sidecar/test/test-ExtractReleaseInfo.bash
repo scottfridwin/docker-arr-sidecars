@@ -20,7 +20,6 @@ fail=0
 init_state
 reset_state
 
-echo "Running tests for ExtractReleaseInfo..."
 echo "----------------------------------------------"
 
 # Test 1: Extract basic release info

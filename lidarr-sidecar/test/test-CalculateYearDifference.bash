@@ -15,7 +15,6 @@ log() {
 pass=0
 fail=0
 
-echo "Running tests for CalculateYearDifference..."
 echo "----------------------------------------------"
 
 # Test 1: Same year

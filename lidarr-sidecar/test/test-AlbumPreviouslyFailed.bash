@@ -16,7 +16,6 @@ mkdir -p "${AUDIO_DATA_PATH}/failed"
 pass=0
 fail=0
 
-echo "Running tests for AlbumPreviouslyFailed..."
 echo "----------------------------------------------"
 
 # Test 1: Album not previously failed

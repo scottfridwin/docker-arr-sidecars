@@ -15,7 +15,6 @@ log() {
 pass=0
 fail=0
 
-echo "Running tests for IsLyricTypePreferred..."
 echo "----------------------------------------------"
 
 # Test 1: prefer-clean with explicit album

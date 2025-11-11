@@ -156,6 +156,70 @@ EvaluateDeezerAlbumCandidate() {
     return 0
 }
 
+# Evaluate a single title variant against matching criteria
+EvaluateTitleVariant() {
+    local titleVariant="$1"
+    local searchReleaseTitleClean="$2"
+    local lidarrReleaseTrackCount="$3"
+    local deezerAlbumTrackCount="$4"
+    local deezerAlbumExplicitLyrics="$5"
+    local deezerAlbumID="$6"
+    local deezerReleaseYear="$7"
+    local lidarrReleaseFormatPriority="$8"
+    local lidarrReleaseCountryPriority="$9"
+    local lidarrReleaseContainsCommentary="${10}"
+    local lidarrReleaseInfo="${11}"
+
+    # Compute match metrics
+    ComputeMatchMetrics \
+        "${searchReleaseTitleClean}" \
+        "${titleVariant}" \
+        "${lidarrReleaseTrackCount}" \
+        "${deezerAlbumTrackCount}"
+
+    local diff=$(get_state "candidateDistance")
+    local trackDiff=$(get_state "candidateTrackDiff")
+
+    # Check if meets threshold
+    if ((diff > AUDIO_MATCH_DISTANCE_THRESHOLD)); then
+        log "DEBUG :: Album \"${titleVariant,,}\" does not meet matching threshold (Distance=${diff}), skipping..."
+        return 1
+    fi
+
+    local lidarrReleaseYear=$(get_state "lidarrReleaseYear")
+    log "INFO :: Potential match found :: \"${titleVariant,,}\" :: Distance=${diff} TrackDiff=${trackDiff} LidarrYear=${lidarrReleaseYear}"
+
+    # Check if lyric type is preferred
+    local lyricTypeSetting="${AUDIO_LYRIC_TYPE:-}"
+    local lyricTypePreferred=$(IsLyricTypePreferred "${deezerAlbumExplicitLyrics}" "${lyricTypeSetting}")
+
+    # Check if this is a better match
+    if IsBetterMatch "$diff" "$trackDiff" "$deezerAlbumTrackCount" "$lyricTypePreferred" "$lidarrReleaseFormatPriority" "$lidarrReleaseCountryPriority" "$deezerReleaseYear"; then
+        # Check if previously failed
+        local previouslyFailed=$(AlbumPreviouslyFailed "${deezerAlbumID}")
+        if [[ "${previouslyFailed}" == "true" ]]; then
+            log "WARNING :: Album \"${titleVariant}\" previously failed to download (deezer: ${deezerAlbumID})...Looking for a different match..."
+            return 1
+        fi
+
+        # Update best match
+        UpdateBestMatchState \
+            "${deezerAlbumID}" \
+            "${titleVariant}" \
+            "${deezerReleaseYear}" \
+            "${diff}" \
+            "${trackDiff}" \
+            "${deezerAlbumTrackCount}" \
+            "${lyricTypePreferred}" \
+            "${lidarrReleaseFormatPriority}" \
+            "${lidarrReleaseCountryPriority}" \
+            "${lidarrReleaseContainsCommentary}" \
+            "${lidarrReleaseInfo}"
+    fi
+
+    return 0
+}
+
 # Extract album info from JSON and set state variables
 ExtractAlbumInfo() {
     local album_json="$1"
@@ -580,68 +644,4 @@ UpdateBestMatchState() {
         log "INFO :: Exact match found :: ${titleVariant} (${deezerReleaseYear}) with ${deezerAlbumTrackCount} tracks"
         set_state "exactMatchFound" "true"
     fi
-}
-
-# Evaluate a single title variant against matching criteria
-EvaluateTitleVariant() {
-    local titleVariant="$1"
-    local searchReleaseTitleClean="$2"
-    local lidarrReleaseTrackCount="$3"
-    local deezerAlbumTrackCount="$4"
-    local deezerAlbumExplicitLyrics="$5"
-    local deezerAlbumID="$6"
-    local deezerReleaseYear="$7"
-    local lidarrReleaseFormatPriority="$8"
-    local lidarrReleaseCountryPriority="$9"
-    local lidarrReleaseContainsCommentary="${10}"
-    local lidarrReleaseInfo="${11}"
-
-    # Compute match metrics
-    ComputeMatchMetrics \
-        "${searchReleaseTitleClean}" \
-        "${titleVariant}" \
-        "${lidarrReleaseTrackCount}" \
-        "${deezerAlbumTrackCount}"
-
-    local diff=$(get_state "candidateDistance")
-    local trackDiff=$(get_state "candidateTrackDiff")
-
-    # Check if meets threshold
-    if ((diff > AUDIO_MATCH_DISTANCE_THRESHOLD)); then
-        log "DEBUG :: Album \"${titleVariant,,}\" does not meet matching threshold (Distance=${diff}), skipping..."
-        return 1
-    fi
-
-    local lidarrReleaseYear=$(get_state "lidarrReleaseYear")
-    log "INFO :: Potential match found :: \"${titleVariant,,}\" :: Distance=${diff} TrackDiff=${trackDiff} LidarrYear=${lidarrReleaseYear}"
-
-    # Check if lyric type is preferred
-    local lyricTypeSetting="${AUDIO_LYRIC_TYPE:-}"
-    local lyricTypePreferred=$(IsLyricTypePreferred "${deezerAlbumExplicitLyrics}" "${lyricTypeSetting}")
-
-    # Check if this is a better match
-    if IsBetterMatch "$diff" "$trackDiff" "$deezerAlbumTrackCount" "$lyricTypePreferred" "$lidarrReleaseFormatPriority" "$lidarrReleaseCountryPriority" "$deezerReleaseYear"; then
-        # Check if previously failed
-        local previouslyFailed=$(AlbumPreviouslyFailed "${deezerAlbumID}")
-        if [[ "${previouslyFailed}" == "true" ]]; then
-            log "WARNING :: Album \"${titleVariant}\" previously failed to download (deezer: ${deezerAlbumID})...Looking for a different match..."
-            return 1
-        fi
-
-        # Update best match
-        UpdateBestMatchState \
-            "${deezerAlbumID}" \
-            "${titleVariant}" \
-            "${deezerReleaseYear}" \
-            "${diff}" \
-            "${trackDiff}" \
-            "${deezerAlbumTrackCount}" \
-            "${lyricTypePreferred}" \
-            "${lidarrReleaseFormatPriority}" \
-            "${lidarrReleaseCountryPriority}" \
-            "${lidarrReleaseContainsCommentary}" \
-            "${lidarrReleaseInfo}"
-    fi
-
-    return 0
 }

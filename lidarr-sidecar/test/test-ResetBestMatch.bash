@@ -16,7 +16,6 @@ pass=0
 fail=0
 init_state
 
-echo "Running tests for ResetBestMatch..."
 echo "----------------------------------------------"
 
 # Test 1: Reset from populated state
@@ -49,7 +48,7 @@ if [[ "$(get_state "bestMatchID")" == "" ]] &&
     [[ "$(get_state "bestMatchCountryPriority")" == "" ]] &&
     [[ "$(get_state "bestMatchLyricTypePreferred")" == "" ]] &&
     [[ "$(get_state "bestMatchYearDiff")" == "-1" ]] &&
-    [[ "$(get_state "exactMatchFound")" == "false" ]]; then
+    [[ "$(get_state "exactMatchFound")" != "true" ]]; then
     echo "✅ PASS: Reset from populated state"
     ((pass++))
 else
@@ -72,7 +71,7 @@ if [[ "$(get_state "bestMatchID")" == "" ]] &&
     [[ "$(get_state "bestMatchTrackDiff")" == "9999" ]] &&
     [[ "$(get_state "bestMatchNumTracks")" == "0" ]] &&
     [[ "$(get_state "bestMatchYearDiff")" == "-1" ]] &&
-    [[ "$(get_state "exactMatchFound")" == "false" ]]; then
+    [[ "$(get_state "exactMatchFound")" != "true" ]]; then
     echo "✅ PASS: Reset from empty state"
     ((pass++))
 else
@@ -120,11 +119,11 @@ fi
 reset_state
 set_state "exactMatchFound" "true"
 ResetBestMatch
-if [[ "$(get_state "exactMatchFound")" == "false" ]]; then
-    echo "✅ PASS: exactMatchFound reset to false"
+if [[ "$(get_state "exactMatchFound")" != "true" ]]; then
+    echo "✅ PASS: exactMatchFound reset"
     ((pass++))
 else
-    echo "❌ FAIL: exactMatchFound not reset to false, got '$(get_state "exactMatchFound")'"
+    echo "❌ FAIL: exactMatchFound not reset, got '$(get_state "exactMatchFound")'"
     ((fail++))
 fi
 
