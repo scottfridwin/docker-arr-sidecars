@@ -454,7 +454,7 @@ SearchProcess() {
     fi
 
     # Check if album was previously marked "downloaded"
-    if [ -f "${AUDIO_DATA_PATH}/downloaded/${lidarrAlbumId}--${lidarrArtwistForeignArtistId}--${lidarrAlbumForeignAlbumId}" ]; then
+    if [ -f "${AUDIO_DATA_PATH}/downloaded/${lidarrAlbumId}--${lidarrArtistForeignArtistId}--${lidarrAlbumForeignAlbumId}" ]; then
         log "INFO :: Album \"${lidarrAlbumTitle}\" by artist \"${lidarrArtistName}\" was previously marked as downloaded, skipping..."
         return
     fi
