@@ -183,7 +183,7 @@ EvaluateTitleVariant() {
     # Check if meets threshold
     if ((diff > AUDIO_MATCH_DISTANCE_THRESHOLD)); then
         log "DEBUG :: Album \"${titleVariant,,}\" does not meet matching threshold (Distance=${diff}), skipping..."
-        return 1
+        return 0
     fi
 
     local lidarrReleaseYear=$(get_state "lidarrReleaseYear")
@@ -199,7 +199,7 @@ EvaluateTitleVariant() {
         local previouslyFailed=$(AlbumPreviouslyFailed "${deezerAlbumID}")
         if [[ "${previouslyFailed}" == "true" ]]; then
             log "WARNING :: Album \"${titleVariant}\" previously failed to download (deezer: ${deezerAlbumID})...Looking for a different match..."
-            return 1
+            return 0
         fi
 
         # Update best match
