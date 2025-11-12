@@ -558,9 +558,18 @@ remove_quotes() {
 
 # Safe jq wrapper that logs parse errors
 safe_jq() {
-    local filter="$1"
+    local optional=false
+    local filter
     local input result
 
+    # Check for --optional flag
+    if [[ "$1" == "--optional" ]]; then
+        optional=true
+        shift
+    fi
+
+    filter="$1"
+    local input
     input="$(cat)"
 
     # Sanity check: ensure we got something resembling JSON
@@ -580,6 +589,10 @@ safe_jq() {
 
     # Handle 'null' output
     if [[ "$result" == "null" || -z "$result" ]]; then
+        if $optional; then
+            echo "" # Return empty string for optional fields
+            return 0
+        fi
         log "ERROR :: jq returned null for '$filter'; exiting"
         setUnhealthy
         exit 1

@@ -22,20 +22,16 @@ CallDeezerAPI() {
     local url="${1}"
     local maxRetries="${AUDIO_DEEZER_API_RETRIES:-3}"
     local retries=0
-    local httpCode=0
-    local body=""
-    local response=""
-    local curlExit=0
-    local returnCode=1
+    local httpCode body response curlExit returnCode=1
 
     while ((retries < maxRetries)); do
         log "DEBUG :: url: ${url}"
 
-        # Run curl safely
-        response="$({ curl -sS -w '\n%{http_code}' \
+        # Run curl and capture output + HTTP code
+        response="$(curl -sS -w '\n%{http_code}' \
             --connect-timeout 5 \
             --max-time "${AUDIO_DEEZER_API_TIMEOUT:-10}" \
-            "${url}" 2>/dev/null || true; })"
+            "${url}" 2>/dev/null || true)"
         curlExit=$?
 
         if [[ $curlExit -ne 0 || -z "$response" ]]; then
@@ -45,12 +41,12 @@ CallDeezerAPI() {
             continue
         fi
 
-        # Extract HTTP code safely
-        httpCode="$({ tail -n1 <<<"$response" 2>/dev/null; } || echo 0)"
-        body="$({ sed '$d' <<<"$response" 2>/dev/null; } || echo "")"
+        # Split body and HTTP code
+        httpCode=$(tail -n1 <<<"$response")
+        body=$(sed '$d' <<<"$response")
 
         # Treat HTTP 000 as failure
-        if [[ "$httpCode" == "000" || "$httpCode" == "0" || -z "$httpCode" ]]; then
+        if [[ -z "$httpCode" || "$httpCode" == "000" || "$httpCode" == "0" ]]; then
             log "WARNING :: No HTTP response (000) from Deezer API for URL ${url}, retrying ($((retries + 1))/${maxRetries})..."
             ((retries++))
             sleep 1
@@ -60,7 +56,7 @@ CallDeezerAPI() {
         # Check for success
         if [[ "$httpCode" -eq 200 && -n "$body" ]]; then
             # Validate JSON safely
-            if jq -e . >/dev/null 2>&1 <<<"$body"; then
+            if safe_jq --optional '.' <<<"$body" >/dev/null; then
                 set_state "deezerApiResponse" "$body"
                 returnCode=0
                 break
@@ -94,11 +90,15 @@ GetDeezerAlbumInfo() {
     mkdir -p "${AUDIO_WORK_PATH}/cache"
 
     # Use cache if exists and valid
-    if [[ -f "${albumCacheFile}" ]] && jq -e . <"${albumCacheFile}" >/dev/null 2>&1; then
-        log "DEBUG :: Using cached Deezer album data for ${albumId}"
-        albumJson="$(<"${albumCacheFile}")"
-        set_state "deezerAlbumInfo" "${albumJson}"
-        return 0
+    if [[ -f "${albumCacheFile}" ]]; then
+        if safe_jq --optional '.' <"${albumCacheFile}" >/dev/null 2>&1; then
+            log "DEBUG :: Using cached Deezer album data for ${albumId}"
+            albumJson="$(<"${albumCacheFile}")"
+            set_state "deezerAlbumInfo" "${albumJson}"
+            return 0
+        else
+            log "WARNING :: Cached album JSON invalid, will refetch: ${albumCacheFile}"
+        fi
     fi
 
     # Fetch new data using generic API helper
@@ -131,11 +131,15 @@ GetDeezerArtistAlbums() {
     mkdir -p "${AUDIO_WORK_PATH}/cache"
 
     # Use cache if exists and valid
-    if [[ -f "${artistCacheFile}" ]] && jq -e . <"${artistCacheFile}" >/dev/null 2>&1; then
-        log "DEBUG :: Using cached Deezer artist album list for ${artistId}"
-        artistJson="$(<"${artistCacheFile}")"
-        set_state "deezerArtistInfo" "${artistJson}"
-        return 0
+    if [[ -f "${artistCacheFile}" ]]; then
+        if safe_jq --optional '.' <"${artistCacheFile}" >/dev/null 2>&1; then
+            log "DEBUG :: Using cached Deezer artist album list for ${artistId}"
+            artistJson="$(<"${artistCacheFile}")"
+            set_state "deezerArtistInfo" "${artistJson}"
+            return 0
+        else
+            log "WARNING :: Cached artist album JSON invalid, will refetch: ${artistCacheFile}"
+        fi
     fi
 
     # Fetch new data using generic API helper
@@ -158,51 +162,57 @@ GetDeezerArtistAlbums() {
 }
 
 # Add custom download client if it doesn't already exist
-AddLidarrDownloadClient() {
-    log "TRACE :: Entering AddLidarrDownloadClient..."
+AddDownloadClient() {
+    log "TRACE :: Entering AddDownloadClient..."
     local downloadClientsData downloadClientCheck httpCode
 
     # Get list of existing download clients
     ArrApiRequest "GET" "downloadclient"
     downloadClientsData="$(get_state "arrApiResponse")"
 
-    # Check if our custom client already exists
-    downloadClientCheck=$(echo "${downloadClientsData}" | jq -r '.[]?.name' | grep -Fx "${AUDIO_DOWNLOADCLIENT_NAME}" || true)
+    # Validate JSON response
+    downloadClientsData="$(safe_jq '.' <<<"${downloadClientsData}")"
 
-    if [ -z "${downloadClientCheck}" ]; then
+    # Check if our custom client already exists
+    downloadClientExists="$(safe_jq --arg name "${AUDIO_DOWNLOADCLIENT_NAME}" '
+        any(.[]?.name == $name)
+    ' <<<"${downloadClientsData}")"
+
+    if [[ "${downloadClientExists}" != "true" ]]; then
         log "INFO :: ${AUDIO_DOWNLOADCLIENT_NAME} client not found, creating it..."
 
-        # Build JSON payload
-        payload=$(
-            cat <<EOF
-{
-  "enable": true,
-  "protocol": "usenet",
-  "priority": 10,
-  "removeCompletedDownloads": true,
-  "removeFailedDownloads": true,
-  "name": "${AUDIO_DOWNLOADCLIENT_NAME}",
-  "fields": [
-    {"name": "nzbFolder", "value": "${AUDIO_SHARED_LIDARR_PATH}"},
-    {"name": "watchFolder", "value": "${AUDIO_SHARED_LIDARR_PATH}"}
-  ],
-  "implementationName": "Usenet Blackhole",
-  "implementation": "UsenetBlackhole",
-  "configContract": "UsenetBlackholeSettings",
-  "infoLink": "https://wiki.servarr.com/lidarr/supported#usenetblackhole",
-  "tags": []
-}
-EOF
-        )
+        # Build JSON payload safely
+        payload="$(
+            jq -n \
+                --arg name "${AUDIO_DOWNLOADCLIENT_NAME}" \
+                --arg path "${AUDIO_SHARED_LIDARR_PATH}" \
+                '{
+                enable: true,
+                protocol: "usenet",
+                priority: 10,
+                removeCompletedDownloads: true,
+                removeFailedDownloads: true,
+                name: $name,
+                fields: [
+                    {name: "nzbFolder", value: $path},
+                    {name: "watchFolder", value: $path}
+                ],
+                implementationName: "Usenet Blackhole",
+                implementation: "UsenetBlackhole",
+                configContract: "UsenetBlackholeSettings",
+                infoLink: "https://wiki.servarr.com/lidarr/supported#usenetblackhole",
+                tags: []
+            }'
+        )"
 
         # Submit to API
         ArrApiRequest "POST" "downloadclient" "${payload}"
-
         log "INFO :: Successfully added ${AUDIO_DOWNLOADCLIENT_NAME} download client."
     else
         log "INFO :: ${AUDIO_DOWNLOADCLIENT_NAME} download client already exists, skipping creation."
     fi
-    log "TRACE :: Exiting AddLidarrDownloadClient..."
+
+    log "TRACE :: Exiting AddDownloadClient..."
 }
 
 # Clean up old notfound or downloaded entries to allow retries
@@ -1113,7 +1123,7 @@ init_state
 verifyArrApiAccess
 
 # Create Lidarr entities
-AddLidarrDownloadClient
+AddDownloadClient
 
 # Setup Deemix & Beets
 SetupDeemix
