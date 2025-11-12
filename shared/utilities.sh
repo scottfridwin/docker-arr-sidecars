@@ -569,10 +569,9 @@ safe_jq() {
     fi
 
     filter="$1"
-    local input
     input="$(cat)"
 
-    # Sanity check: ensure we got something resembling JSON
+    # Sanity check: input must look like JSON
     if [[ -z "$input" || ("$input" != *"{"* && "$input" != *"["*) ]]; then
         log "ERROR :: safe_jq Input was empty or not valid JSON for filter '$filter'"
         setUnhealthy
@@ -587,15 +586,17 @@ safe_jq() {
         exit 1
     fi
 
-    # Handle 'null' output
-    if [[ "$result" == "null" || -z "$result" ]]; then
-        if $optional; then
-            echo "" # Return empty string for optional fields
-            return 0
+    # Handle multi-line output
+    if $optional; then
+        # Replace any line that is literally 'null' with empty string
+        result=$(awk '{if($0=="null") print ""; else print $0}' <<<"$result")
+    else
+        # Hard-fail if single-line result is null or empty
+        if [[ "$result" == "null" || -z "$result" ]]; then
+            log "ERROR :: jq returned null or empty for '$filter'; exiting"
+            setUnhealthy
+            exit 1
         fi
-        log "ERROR :: jq returned null for '$filter'; exiting"
-        setUnhealthy
-        exit 1
     fi
 
     echo "$result"
@@ -611,11 +612,10 @@ CleanPathString() {
     # Replace invalid filename characters with underscores
     # Invalid: / \ : * ? " < > |
     input="${input//\//_}"
-    input="${input//\\/ _}"
+    input="${input//\\/_}"
     input="${input//:/_}"
     input="${input//\*/_}"
     input="${input//\?/_}"
-    input="${input//\"/_}"
     input="${input//</_}"
     input="${input//>/_}"
     input="${input//|/_}"
@@ -623,12 +623,12 @@ CleanPathString() {
     # Remove hyphens (-) to better support path parsing
     input="${input//-/}"
 
-    # Replace consecutive spaces with a single underscore
-    input="$(echo "$input" | tr -s ' ' '_')"
-
     # Remove remaining quotes (single or double)
     input="${input//\'/}"
     input="${input//\"/}"
+
+    # Replace consecutive spaces with a single underscore
+    input="$(echo "$input" | tr -s ' ' '_')"
 
     # Optionally limit the length (safe for most filesystems)
     echo "${input:0:150}"

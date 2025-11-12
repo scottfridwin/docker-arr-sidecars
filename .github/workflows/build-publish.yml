@@ -29,6 +29,21 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Run shared tests
+        run: |
+          if [ -f "shared/test/test_all.bash" ]; then
+            echo "Running shared tests using test_all.bash for ${{ matrix.service }}"
+            bash "shared/test/test_all.bash"
+            result=$?
+            if [ $result -ne 0 ]; then
+              echo "❌ Some shared tests failed in test_all.bash for ${{ matrix.service }}"
+              exit $result
+            else
+              echo "✅ All shared tests passed in test_all.bash for ${{ matrix.service }}"
+              exit 0
+            fi
+          fi
+
       - name: Run tests for ${{ matrix.service }}
         run: |
           if [ -f "${{ matrix.service }}/test/test_all.bash" ]; then
