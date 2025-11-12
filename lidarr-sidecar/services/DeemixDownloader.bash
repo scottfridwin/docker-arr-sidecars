@@ -171,7 +171,7 @@ AddDownloadClient() {
     downloadClientsData="$(get_state "arrApiResponse")"
 
     # Validate JSON response
-    downloadClientsData="$(safe_jq '.' <<<"${downloadClientsData}")"
+    downloadClientsData="$(safe_jq --optional '.' <<<"${downloadClientsData}" || echo '{}')"
 
     # Check if our custom client already exists
     downloadClientExists="$(safe_jq --arg name "${AUDIO_DOWNLOADCLIENT_NAME}" '

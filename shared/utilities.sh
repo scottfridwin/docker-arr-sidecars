@@ -90,7 +90,7 @@ getArrUrl() {
 
         # Extract URL base from config (optional)
         local arrUrlBase
-        arrUrlBase="$(xq <"${ARR_CONFIG_PATH}" | safe_jq '.Config.UrlBase' || true)"
+        arrUrlBase="$(xq <"${ARR_CONFIG_PATH}" | safe_jq --optional '.Config.UrlBase')"
         if [[ "$arrUrlBase" == "null" || -z "$arrUrlBase" ]]; then
             arrUrlBase=""
         else
@@ -559,40 +559,38 @@ remove_quotes() {
 safe_jq() {
     local optional=false
     local filter
-    local input result
 
-    # Check for --optional flag
+    # Optional flag
     if [[ "$1" == "--optional" ]]; then
         optional=true
         shift
     fi
 
     filter="$1"
+    shift # now "$@" contains jq extra args (--arg, --argjson, etc.)
+
+    # Read stdin
+    local input
     input="$(cat)"
 
-    # Sanity check: input must look like JSON
+    # Validate minimal JSON structure
     if [[ -z "$input" || ("$input" != *"{"* && "$input" != *"["*) ]]; then
-        log "ERROR :: safe_jq Input was empty or not valid JSON for filter '$filter'"
         setUnhealthy
         exit 1
     fi
 
-    # Run jq safely but capture stderr
-    if ! result=$(jq -r "$filter" <<<"$input" 2> >(jq_error=$(cat))); then
-        log "ERROR :: jq execution failed for filter '$filter'"
-        [[ -n "${jq_error:-}" ]] && log "ERROR :: jq stderr: ${jq_error}"
+    # Run jq and forward extra arguments
+    local result
+    if ! result=$(jq -r "$filter" "$@" <<<"$input"); then
         setUnhealthy
         exit 1
     fi
 
-    # Handle multi-line output
+    # Optional: convert nulls to empty string
     if $optional; then
-        # Replace any line that is literally 'null' with empty string
         result=$(awk '{if($0=="null") print ""; else print $0}' <<<"$result")
     else
-        # Hard-fail if single-line result is null or empty
         if [[ "$result" == "null" || -z "$result" ]]; then
-            log "ERROR :: jq returned null or empty for '$filter'; exiting"
             setUnhealthy
             exit 1
         fi
