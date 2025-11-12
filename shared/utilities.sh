@@ -57,16 +57,22 @@ validateEnvironment() {
 # Retrieves the *arr API key from the config file
 getArrApiKey() {
     log "TRACE :: Entering getArrApiKey..."
+
     local arrApiKey="$(get_state "arrApiKey")"
+
     if [[ -z "${arrApiKey}" ]]; then
-        arrApiKey="$(cat "${ARR_CONFIG_PATH}" | xq | jq -r .Config.ApiKey)"
-        if [ -z "$arrApiKey" ] || [ "$arrApiKey" == "null" ]; then
-            log "ERROR :: Unable to retrieve ${ARR_NAME} API key from configuration file: $ARR_CONFIG_PATH"
+        # Validate config file exists
+        if [[ ! -f "${ARR_CONFIG_PATH}" ]]; then
+            log "ERROR :: Config file not found: ${ARR_CONFIG_PATH}"
             setUnhealthy
             exit 1
         fi
+
+        # Convert XML → JSON, then safely extract .Config.ApiKey
+        arrApiKey="$(xq <"${ARR_CONFIG_PATH}" | safe_jq '.Config.ApiKey')"
         set_state "arrApiKey" "${arrApiKey}"
     fi
+
     log "TRACE :: Exiting getArrApiKey..."
 }
 
@@ -75,21 +81,34 @@ getArrUrl() {
     log "TRACE :: Entering getArrUrl..."
     local arrUrl="$(get_state "arrUrl")"
     if [[ -z "${arrUrl}" ]]; then
-        # Get *arr base URL. Usually blank, but can be set in *arr settings.
-        local arrUrlBase="$(cat "${ARR_CONFIG_PATH}" | xq | jq -r .Config.UrlBase)"
-        if [ "$arrUrlBase" == "null" ]; then
+        # Validate config file exists
+        if [[ ! -f "${ARR_CONFIG_PATH}" ]]; then
+            log "ERROR :: Config file not found: ${ARR_CONFIG_PATH}"
+            setUnhealthy
+            exit 1
+        fi
+
+        # Extract URL base from config (optional)
+        local arrUrlBase
+        arrUrlBase="$(xq <"${ARR_CONFIG_PATH}" | safe_jq '.Config.UrlBase' || true)"
+        if [[ "$arrUrlBase" == "null" || -z "$arrUrlBase" ]]; then
             arrUrlBase=""
         else
-            arrUrlBase="/$(echo "$arrUrlBase" | sed "s/\///")"
+            arrUrlBase="/$(echo "$arrUrlBase" | sed 's#^/*##; s#/*$##')"
         fi
 
-        # If an external port is provided, use it. Otherwise, get the port from the config file.
-        local arrPort="${ARR_PORT}"
-        if [ -z "$arrPort" ] || [ "$arrPort" == "null" ]; then
-            arrPort="$(cat "${ARR_CONFIG_PATH}" | xq | jq -r .Config.Port)"
+        # Extract port, preferring environment variable if set
+        local arrPort="${ARR_PORT:-}"
+        if [[ -z "$arrPort" || "$arrPort" == "null" ]]; then
+            arrPort="$(xq <"${ARR_CONFIG_PATH}" | safe_jq '.Config.Port')"
+        fi
+        if [[ -z "$arrPort" || ! "$arrPort" =~ ^[0-9]+$ ]]; then
+            log "ERROR :: Invalid or missing port value: '${arrPort}'"
+            setUnhealthy
+            exit 1
         fi
 
-        # Construct and return the full URL
+        # Construct final URL
         arrUrl="http://${ARR_HOST}:${arrPort}${arrUrlBase}"
         set_state "arrUrl" "${arrUrl}"
     fi
@@ -191,13 +210,27 @@ ArrTaskStatusCheck() {
         ArrApiRequest "GET" "command"
         taskList="$(get_state "arrApiResponse")"
 
-        # Count active tasks
-        taskCount=$(jq -r '.[] | select(.status=="started") | .name' <<<"${taskList}" | wc -l)
+        # Ensure the response looks valid before parsing
+        if [[ -z "${taskList}" || "${taskList}" == "null" ]]; then
+            log "ERROR :: ${ARR_NAME} API returned empty or null response for command list"
+            setUnhealthy
+            exit 1
+        fi
+
+        # Count active tasks safely
+        taskCount="$(safe_jq '[.[] | select(.status == "started") | .name] | length' <<<"${taskList}")"
+
+        # Sanity check task count
+        if ! [[ "${taskCount}" =~ ^[0-9]+$ ]]; then
+            log "ERROR :: Invalid task count parsed from ${ARR_NAME} response: '${taskCount}'"
+            setUnhealthy
+            exit 1
+        fi
 
         if ((taskCount >= 1)); then
             if [[ "${alerted}" == "no" ]]; then
                 alerted="yes"
-                log "INFO :: ${ARR_NAME} busy :: Pausing/waiting for all active ${ARR_NAME} tasks to end..."
+                log "INFO :: ${ARR_NAME} busy :: Waiting for ${taskCount} active ${ARR_NAME} tasks to complete..."
             fi
             sleep 2
         else
@@ -223,8 +256,11 @@ verifyArrApiAccess() {
 
     local apiTest=""
     local arrApiVersion=""
+    local httpCode=""
+    local body=""
+    local curlExit=""
 
-    # Normalize by removing spaces and splitting on commas
+    # Normalize and split supported versions
     IFS=',' read -r -a supported_versions <<<"${ARR_SUPPORTED_API_VERSIONS// /}"
 
     for ver in "${supported_versions[@]}"; do
@@ -237,20 +273,37 @@ verifyArrApiAccess() {
             apiTest="$(timeout 15 curl -s --connect-timeout 5 --max-time 10 -w "\n%{http_code}" "${testUrl}" 2>&1)"
             curlExit=$?
             set -e
+
             httpCode=$(tail -n1 <<<"${apiTest}")
             body=$(sed '$d' <<<"${apiTest}")
 
+            if [[ "${curlExit}" -ne 0 ]]; then
+                log "WARNING :: curl failed (exit ${curlExit}) — retrying in 5s..."
+                sleep 5
+                continue
+            fi
+
             if [[ "${httpCode}" == "200" ]]; then
+                # Safely extract instance name using your jq wrapper
+                local instanceName
+                instanceName="$(safe_jq '.instanceName' <<<"${body}")"
+
                 arrApiVersion=${ver}
-                log "DEBUG :: ${ARR_NAME} API ${ver} available (instance: $(jq -r .instanceName <<<"$body"))"
+                log "DEBUG :: ${ARR_NAME} API v${ver} available (instance: ${instanceName})"
                 break 2 # Found valid version; break out of both loops
+
             elif [[ "${httpCode}" == "000" ]]; then
                 log "WARNING :: ${ARR_NAME} unreachable — retrying in 5s..."
                 sleep 5
                 continue
+
             else
+                # Try next version, log what happened
                 log "DEBUG :: ${ARR_NAME} returned HTTP ${httpCode} for v${ver}"
-                break # Try next version instead
+                if [[ -n "${body}" && "${body}" == *"error"* ]]; then
+                    log "DEBUG :: API error response: $(echo "${body}" | head -c 300)"
+                fi
+                break
             fi
         done
     done
@@ -271,13 +324,31 @@ responseMatchesPayload() {
     local payload="$1"
     local response="$2"
 
+    # Validate inputs
+    if [[ -z "$payload" || -z "$response" ]]; then
+        log "ERROR :: responseMatchesPayload called with empty payload or response"
+        setUnhealthy
+        exit 1
+    fi
+
+    # Sanity check: confirm both look like JSON before continuing
+    if [[ "$payload" != *"{"* && "$payload" != *"["* ]]; then
+        log "ERROR :: Payload is not valid JSON"
+        setUnhealthy
+        exit 1
+    fi
+    if [[ "$response" != *"{"* && "$response" != *"["* ]]; then
+        log "ERROR :: Response is not valid JSON"
+        setUnhealthy
+        exit 1
+    fi
+
     local mismatches
-    mismatches=$(jq -n \
+    if ! mismatches="$(jq -n \
         --slurpfile payload <(echo "$payload") \
         --slurpfile response <(echo "$response") '
         def compare_values($key; $pval; $rval):
           if $key == "fields" and ($pval | type) == "array" then
-            # Compare name/value pairs only
             reduce $pval[] as $item ([]; 
               if ($rval | map(select(.name == $item.name)) | length) == 0 then
                 . + ["Missing field: " + $item.name]
@@ -304,9 +375,16 @@ responseMatchesPayload() {
           end;
 
         compare_payload($payload[0]; $response[0])
-      ' 2>/dev/null)
+        ' 2> >(jq_error=$(cat)))"; then
+        log "ERROR :: jq comparison failed inside responseMatchesPayload"
+        [[ -n "${jq_error:-}" ]] && log "ERROR :: jq stderr: ${jq_error}"
+        setUnhealthy
+        exit 1
+    fi
 
+    # --- Process results ---
     if [[ -n "$mismatches" && "$mismatches" != "[]" ]]; then
+        log "DEBUG :: Found differences between payload and response:"
         while IFS= read -r line; do
             log "DEBUG :: $line"
         done <<<"$mismatches"
@@ -323,25 +401,35 @@ arrApiAttempt() {
     local payload="$3"
     local max_attempts=5
     local attempt=1
-    local resp
+    local resp jq_status
 
     while true; do
         ArrApiRequest "$method" "$url" "$payload"
         resp="$(get_state "arrApiResponse")"
 
-        # Verify response is valid JSON
-        if [[ -z "$resp" || "$resp" == "null" ]] || ! jq -e 'type=="object" or type=="array"' <<<"$resp" >/dev/null 2>&1; then
+        # Validate JSON response using safe_jq
+        safe_jq -e 'type=="object" or type=="array"' <<<"$resp"
+        jq_status=$?
+
+        if [[ -z "$resp" || "$resp" == "null" || $jq_status -ne 0 ]]; then
             if [[ "$method" == "PUT" ]]; then
-                log "DEBUG :: Empty/invalid response to PUT; fetching $url to verify..."
+                log "DEBUG :: Empty or invalid response to PUT; fetching $url to verify..."
                 ArrApiRequest "GET" "$url"
                 resp="$(get_state "arrApiResponse")"
+
+                # Recheck JSON validity
+                safe_jq -e 'type=="object" or type=="array"' <<<"$resp" || {
+                    log "ERROR :: Invalid JSON received from GET $url during verification."
+                    setUnhealthy
+                    exit 1
+                }
             else
-                log "DEBUG :: Empty/invalid response to $method at $url; skipping verification for this attempt."
+                log "DEBUG :: Empty or invalid response to $method at $url; skipping verification for this attempt."
                 break
             fi
         fi
 
-        # Check if response matches payload
+        # Compare response to payload
         if responseMatchesPayload "$payload" "$resp"; then
             break
         fi
@@ -374,31 +462,31 @@ updateArrConfig() {
 
     log "DEBUG :: Configuring ${ARR_NAME} ${settingName} Settings"
 
-    # Load JSON and validate
+    # Load JSON safely
     local jsonData
-    if ! jsonData=$(jq -c '.' "$jsonFile" 2>/dev/null); then
-        log "ERROR :: Invalid JSON in $jsonFile"
-        setUnhealthy
-        exit 1
-    fi
+    jsonData="$(safe_jq '.' <"$jsonFile")"
 
+    # Determine type (array or object)
     local jsonType
-    jsonType=$(jq -r 'if type=="array" then "array" else "object" end' <<<"$jsonData")
+    jsonType="$(safe_jq 'if type=="array" then "array" else "object" end' <<<"$jsonData")"
 
     if [[ "$jsonType" == "array" ]]; then
         log "DEBUG :: Detected JSON array, sending one PUT/POST per element..."
         local length
-        length=$(jq 'length' <<<"$jsonData")
+        length="$(safe_jq 'length' <<<"$jsonData")"
 
         log "TRACE :: Fetching existing resources at $apiPath..."
         ArrApiRequest "GET" "$apiPath"
         local response
         response="$(get_state "arrApiResponse")"
+        # Validate API response
+        response="$(safe_jq '.' <<<"$response")"
 
         for ((i = 0; i < length; i++)); do
             local item id exists url payload
-            item=$(jq -c ".[$i]" <<<"$jsonData")
-            id=$(jq -r ".[$i].id" <<<"$jsonData")
+
+            item="$(safe_jq ".[$i]" <<<"$jsonData")"
+            id="$(safe_jq -r ".[$i].id" <<<"$jsonData")"
 
             if [[ -z "$id" || "$id" == "null" ]]; then
                 log "ERROR :: Element $((i + 1)) has no 'id' property."
@@ -406,7 +494,8 @@ updateArrConfig() {
                 exit 1
             fi
 
-            exists=$(jq --arg id "$id" 'map(select(.id == ($id|tonumber))) | length' <<<"$response")
+            exists="$(safe_jq --arg id "$id" 'map(select(.id == ($id|tonumber))) | length' <<<"$response")"
+
             if ((exists > 0)); then
                 url="${apiPath}/${id}"
                 payload="$item"
@@ -414,7 +503,7 @@ updateArrConfig() {
                 log "TRACE :: Payload: $payload"
                 arrApiAttempt "PUT" "$url" "$payload"
             else
-                payload=$(jq 'del(.id)' <<<"$item")
+                payload="$(safe_jq 'del(.id)' <<<"$item")"
                 log "TRACE :: Resource id=$id not found; creating new entry via POST"
                 log "TRACE :: Payload: $payload"
                 arrApiAttempt "POST" "$apiPath" "$payload"
@@ -465,6 +554,38 @@ remove_quotes() {
 
     # Remove quotes
     echo "$1" | sed -e "s/['\"]//g"
+}
+
+# Safe jq wrapper that logs parse errors
+safe_jq() {
+    local filter="$1"
+    local input result
+
+    input="$(cat)"
+
+    # Sanity check: ensure we got something resembling JSON
+    if [[ -z "$input" || ("$input" != *"{"* && "$input" != *"["*) ]]; then
+        log "ERROR :: safe_jq Input was empty or not valid JSON for filter '$filter'"
+        setUnhealthy
+        exit 1
+    fi
+
+    # Run jq safely but capture stderr
+    if ! result=$(jq -r "$filter" <<<"$input" 2> >(jq_error=$(cat))); then
+        log "ERROR :: jq execution failed for filter '$filter'"
+        [[ -n "${jq_error:-}" ]] && log "ERROR :: jq stderr: ${jq_error}"
+        setUnhealthy
+        exit 1
+    fi
+
+    # Handle 'null' output
+    if [[ "$result" == "null" || -z "$result" ]]; then
+        log "ERROR :: jq returned null for '$filter'; exiting"
+        setUnhealthy
+        exit 1
+    fi
+
+    echo "$result"
 }
 
 # Cleans a string for safe use in file or folder names

@@ -19,42 +19,48 @@ AddDownloadClient() {
     ArrApiRequest "GET" "downloadclient"
     downloadClientsData="$(get_state "arrApiResponse")"
 
-    # Check if our custom client already exists
-    downloadClientCheck=$(echo "${downloadClientsData}" | jq -r '.[]?.name' | grep -Fx "${AUTOIMPORT_DOWNLOADCLIENT_NAME}" || true)
+    # Validate JSON response
+    downloadClientsData="$(safe_jq '.' <<<"${downloadClientsData}")"
 
-    if [ -z "${downloadClientCheck}" ]; then
+    # Check if our custom client already exists
+    downloadClientExists="$(safe_jq --arg name "${AUTOIMPORT_DOWNLOADCLIENT_NAME}" '
+        any(.[]?.name == $name)
+    ' <<<"${downloadClientsData}")"
+
+    if [[ "${downloadClientExists}" != "true" ]]; then
         log "INFO :: ${AUTOIMPORT_DOWNLOADCLIENT_NAME} client not found, creating it..."
 
-        # Build JSON payload
-        payload=$(
-            cat <<EOF
-{
-  "enable": true,
-  "protocol": "usenet",
-  "priority": 10,
-  "removeCompletedDownloads": true,
-  "removeFailedDownloads": true,
-  "name": "${AUTOIMPORT_DOWNLOADCLIENT_NAME}",
-  "fields": [
-    {"name": "nzbFolder", "value": "${AUTOIMPORT_SHARED_PATH}"},
-    {"name": "watchFolder", "value": "${AUTOIMPORT_SHARED_PATH}"}
-  ],
-  "implementationName": "Usenet Blackhole",
-  "implementation": "UsenetBlackhole",
-  "configContract": "UsenetBlackholeSettings",
-  "infoLink": "https://wiki.servarr.com/lidarr/supported#usenetblackhole",
-  "tags": [ ]
-}
-EOF
-        )
+        # Build JSON payload safely
+        payload="$(
+            jq -n \
+                --arg name "${AUTOIMPORT_DOWNLOADCLIENT_NAME}" \
+                --arg path "${AUTOIMPORT_SHARED_PATH}" \
+                '{
+                enable: true,
+                protocol: "usenet",
+                priority: 10,
+                removeCompletedDownloads: true,
+                removeFailedDownloads: true,
+                name: $name,
+                fields: [
+                    {name: "nzbFolder", value: $path},
+                    {name: "watchFolder", value: $path}
+                ],
+                implementationName: "Usenet Blackhole",
+                implementation: "UsenetBlackhole",
+                configContract: "UsenetBlackholeSettings",
+                infoLink: "https://wiki.servarr.com/lidarr/supported#usenetblackhole",
+                tags: []
+            }'
+        )"
 
         # Submit to API
         ArrApiRequest "POST" "downloadclient" "${payload}"
-
         log "INFO :: Successfully added ${AUTOIMPORT_DOWNLOADCLIENT_NAME} download client."
     else
         log "INFO :: ${AUTOIMPORT_DOWNLOADCLIENT_NAME} download client already exists, skipping creation."
     fi
+
     log "TRACE :: Exiting AddDownloadClient..."
 }
 
@@ -71,11 +77,10 @@ GetSeries() {
         log "DEBUG :: Series cache not found, will refresh..."
         refreshNeeded=true
     else
-        # Calculate file age
-        local currentTime fileModTime
+        local currentTime fileModTime age
         currentTime=$(date +%s)
         fileModTime=$(stat -c %Y "${seriesPathsCacheFile}" 2>/dev/null || echo 0)
-        local age=$((currentTime - fileModTime))
+        age=$((currentTime - fileModTime))
 
         if ((age > cacheAgeSeconds)); then
             log "DEBUG :: Series cache older than ${AUTOIMPORT_CACHE_HOURS}h, refreshing..."
@@ -84,9 +89,8 @@ GetSeries() {
     fi
 
     if [[ "${refreshNeeded}" == true ]]; then
-        # Make API request using your helper (populates arrApiResponse)
+        # Fetch series from API
         ArrApiRequest "GET" "series"
-
         local response
         response="$(get_state "arrApiResponse")"
 
@@ -96,15 +100,26 @@ GetSeries() {
             exit 1
         fi
 
-        # Extract series paths and update cache
-        jq -r '.[].path' <<<"${response}" >"${seriesPathsCacheFile}"
+        # Extract series paths safely using safe_jq
+        local seriesPaths
+        seriesPaths="$(safe_jq -r '.[].path' <<<"${response}")"
+
+        # Write cache atomically
+        echo "${seriesPaths}" >"${seriesPathsCacheFile}.tmp" && mv "${seriesPathsCacheFile}.tmp" "${seriesPathsCacheFile}"
+
         log "INFO :: Series cache refreshed with $(wc -l <"${seriesPathsCacheFile}") entries"
     fi
 
     # Load cache contents into memory and store in state
     local seriesPaths
-    seriesPaths="$(<"${seriesPathsCacheFile}")"
-    set_state "seriesPaths" "${seriesPaths}"
+    if [[ -f "${seriesPathsCacheFile}" ]]; then
+        seriesPaths="$(<"${seriesPathsCacheFile}")"
+        set_state "seriesPaths" "${seriesPaths}"
+    else
+        log "ERROR :: Series cache file missing after refresh attempt"
+        setUnhealthy
+        exit 1
+    fi
 
     log "TRACE :: Exiting GetSeries..."
 }
