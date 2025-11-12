@@ -60,7 +60,7 @@ album_json='{
 ExtractAlbumInfo "$album_json"
 
 if [[ "$(get_state "lidarrAlbumTitle")" == "Abbey Road" ]] &&
-    [[ "$(get_state "lidarrAlbumDisambiguation")" == "null" ]] &&
+    [[ "$(get_state "lidarrAlbumDisambiguation")" == "" ]] &&
     [[ "$(get_state "lidarrAlbumReleaseYear")" == "1969" ]]; then
     echo "✅ PASS: Album without disambiguation"
     ((pass++))

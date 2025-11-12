@@ -114,8 +114,8 @@ EvaluateDeezerAlbumCandidate() {
     fi
 
     local deezerAlbumData="$(get_state "deezerAlbumInfo")"
-    local deezerAlbumTrackCount=$(safe_jq -r .nb_tracks <<<"${deezerAlbumData}")
-    local deezerReleaseYear=$(safe_jq -r .release_date <<<"${deezerAlbumData}")
+    local deezerAlbumTrackCount=$(safe_jq .nb_tracks <<<"${deezerAlbumData}")
+    local deezerReleaseYear=$(safe_jq .release_date <<<"${deezerAlbumData}")
     deezerReleaseYear="${deezerReleaseYear:0:4}"
 
     # Calculate year difference
@@ -225,15 +225,15 @@ ExtractAlbumInfo() {
     local album_json="$1"
 
     local lidarrAlbumTitle lidarrAlbumType lidarrAlbumForeignAlbumId
-    lidarrAlbumTitle=$(safe_jq -r ".title" <<<"$album_json")
-    lidarrAlbumType=$(safe_jq -r ".albumType" <<<"$album_json")
-    lidarrAlbumForeignAlbumId=$(safe_jq -r ".foreignAlbumId" <<<"$album_json")
+    lidarrAlbumTitle=$(safe_jq ".title" <<<"$album_json")
+    lidarrAlbumType=$(safe_jq ".albumType" <<<"$album_json")
+    lidarrAlbumForeignAlbumId=$(safe_jq ".foreignAlbumId" <<<"$album_json")
 
     # Extract disambiguation from album info
     local lidarrAlbumDisambiguation
-    lidarrAlbumDisambiguation=$(safe_jq -r ".disambiguation" <<<"$album_json")
+    lidarrAlbumDisambiguation=$(safe_jq ".disambiguation" <<<"$album_json")
     local albumReleaseYear
-    local albumReleaseDate="$(safe_jq --optional -r '.releaseDate' <<<"${album_json}")"
+    local albumReleaseDate="$(safe_jq --optional '.releaseDate' <<<"${album_json}")"
     if [ -n "${albumReleaseDate}" ] && [ "${albumReleaseDate}" != "null" ]; then
         albumReleaseYear="${albumReleaseDate:0:4}"
     else
@@ -257,9 +257,9 @@ ExtractArtistInfo() {
     local artist_json="$1"
 
     local lidarrArtistName lidarrArtistId lidarrArtistForeignArtistId
-    lidarrArtistName=$(safe_jq -r ".artistName" <<<"$artist_json")
-    lidarrArtistId=$(safe_jq -r ".artistMetadataId" <<<"$artist_json")
-    lidarrArtistForeignArtistId=$(safe_jq -r ".foreignArtistId" <<<"$artist_json")
+    lidarrArtistName=$(safe_jq ".artistName" <<<"$artist_json")
+    lidarrArtistId=$(safe_jq ".artistMetadataId" <<<"$artist_json")
+    lidarrArtistForeignArtistId=$(safe_jq ".foreignArtistId" <<<"$artist_json")
     set_state "lidarrArtistInfo" "${artist_json}"
     set_state "lidarrArtistName" "${lidarrArtistName}"
     set_state "lidarrArtistId" "${lidarrArtistId}"
@@ -270,15 +270,15 @@ ExtractArtistInfo() {
 ExtractReleaseInfo() {
     local release_json="$1"
 
-    local lidarrReleaseTitle="$(safe_jq -r ".title" <<<"${release_json}")"
-    local lidarrReleaseDisambiguation="$(safe_jq --optional -r ".disambiguation" <<<"${release_json}")"
-    local lidarrReleaseTrackCount="$(safe_jq -r ".trackCount" <<<"${release_json}")"
-    local lidarrReleaseForeignId="$(safe_jq -r ".foreignReleaseId" <<<"${release_json}")"
-    local lidarrReleaseFormat="$(safe_jq -r ".format" <<<"${release_json}")"
-    local lidarrReleaseCountries="$(safe_jq --optional -r '.country // [] | join(",")' <<<"${release_json}")"
+    local lidarrReleaseTitle="$(safe_jq ".title" <<<"${release_json}")"
+    local lidarrReleaseDisambiguation="$(safe_jq --optional ".disambiguation" <<<"${release_json}")"
+    local lidarrReleaseTrackCount="$(safe_jq ".trackCount" <<<"${release_json}")"
+    local lidarrReleaseForeignId="$(safe_jq ".foreignReleaseId" <<<"${release_json}")"
+    local lidarrReleaseFormat="$(safe_jq ".format" <<<"${release_json}")"
+    local lidarrReleaseCountries="$(safe_jq --optional '.country // [] | join(",")' <<<"${release_json}")"
     local lidarrReleaseFormatPriority="$(FormatPriority "${lidarrReleaseFormat}" "${AUDIO_PREFERRED_FORMATS}")"
     local lidarrReleaseCountryPriority="$(CountriesPriority "${lidarrReleaseCountries}" "${AUDIO_PREFERRED_COUNTRIES}")"
-    local lidarrReleaseDate=$(safe_jq --optional -r '.releaseDate' <<<"${release_json}")
+    local lidarrReleaseDate=$(safe_jq --optional '.releaseDate' <<<"${release_json}")
     local lidarrReleaseYear=""
     local albumReleaseYear="$(get_state "lidarrAlbumReleaseYear")"
     if [ -n "${lidarrReleaseDate}" ] && [ "${lidarrReleaseDate}" != "null" ]; then

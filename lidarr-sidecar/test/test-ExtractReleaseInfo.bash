@@ -109,7 +109,7 @@ release_json='{
 
 ExtractReleaseInfo "$release_json"
 
-if [[ "$(get_state "lidarrReleaseDisambiguation")" == "null" ]]; then
+if [[ "$(get_state "lidarrReleaseDisambiguation")" == "" ]]; then
     echo "✅ PASS: Release without disambiguation"
     ((pass++))
 else

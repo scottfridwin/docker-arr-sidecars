@@ -401,17 +401,16 @@ arrApiAttempt() {
     local payload="$3"
     local max_attempts=5
     local attempt=1
-    local resp jq_status
+    local resp
 
     while true; do
         ArrApiRequest "$method" "$url" "$payload"
         resp="$(get_state "arrApiResponse")"
 
         # Validate JSON response using safe_jq
-        safe_jq -e 'type=="object" or type=="array"' <<<"$resp"
-        jq_status=$?
+        safe_jq 'type' <<<"$resp" >/dev/null 2>&1
 
-        if [[ -z "$resp" || "$resp" == "null" || $jq_status -ne 0 ]]; then
+        if [[ -z "$resp" || "$resp" == "null" ]]; then
             if [[ "$method" == "PUT" ]]; then
                 log "DEBUG :: Empty or invalid response to PUT; fetching $url to verify..."
                 ArrApiRequest "GET" "$url"
