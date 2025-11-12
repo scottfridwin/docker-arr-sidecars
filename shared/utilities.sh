@@ -289,7 +289,7 @@ verifyArrApiAccess() {
                 instanceName="$(safe_jq '.instanceName' <<<"${body}")"
 
                 arrApiVersion=${ver}
-                log "DEBUG :: ${ARR_NAME} API v${ver} available (instance: ${instanceName})"
+                log "DEBUG :: ${ARR_NAME} API ${ver} available (instance: ${instanceName})"
                 break 2 # Found valid version; break out of both loops
 
             elif [[ "${httpCode}" == "000" ]]; then

@@ -24,7 +24,7 @@ AddDownloadClient() {
 
     # Check if our custom client already exists
     downloadClientExists="$(safe_jq --arg name "${AUTOIMPORT_DOWNLOADCLIENT_NAME}" '
-        any(.[]?.name == $name)
+        any(.[]; .name == $name)
     ' <<<"${downloadClientsData}")"
 
     if [[ "${downloadClientExists}" != "true" ]]; then
