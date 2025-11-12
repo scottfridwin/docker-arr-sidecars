@@ -20,21 +20,21 @@ AddDownloadClient() {
     downloadClientsData="$(get_state "arrApiResponse")"
 
     # Validate JSON response
-    downloadClientsData="$(safe_jq '.' <<<"$downloadClientsData")"
+    downloadClientsData="$(safe_jq '.' <<<"${downloadClientsData}")"
 
     # Check if our custom client already exists
-    downloadClientExists="$(safe_jq --arg name "$AUTOIMPORT_DOWNLOADCLIENT_NAME" '
+    downloadClientExists="$(safe_jq --arg name "${AUTOIMPORT_DOWNLOADCLIENT_NAME}" '
         any(.[]?.name == $name)
-    ' <<<"$downloadClientsData")"
+    ' <<<"${downloadClientsData}")"
 
-    if [[ "$downloadClientExists" != "true" ]]; then
+    if [[ "${downloadClientExists}" != "true" ]]; then
         log "INFO :: ${AUTOIMPORT_DOWNLOADCLIENT_NAME} client not found, creating it..."
 
         # Build JSON payload safely
         payload="$(
             jq -n \
-                --arg name "$AUTOIMPORT_DOWNLOADCLIENT_NAME" \
-                --arg path "$AUTOIMPORT_SHARED_PATH" \
+                --arg name "${AUTOIMPORT_DOWNLOADCLIENT_NAME}" \
+                --arg path "${AUTOIMPORT_SHARED_PATH}" \
                 '{
                 enable: true,
                 protocol: "usenet",
