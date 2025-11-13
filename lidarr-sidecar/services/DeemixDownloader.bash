@@ -36,7 +36,7 @@ CallDeezerAPI() {
 
         if [[ $curlExit -ne 0 || -z "$response" ]]; then
             log "WARNING :: curl failed (exit $curlExit) for URL ${url}, retrying ($((retries + 1))/${maxRetries})..."
-            ((retries++))
+            retries=$((retries + 1))
             sleep 1
             continue
         fi
@@ -48,7 +48,7 @@ CallDeezerAPI() {
         # Treat HTTP 000 as failure
         if [[ -z "$httpCode" || "$httpCode" == "000" || "$httpCode" == "0" ]]; then
             log "WARNING :: No HTTP response (000) from Deezer API for URL ${url}, retrying ($((retries + 1))/${maxRetries})..."
-            ((retries++))
+            retries=$((retries + 1))
             sleep 1
             continue
         fi
@@ -67,7 +67,7 @@ CallDeezerAPI() {
             log "WARNING :: Deezer API returned HTTP ${httpCode:-<empty>} for URL ${url}, retrying ($((retries + 1))/${maxRetries})..."
         fi
 
-        ((retries++))
+        retries=$((retries + 1))
         sleep 1
     done
 
