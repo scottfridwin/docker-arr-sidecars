@@ -265,7 +265,6 @@ ExtractArtistInfo() {
     lidarrArtistForeignArtistId=$(safe_jq ".foreignArtistId" <<<"$artist_json")
     set_state "lidarrArtistInfo" "${artist_json}"
     set_state "lidarrArtistName" "${lidarrArtistName}"
-    set_state "lidarrArtistId" "${lidarrArtistId}"
     set_state "lidarrArtistForeignArtistId" "${lidarrArtistForeignArtistId}"
 
     log "TRACE :: Exiting ExtractArtistInfo..."
