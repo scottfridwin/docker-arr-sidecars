@@ -575,6 +575,7 @@ safe_jq() {
 
     # Validate minimal JSON structure
     if [[ -z "$input" || ("$input" != *"{"* && "$input" != *"["*) ]]; then
+        log "ERROR :: safe_jq received invalid JSON input"
         setUnhealthy
         exit 1
     fi
@@ -582,6 +583,7 @@ safe_jq() {
     # Run jq and forward extra arguments
     local result
     if ! result=$(jq -r "$filter" "$@" <<<"$input"); then
+        log "ERROR :: jq command failed for filter: $filter"
         setUnhealthy
         exit 1
     fi
@@ -591,6 +593,7 @@ safe_jq() {
         result=$(awk '{if($0=="null") print ""; else print $0}' <<<"$result")
     else
         if [[ "$result" == "null" || -z "$result" ]]; then
+            log "ERROR :: safe_jq extracted null or empty result for filter: $filter"
             setUnhealthy
             exit 1
         fi

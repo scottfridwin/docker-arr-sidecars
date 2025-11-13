@@ -232,7 +232,7 @@ ExtractAlbumInfo() {
 
     # Extract disambiguation from album info
     local lidarrAlbumDisambiguation
-    lidarrAlbumDisambiguation=$(safe_jq ".disambiguation" <<<"$album_json")
+    lidarrAlbumDisambiguation=$(safe_jq --optional ".disambiguation" <<<"$album_json")
     local albumReleaseYear
     local albumReleaseDate="$(safe_jq --optional '.releaseDate' <<<"${album_json}")"
     if [ -n "${albumReleaseDate}" ] && [ "${albumReleaseDate}" != "null" ]; then
