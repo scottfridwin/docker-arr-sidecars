@@ -450,8 +450,8 @@ SearchProcess() {
     fi
     set_state "lidarrAlbumData" "${lidarrAlbumData}" # Cache response in state object
 
-    ExtractArtistInfo "$(jq -r '.artist' <<<"$lidarrAlbumData")"
-    ExtractAlbumInfo "$(jq -r '.' <<<"$lidarrAlbumData")"
+    ExtractArtistInfo "$(safe_jq '.artist' <<<"$lidarrAlbumData")"
+    ExtractAlbumInfo "$(safe_jq '.' <<<"$lidarrAlbumData")"
     local lidarrArtistForeignArtistId=$(get_state "lidarrArtistForeignArtistId")
     local lidarrAlbumForeignAlbumId=$(get_state "lidarrAlbumForeignAlbumId")
     local lidarrArtistName=$(get_state "lidarrArtistName")
@@ -486,7 +486,7 @@ SearchProcess() {
 
     # Extract artist links
     local lidarrArtistInfo="$(get_state "lidarrArtistInfo")"
-    local deezerArtistUrl=$(jq -r '.links[]? | select(.name=="deezer") | .url' <<<"${lidarrArtistInfo}")
+    local deezerArtistUrl=$(safe_jq '.links[]? | select(.name=="deezer") | .url' <<<"${lidarrArtistInfo}")
     if [ -z "${deezerArtistUrl}" ]; then
         log "WARNING :: Missing Deezer link for artist ${lidarrArtistName}, skipping..."
         return
