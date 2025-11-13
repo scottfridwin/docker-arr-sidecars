@@ -222,8 +222,9 @@ EvaluateTitleVariant() {
 
 # Extract album info from JSON and set state variables
 ExtractAlbumInfo() {
-    local album_json="$1"
+    log "TRACE :: Entering ExtractAlbumInfo..."
 
+    local album_json="$1"
     local lidarrAlbumTitle lidarrAlbumType lidarrAlbumForeignAlbumId
     lidarrAlbumTitle=$(safe_jq ".title" <<<"$album_json")
     lidarrAlbumType=$(safe_jq ".albumType" <<<"$album_json")
@@ -250,12 +251,15 @@ ExtractAlbumInfo() {
     set_state "lidarrAlbumReleaseDate" "${albumReleaseDate}"
     set_state "lidarrAlbumReleaseDateClean" "${releaseDateClean}"
     set_state "lidarrAlbumReleaseYear" "${albumReleaseYear}"
+
+    log "TRACE :: Exiting ExtractAlbumInfo..."
 }
 
 # Extract artist info from JSON and set state variables
 ExtractArtistInfo() {
-    local artist_json="$1"
+    log "TRACE :: Entering ExtractArtistInfo..."
 
+    local artist_json="$1"
     local lidarrArtistName lidarrArtistId lidarrArtistForeignArtistId
     lidarrArtistName=$(safe_jq ".artistName" <<<"$artist_json")
     lidarrArtistId=$(safe_jq ".artistMetadataId" <<<"$artist_json")
@@ -264,12 +268,15 @@ ExtractArtistInfo() {
     set_state "lidarrArtistName" "${lidarrArtistName}"
     set_state "lidarrArtistId" "${lidarrArtistId}"
     set_state "lidarrArtistForeignArtistId" "${lidarrArtistForeignArtistId}"
+
+    log "TRACE :: Exiting ExtractArtistInfo..."
 }
 
 # Extract release info from JSON and set state variables
 ExtractReleaseInfo() {
-    local release_json="$1"
+    log "TRACE :: Entering ExtractReleaseInfo..."
 
+    local release_json="$1"
     local lidarrReleaseTitle="$(safe_jq ".title" <<<"${release_json}")"
     local lidarrReleaseDisambiguation="$(safe_jq --optional ".disambiguation" <<<"${release_json}")"
     local lidarrReleaseTrackCount="$(safe_jq ".trackCount" <<<"${release_json}")"
@@ -296,6 +303,8 @@ ExtractReleaseInfo() {
     set_state "lidarrReleaseFormatPriority" "${lidarrReleaseFormatPriority}"
     set_state "lidarrReleaseCountryPriority" "${lidarrReleaseCountryPriority}"
     set_state "lidarrReleaseYear" "${lidarrReleaseYear}"
+
+    log "TRACE :: Exiting ExtractReleaseInfo..."
 }
 
 # Determine priority for a format string based on AUDIO_PREFERRED_FORMATS
