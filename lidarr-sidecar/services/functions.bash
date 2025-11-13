@@ -260,14 +260,9 @@ ExtractArtistInfo() {
     log "TRACE :: Entering ExtractArtistInfo..."
 
     local artist_json="$1"
-    log "DEBUG :: artist_json=${artist_json}"
-    local lidarrArtistName lidarrArtistId lidarrArtistForeignArtistId
+    local lidarrArtistName lidarrArtistForeignArtistId
     lidarrArtistName=$(safe_jq ".artistName" <<<"$artist_json")
-    log "DEBUG :: lidarrArtistName=${lidarrArtistName}"
-    lidarrArtistId=$(safe_jq ".artistMetadataId" <<<"$artist_json")
-    log "DEBUG :: lidarrArtistId=${lidarrArtistId}"
     lidarrArtistForeignArtistId=$(safe_jq ".foreignArtistId" <<<"$artist_json")
-    log "DEBUG :: lidarrArtistForeignArtistId=${lidarrArtistForeignArtistId}"
     set_state "lidarrArtistInfo" "${artist_json}"
     set_state "lidarrArtistName" "${lidarrArtistName}"
     set_state "lidarrArtistId" "${lidarrArtistId}"
