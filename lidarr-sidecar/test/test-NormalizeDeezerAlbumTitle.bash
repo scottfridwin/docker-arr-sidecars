@@ -50,10 +50,10 @@ echo "----------------------------------------------"
 
 # Test 1: Basic title without edition
 reset_state
-NormalizeDeezerAlbumTitle "Abbey Road"
+NormalizeDeezerAlbumTitle "Maple Street"
 titleClean=$(get_state "deezerAlbumTitleClean")
 titleEditionless=$(get_state "deezerAlbumTitleEditionless")
-if [[ "$titleClean" == "abbey road" ]] && [[ "$titleEditionless" == "abbey road" ]]; then
+if [[ "$titleClean" == "maple street" ]] && [[ "$titleEditionless" == "maple street" ]]; then
     echo "✅ PASS: Basic title without edition"
     ((pass++))
 else
@@ -63,10 +63,10 @@ fi
 
 # Test 2: Title with Deluxe Edition
 reset_state
-NormalizeDeezerAlbumTitle "1989 (Deluxe Edition)"
+NormalizeDeezerAlbumTitle "2048 (Deluxe Edition)"
 titleClean=$(get_state "deezerAlbumTitleClean")
 titleEditionless=$(get_state "deezerAlbumTitleEditionless")
-if [[ "$titleClean" == "1989 (deluxe edition)" ]] && [[ "$titleEditionless" == "1989" ]]; then
+if [[ "$titleClean" == "2048 (deluxe edition)" ]] && [[ "$titleEditionless" == "2048" ]]; then
     echo "✅ PASS: Title with Deluxe Edition removed"
     ((pass++))
 else
@@ -76,29 +76,29 @@ fi
 
 # Test 3: Title with replacement rule
 reset_state
-set_state "titleReplacement_weezer (deluxe edition)" "weezer dlx"
-NormalizeDeezerAlbumTitle "Weezer (Deluxe Edition)"
+set_state "titleReplacement_the vectors (deluxe edition)" "the vectors dlx"
+NormalizeDeezerAlbumTitle "The Vectors (Deluxe Edition)"
 titleClean=$(get_state "deezerAlbumTitleClean")
 titleEditionless=$(get_state "deezerAlbumTitleEditionless")
-if [[ "$titleClean" == "weezer dlx" ]]; then
+if [[ "$titleClean" == "the vectors dlx" ]]; then
     echo "✅ PASS: Replacement rule applied to clean title"
     ((pass++))
 else
-    echo "❌ FAIL: Replacement rule (got clean='$titleClean', expected 'weezer dlx')"
+    echo "❌ FAIL: Replacement rule (got clean='$titleClean', expected 'the vectors dlx')"
     ((fail++))
 fi
 
 # Test 4: Title with replacement rule on editionless version
 reset_state
-set_state "titleReplacement_1989" "1989 taylors version"
-NormalizeDeezerAlbumTitle "1989 (Deluxe Edition)"
+set_state "titleReplacement_2048" "2048 deluxe version"
+NormalizeDeezerAlbumTitle "2048 (Deluxe Edition)"
 titleClean=$(get_state "deezerAlbumTitleClean")
 titleEditionless=$(get_state "deezerAlbumTitleEditionless")
-if [[ "$titleEditionless" == "1989 taylors version" ]]; then
+if [[ "$titleEditionless" == "2048 deluxe version" ]]; then
     echo "✅ PASS: Replacement rule applied to editionless title"
     ((pass++))
 else
-    echo "❌ FAIL: Editionless replacement (got editionless='$titleEditionless', expected '1989 taylors version')"
+    echo "❌ FAIL: Editionless replacement (got editionless='$titleEditionless', expected '2048 deluxe version')"
     ((fail++))
 fi
 
@@ -132,14 +132,14 @@ fi
 
 # Test 7: Title with Remastered
 reset_state
-NormalizeDeezerAlbumTitle "The Dark Side of the Moon (Remastered)"
+NormalizeDeezerAlbumTitle "The Bright Side of the Sun (Remastered)"
 titleClean=$(get_state "deezerAlbumTitleClean")
 titleEditionless=$(get_state "deezerAlbumTitleEditionless")
-if [[ "$titleEditionless" == "the dark side of the moon" ]]; then
+if [[ "$titleEditionless" == "the bright side of the sun" ]]; then
     echo "✅ PASS: Remastered edition removed"
     ((pass++))
 else
-    echo "❌ FAIL: Remastered (got editionless='$titleEditionless', expected 'the dark side of the moon')"
+    echo "❌ FAIL: Remastered (got editionless='$titleEditionless', expected 'the bright side of the sun')"
     ((fail++))
 fi
 
@@ -159,7 +159,7 @@ fi
 
 # Test 9: Title with special characters
 reset_state
-NormalizeDeezerAlbumTitle "Taylor's Version (Deluxe Edition)"
+NormalizeDeezerAlbumTitle "Deluxe Version (Deluxe Edition)"
 titleClean=$(get_state "deezerAlbumTitleClean")
 titleEditionless=$(get_state "deezerAlbumTitleEditionless")
 if [[ -n "$titleClean" ]] && [[ -n "$titleEditionless" ]]; then
@@ -172,7 +172,7 @@ fi
 
 # Test 10: Clean and editionless are same when no edition
 reset_state
-NormalizeDeezerAlbumTitle "Folklore"
+NormalizeDeezerAlbumTitle "Storybook"
 titleClean=$(get_state "deezerAlbumTitleClean")
 titleEditionless=$(get_state "deezerAlbumTitleEditionless")
 if [[ "$titleClean" == "$titleEditionless" ]]; then

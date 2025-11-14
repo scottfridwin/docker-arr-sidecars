@@ -13,15 +13,15 @@ log() {
 
 # --- Define test cases: "title|disambiguation" -> expected_output ---
 declare -A TESTS=(
-    ["1989|Deluxe Edition"]="1989 (Deluxe Edition)"
-    ["Weezer|Blue Album"]="Weezer (Blue Album)"
-    ["Abbey Road|Remastered"]="Abbey Road (Remastered)"
-    ["Taylor Swift|"]="Taylor Swift"
-    ["Led Zeppelin IV|null"]="Led Zeppelin IV"
-    ["The Beatles| "]="The Beatles ( )"
-    ["Reputation|Taylor's Version"]="Reputation (Taylor's Version)"
-    ["Folklore|"]="Folklore"
-    ["Midnights|3am Edition"]="Midnights (3am Edition)"
+    ["2048|Deluxe Edition"]="2048 (Deluxe Edition)"
+    ["The Vectors|Red Album"]="The Vectors (Red Album)"
+    ["Maple Street|Remastered"]="Maple Street (Remastered)"
+    ["Aurora Lane|"]="Aurora Lane"
+    ["Lightning Brigade V|null"]="Lightning Brigade V"
+    ["The Beetles| "]="The Beetles ( )"
+    ["Perception|Deluxe Version"]="Perception (Deluxe Version)"
+    ["Storybook|"]="Storybook"
+    ["Twilights|3am Edition"]="Twilights (4pm Edition)"
     ["||"]=""
     ["Title|"]="Title"
 )

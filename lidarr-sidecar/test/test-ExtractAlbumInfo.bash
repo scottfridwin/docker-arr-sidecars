@@ -22,19 +22,19 @@ echo "----------------------------------------------"
 # Test 1: Extract basic album info with valid date
 reset_state
 album_json='{
-  "title": "1989",
+  "title": "2048",
   "albumType": "Album",
-  "foreignAlbumId": "5e3e5c8e-5e3e-5c8e-5e3e-5c8e5e3e5c8e",
-  "disambiguation": "Taylors Version",
+  "foreignAlbumId": "d4e5f6a7-b8c9-4567-89ab-cdef01234567",
+  "disambiguation": "Sailors Version",
   "releaseDate": "2014-10-27T00:00:00Z"
 }'
 
 ExtractAlbumInfo "$album_json"
 
-if [[ "$(get_state "lidarrAlbumTitle")" == "1989" ]] &&
+if [[ "$(get_state "lidarrAlbumTitle")" == "2048" ]] &&
     [[ "$(get_state "lidarrAlbumType")" == "Album" ]] &&
-    [[ "$(get_state "lidarrAlbumForeignAlbumId")" == "5e3e5c8e-5e3e-5c8e-5e3e-5c8e5e3e5c8e" ]] &&
-    [[ "$(get_state "lidarrAlbumDisambiguation")" == "Taylors Version" ]] &&
+    [[ "$(get_state "lidarrAlbumForeignAlbumId")" == "d4e5f6a7-b8c9-4567-89ab-cdef01234567" ]] &&
+    [[ "$(get_state "lidarrAlbumDisambiguation")" == "Sailors Version" ]] &&
     [[ "$(get_state "lidarrAlbumReleaseYear")" == "2014" ]] &&
     [[ "$(get_state "lidarrAlbumReleaseDateClean")" == "20141027" ]]; then
     echo "✅ PASS: Extract basic album info with valid date"
@@ -50,16 +50,16 @@ fi
 # Test 2: Album without disambiguation
 reset_state
 album_json='{
-  "title": "Abbey Road",
+  "title": "Maple Street",
   "albumType": "Album",
-  "foreignAlbumId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "foreignAlbumId": "e5f6a7b8-c9d0-5678-9abc-def012345678",
   "disambiguation": null,
   "releaseDate": "1969-09-26T00:00:00Z"
 }'
 
 ExtractAlbumInfo "$album_json"
 
-if [[ "$(get_state "lidarrAlbumTitle")" == "Abbey Road" ]] &&
+if [[ "$(get_state "lidarrAlbumTitle")" == "Maple Street" ]] &&
     [[ "$(get_state "lidarrAlbumDisambiguation")" == "" ]] &&
     [[ "$(get_state "lidarrAlbumReleaseYear")" == "1969" ]]; then
     echo "✅ PASS: Album without disambiguation"
@@ -72,17 +72,17 @@ fi
 # Test 3: Album with EP type
 reset_state
 album_json='{
-  "title": "Folklore: The Long Pond Studio Sessions",
+  "title": "Storybook: The Short Lake Studio Sessions",
   "albumType": "EP",
-  "foreignAlbumId": "f1e2d3c4-b5a6-7890-1234-567890abcdef",
-  "disambiguation": "Live from Long Pond Studio",
+  "foreignAlbumId": "f6a7b8c9-d0e1-6789-abcd-ef0123456789",
+  "disambiguation": "Live from Short Lake Studio",
   "releaseDate": "2020-11-25T00:00:00Z"
 }'
 
 ExtractAlbumInfo "$album_json"
 
 if [[ "$(get_state "lidarrAlbumType")" == "EP" ]] &&
-    [[ "$(get_state "lidarrAlbumDisambiguation")" == "Live from Long Pond Studio" ]]; then
+    [[ "$(get_state "lidarrAlbumDisambiguation")" == "Live from Short Lake Studio" ]]; then
     echo "✅ PASS: Album with EP type"
     ((pass++))
 else

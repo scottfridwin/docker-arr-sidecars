@@ -21,24 +21,24 @@ echo "----------------------------------------------"
 
 # Test 1: No replacement defined (title unchanged)
 reset_state
-result=$(ApplyTitleReplacements "Abbey Road")
-if [[ "$result" == "Abbey Road" ]]; then
+result=$(ApplyTitleReplacements "Maple Street")
+if [[ "$result" == "Maple Street" ]]; then
     echo "✅ PASS: No replacement returns original title"
     ((pass++))
 else
-    echo "❌ FAIL: No replacement (got '$result', expected 'Abbey Road')"
+    echo "❌ FAIL: No replacement (got '$result', expected 'Maple Street')"
     ((fail++))
 fi
 
 # Test 2: Replacement exists
 reset_state
-set_state "titleReplacement_1989 (Deluxe Edition)" "1989 D.L.X."
-result=$(ApplyTitleReplacements "1989 (Deluxe Edition)")
-if [[ "$result" == "1989 D.L.X." ]]; then
+set_state "titleReplacement_2048 (Deluxe Edition)" "2048 A.B.C."
+result=$(ApplyTitleReplacements "2048 (Deluxe Edition)")
+if [[ "$result" == "2048 A.B.C." ]]; then
     echo "✅ PASS: Replacement applied correctly"
     ((pass++))
 else
-    echo "❌ FAIL: Replacement (got '$result', expected '1989 D.L.X.')"
+    echo "❌ FAIL: Replacement (got '$result', expected '2048 A.B.C.')"
     ((fail++))
 fi
 
@@ -69,61 +69,61 @@ fi
 
 # Test 5: Title with special characters
 reset_state
-set_state "titleReplacement_Weezer (Blue Album)" "Weezer - Blue"
-result=$(ApplyTitleReplacements "Weezer (Blue Album)")
-if [[ "$result" == "Weezer - Blue" ]]; then
+set_state "titleReplacement_The Vectors (Red Album)" "The Vectors - Red"
+result=$(ApplyTitleReplacements "The Vectors (Red Album)")
+if [[ "$result" == "The Vectors - Red" ]]; then
     echo "✅ PASS: Replacement with special characters"
     ((pass++))
 else
-    echo "❌ FAIL: Special characters (got '$result', expected 'Weezer - Blue')"
+    echo "❌ FAIL: Special characters (got '$result', expected 'The Vectors - Red')"
     ((fail++))
 fi
 
 # Test 6: Case sensitivity check
 reset_state
-set_state "titleReplacement_abbey road" "Abbey Road Remastered"
-result=$(ApplyTitleReplacements "Abbey Road")
-if [[ "$result" == "Abbey Road" ]]; then
+set_state "titleReplacement_maple street" "Maple Street Remastered"
+result=$(ApplyTitleReplacements "Maple Street")
+if [[ "$result" == "Maple Street" ]]; then
     echo "✅ PASS: Replacement is case-sensitive (no match)"
     ((pass++))
 else
-    echo "❌ FAIL: Case sensitivity (got '$result', expected 'Abbey Road')"
+    echo "❌ FAIL: Case sensitivity (got '$result', expected 'Maple Street')"
     ((fail++))
 fi
 
 # Test 7: Exact case match
 reset_state
-set_state "titleReplacement_Abbey Road" "Abbey Road Remastered"
-result=$(ApplyTitleReplacements "Abbey Road")
-if [[ "$result" == "Abbey Road Remastered" ]]; then
+set_state "titleReplacement_Maple Street" "Maple Street Remastered"
+result=$(ApplyTitleReplacements "Maple Street")
+if [[ "$result" == "Maple Street Remastered" ]]; then
     echo "✅ PASS: Exact case match applied"
     ((pass++))
 else
-    echo "❌ FAIL: Exact case match (got '$result', expected 'Abbey Road Remastered')"
+    echo "❌ FAIL: Exact case match (got '$result', expected 'Maple Street Remastered')"
     ((fail++))
 fi
 
 # Test 8: Title with numbers
 reset_state
-set_state "titleReplacement_1989" "1989 (Taylor's Version)"
-result=$(ApplyTitleReplacements "1989")
-if [[ "$result" == "1989 (Taylor's Version)" ]]; then
+set_state "titleReplacement_2048" "2048 (Deluxe Version)"
+result=$(ApplyTitleReplacements "2048")
+if [[ "$result" == "2048 (Deluxe Version)" ]]; then
     echo "✅ PASS: Replacement with numbers"
     ((pass++))
 else
-    echo "❌ FAIL: Numbers (got '$result', expected '1989 (Taylor's Version)')"
+    echo "❌ FAIL: Numbers (got '$result', expected '2048 (Deluxe Version)')"
     ((fail++))
 fi
 
 # Test 9: Title with spaces
 reset_state
-set_state "titleReplacement_The Dark Side of the Moon" "Dark Side Moon"
-result=$(ApplyTitleReplacements "The Dark Side of the Moon")
-if [[ "$result" == "Dark Side Moon" ]]; then
+set_state "titleReplacement_The Bright Side of the Sun" "Bright Side Sun"
+result=$(ApplyTitleReplacements "The Bright Side of the Sun")
+if [[ "$result" == "Bright Side Sun" ]]; then
     echo "✅ PASS: Replacement with spaces"
     ((pass++))
 else
-    echo "❌ FAIL: Spaces (got '$result', expected 'Dark Side Moon')"
+    echo "❌ FAIL: Spaces (got '$result', expected 'Bright Side Sun)')"
     ((fail++))
 fi
 

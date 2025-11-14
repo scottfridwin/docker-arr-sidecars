@@ -60,9 +60,9 @@ echo "----------------------------------------------"
 # Test 1: Basic title without disambiguation
 reset_state
 set_state "lidarrAlbumDisambiguation" ""
-expected=("1989")
+expected=("2048")
 
-SetLidarrTitlesToSearch "1989" ""
+SetLidarrTitlesToSearch "2048" ""
 tmpResult=$(get_state "lidarrTitlesToSearch")
 mapfile -t result <<<"${tmpResult}"
 if arrays_equal result expected; then
@@ -76,9 +76,9 @@ fi
 # Test 2: Title with release disambiguation
 reset_state
 set_state "lidarrAlbumDisambiguation" ""
-expected=("1989" "1989 (Taylor's Version)")
+expected=("2048" "2048 (Deluxe Version)")
 
-SetLidarrTitlesToSearch "1989" "Taylor's Version"
+SetLidarrTitlesToSearch "2048" "Deluxe Version"
 tmpResult=$(get_state "lidarrTitlesToSearch")
 mapfile -t result <<<"${tmpResult}"
 if arrays_equal result expected; then
@@ -92,9 +92,9 @@ fi
 # Test 3: Title with edition suffix
 reset_state
 set_state "lidarrAlbumDisambiguation" ""
-expected=("Weezer (Deluxe Edition)" "Weezer")
+expected=("The Vectors (Deluxe Edition)" "The Vectors")
 
-SetLidarrTitlesToSearch "Weezer (Deluxe Edition)" ""
+SetLidarrTitlesToSearch "The Vectors (Deluxe Edition)" ""
 tmpResult=$(get_state "lidarrTitlesToSearch")
 mapfile -t result <<<"${tmpResult}"
 if arrays_equal result expected; then
@@ -108,10 +108,10 @@ fi
 
 # Test 4: Title with album disambiguation only
 reset_state
-set_state "lidarrAlbumDisambiguation" "Blue Album"
-expected=("Weezer" "Weezer (Blue Album)")
+set_state "lidarrAlbumDisambiguation" "Red Album"
+expected=("The Vectors" "The Vectors (Red Album)")
 
-SetLidarrTitlesToSearch "Weezer" ""
+SetLidarrTitlesToSearch "The Vectors" ""
 tmpResult=$(get_state "lidarrTitlesToSearch")
 mapfile -t result <<<"${tmpResult}"
 if arrays_equal result expected; then
@@ -124,10 +124,10 @@ fi
 
 # Test 5: Title with both edition and album disambiguation
 reset_state
-set_state "lidarrAlbumDisambiguation" "Blue Album"
-expected=("Weezer (Deluxe Edition)" "Weezer" "Weezer (Deluxe Edition) (Blue Album)" "Weezer (Blue Album)")
+set_state "lidarrAlbumDisambiguation" "Red Album"
+expected=("The Vectors (Deluxe Edition)" "The Vectors" "The Vectors (Deluxe Edition) (Red Album)" "The Vectors (Red Album)")
 
-SetLidarrTitlesToSearch "Weezer (Deluxe Edition)" ""
+SetLidarrTitlesToSearch "The Vectors (Deluxe Edition)" ""
 tmpResult=$(get_state "lidarrTitlesToSearch")
 mapfile -t result <<<"${tmpResult}"
 if arrays_equal result expected; then
@@ -141,9 +141,9 @@ fi
 # Test 6: Title with release disambiguation and edition
 reset_state
 set_state "lidarrAlbumDisambiguation" ""
-expected=("1989 (Deluxe Edition)" "1989" "1989 (Deluxe Edition) (Taylor's Version)")
+expected=("2048 (Deluxe Edition)" "2048" "2048 (Deluxe Edition) (Deluxe Version)")
 
-SetLidarrTitlesToSearch "1989 (Deluxe Edition)" "Taylor's Version"
+SetLidarrTitlesToSearch "2048 (Deluxe Edition)" "Deluxe Version"
 tmpResult=$(get_state "lidarrTitlesToSearch")
 mapfile -t result <<<"${tmpResult}"
 if arrays_equal result expected; then
@@ -157,9 +157,9 @@ fi
 # Test 7: Complex case with all features
 reset_state
 set_state "lidarrAlbumDisambiguation" "Original"
-expected=("Abbey Road (Remastered)" "Abbey Road" "Abbey Road (Remastered) (50th Anniversary)" "Abbey Road (Remastered) (Original)" "Abbey Road (Original)")
+expected=("Maple Street (Remastered)" "Maple Street" "Maple Street (Remastered) (50th Anniversary)" "Maple Street (Remastered) (Original)" "Maple Street (Original)")
 
-SetLidarrTitlesToSearch "Abbey Road (Remastered)" "50th Anniversary"
+SetLidarrTitlesToSearch "Maple Street (Remastered)" "50th Anniversary"
 tmpResult=$(get_state "lidarrTitlesToSearch")
 mapfile -t result <<<"${tmpResult}"
 if arrays_equal result expected; then
@@ -173,9 +173,9 @@ fi
 # Test 8: Null album disambiguation
 reset_state
 set_state "lidarrAlbumDisambiguation" "null"
-expected=("Folklore")
+expected=("Storybook")
 
-SetLidarrTitlesToSearch "Folklore" ""
+SetLidarrTitlesToSearch "Storybook" ""
 tmpResult=$(get_state "lidarrTitlesToSearch")
 mapfile -t result <<<"${tmpResult}"
 if arrays_equal result expected; then

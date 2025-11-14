@@ -19,7 +19,7 @@ echo "----------------------------------------------"
 
 # Test 1: Identical titles
 reset_state
-ComputeMatchMetrics "abbey road" "abbey road" 17 17
+ComputeMatchMetrics "maple street" "maple street" 17 17
 distance=$(get_state "candidateDistance")
 trackDiff=$(get_state "candidateTrackDiff")
 if [[ "$distance" == "0" ]] && [[ "$trackDiff" == "0" ]]; then
@@ -32,7 +32,7 @@ fi
 
 # Test 2: Similar titles
 reset_state
-ComputeMatchMetrics "1989" "1989 deluxe" 13 16
+ComputeMatchMetrics "2048" "2048 deluxe" 13 16
 distance=$(get_state "candidateDistance")
 trackDiff=$(get_state "candidateTrackDiff")
 if [[ "$distance" == "7" ]] && [[ "$trackDiff" == "3" ]]; then
@@ -45,7 +45,7 @@ fi
 
 # Test 3: Very different titles
 reset_state
-ComputeMatchMetrics "abbey road" "white album" 17 30
+ComputeMatchMetrics "maple street" "yellow album" 17 30
 distance=$(get_state "candidateDistance")
 trackDiff=$(get_state "candidateTrackDiff")
 if [[ "$distance" -gt "5" ]] && [[ "$trackDiff" == "13" ]]; then
@@ -58,7 +58,7 @@ fi
 
 # Test 4: Case insensitivity
 reset_state
-ComputeMatchMetrics "Abbey Road" "ABBEY ROAD" 17 17
+ComputeMatchMetrics "Maple Street" "MAPLE STREET" 17 17
 distance=$(get_state "candidateDistance")
 if [[ "$distance" == "0" ]]; then
     echo "✅ PASS: Case insensitive comparison"

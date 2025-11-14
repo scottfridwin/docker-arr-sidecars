@@ -22,14 +22,14 @@ echo "----------------------------------------------"
 # Test 1: Extract basic artist info
 reset_state
 artist_json='{
-  "artistName": "Taylor Swift",
-  "foreignArtistId": "20244d07-534f-4eff-b4d4-930878889970"
+  "artistName": "Aurora Lane",
+  "foreignArtistId": "a1b2c3d4-e5f6-1234-5678-9abcdef01234"
 }'
 
 ExtractArtistInfo "$artist_json"
 
-if [[ "$(get_state "lidarrArtistName")" == "Taylor Swift" ]] &&
-    [[ "$(get_state "lidarrArtistForeignArtistId")" == "20244d07-534f-4eff-b4d4-930878889970" ]] &&
+if [[ "$(get_state "lidarrArtistName")" == "Aurora Lane" ]] &&
+    [[ "$(get_state "lidarrArtistForeignArtistId")" == "a1b2c3d4-e5f6-1234-5678-9abcdef01234" ]] &&
     [[ "$(get_state "lidarrArtistInfo")" == "$artist_json" ]]; then
     echo "✅ PASS: Extract basic artist info"
     ((pass++))
@@ -43,14 +43,14 @@ fi
 # Test 2: Extract artist with special characters in name
 reset_state
 artist_json='{
-  "artistName": "Panic! at the Disco",
-  "foreignArtistId": "28503ab7-8bf2-4666-a7bd-2644bfc7cb1d"
+  "artistName": "Chaos! at the Club",
+  "foreignArtistId": "b2c3d4e5-f6a7-2345-6789-abcdef012345"
 }'
 
 ExtractArtistInfo "$artist_json"
 
-if [[ "$(get_state "lidarrArtistName")" == "Panic! at the Disco" ]] &&
-    [[ "$(get_state "lidarrArtistForeignArtistId")" == "28503ab7-8bf2-4666-a7bd-2644bfc7cb1d" ]]; then
+if [[ "$(get_state "lidarrArtistName")" == "Chaos! at the Club" ]] &&
+    [[ "$(get_state "lidarrArtistForeignArtistId")" == "b2c3d4e5-f6a7-2345-6789-abcdef012345" ]]; then
     echo "✅ PASS: Extract artist with special characters"
     ((pass++))
 else
@@ -60,7 +60,7 @@ fi
 
 # Test 3: Verify JSON is stored as-is
 reset_state
-artist_json='{"artistName":"Weezer","foreignArtistId":"6fe07aa5-fec0-4eca-a456-f29bff451b04"}'
+artist_json='{"artistName":"The Vectors","foreignArtistId":"c3d4e5f6-a7b8-3456-789a-bcdef0123456"}'
 
 ExtractArtistInfo "$artist_json"
 

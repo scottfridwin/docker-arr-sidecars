@@ -25,7 +25,7 @@ echo "----------------------------------------------"
 # Test 1: Extract basic release info
 reset_state
 release_json='{
-  "title": "1989",
+  "title": "2048",
   "disambiguation": "Deluxe Edition",
   "trackCount": 13,
   "foreignReleaseId": "abc123-def456",
@@ -36,7 +36,7 @@ release_json='{
 
 ExtractReleaseInfo "$release_json"
 
-if [[ "$(get_state "lidarrReleaseTitle")" == "1989" ]] &&
+if [[ "$(get_state "lidarrReleaseTitle")" == "2048" ]] &&
     [[ "$(get_state "lidarrReleaseDisambiguation")" == "Deluxe Edition" ]] &&
     [[ "$(get_state "lidarrReleaseTrackCount")" == "13" ]] &&
     [[ "$(get_state "lidarrReleaseForeignId")" == "abc123-def456" ]] &&
@@ -98,10 +98,10 @@ fi
 # Test 4: Release without disambiguation
 reset_state
 release_json='{
-  "title": "Abbey Road",
+  "title": "Maple Street",
   "disambiguation": null,
   "trackCount": 17,
-  "foreignReleaseId": "beatles-ar-001",
+  "foreignReleaseId": "beetles-ar-001",
   "format": "CD",
   "country": ["US"],
   "releaseDate": "1969-09-26T00:00:00Z"

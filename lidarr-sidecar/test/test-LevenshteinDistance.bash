@@ -22,11 +22,11 @@ declare -A TESTS=(
     ["hello|"]="5"
     ["|"]="0"
     ["a|b"]="1"
-    ["taylor swift|taylor swift"]="0"
-    ["1989|1989 deluxe"]="7"
-    ["weezer|weezer (blue album)"]="13"
-    ["the beatles|beatles"]="4"
-    ["led zeppelin iv|led zeppelin 4"]="2"
+    ["aurora lane|aurora lane"]="0"
+    ["2048|2048 deluxe"]="7"
+    ["the vectors|the vectors (red album)"]="13"
+    ["the beetles|beetles"]="4"
+    ["lightning brigade v|lightning brigade 5"]="2"
 )
 
 # --- Run tests ---
