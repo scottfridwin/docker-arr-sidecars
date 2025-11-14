@@ -21,7 +21,7 @@ declare -A TESTS=(
     ["The Beetles| "]="The Beetles ( )"
     ["Perception|Deluxe Version"]="Perception (Deluxe Version)"
     ["Storybook|"]="Storybook"
-    ["Twilights|3am Edition"]="Twilights (4pm Edition)"
+    ["Twilights|4pm Edition"]="Twilights (4pm Edition)"
     ["||"]=""
     ["Title|"]="Title"
 )

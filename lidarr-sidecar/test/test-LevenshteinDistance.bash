@@ -24,9 +24,9 @@ declare -A TESTS=(
     ["a|b"]="1"
     ["aurora lane|aurora lane"]="0"
     ["2048|2048 deluxe"]="7"
-    ["the vectors|the vectors (red album)"]="13"
+    ["the vectors|the vectors (red album)"]="12"
     ["the beetles|beetles"]="4"
-    ["lightning brigade v|lightning brigade 5"]="2"
+    ["lightning brigade vi|lightning brigade 5"]="2"
 )
 
 # --- Run tests ---
