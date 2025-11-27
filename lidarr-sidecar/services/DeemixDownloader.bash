@@ -955,6 +955,12 @@ DownloadProcess() {
                     --set-tag=ALBUM="${lidarrAlbumTitle}" "${file}"
                 ;;
             mp3)
+                export ALBUM_TITLE=""
+                export MB_ALBUMID=""
+                export MB_RELEASEGROUPID=""
+                export ALBUMARTIST=""
+                export ARTIST=""
+                export MB_RELEASEGROUPID=""
                 log "DEBUG :: Applying mutagen tags to: ${file}"
                 export ALBUM_TITLE="${lidarrAlbumTitle}"
                 export MB_ALBUMID="${lidarrReleaseForeignId}"
@@ -990,40 +996,44 @@ DownloadProcess() {
     # Correct album artist to what is expected by Lidarr
     if [ "$returnCode" -eq 0 ]; then
         local lidarrAlbumInfo="$(get_state "lidarrAlbumInfo")"
-        log "ERROR :: lidarrAlbumInfo: $lidarrAlbumInfo"
-        # local lidarrArtistName="$(jq -r ".title" <<<"${lidarrAlbumInfo}")"
-        # local lidarrAlbumArtist="$(jq -r ".foreignAlbumId" <<<"${lidarrAlbumInfo}")"
-        # local lidarrArtistForeignId="$(jq -r ".foreignArtistId" <<<"${lidarrAlbumInfo}")"
+        #log "ERROR :: lidarrAlbumInfo: $lidarrAlbumInfo"
+        local lidarrArtistName="$(jq -r ".artist.artistName" <<<"${lidarrAlbumInfo}")"
+        local lidarrArtistForeignId="$(jq -r ".artist.foreignArtistId" <<<"${lidarrAlbumInfo}")"
 
-        # log "DEBUG :: Title='${lidarrAlbumTitle}' AlbumID='${lidarrReleaseForeignId}' ReleaseGroupID='${lidarrAlbumForeignAlbumId}'"
-        # shopt -s nullglob
-        # for file in "${AUDIO_WORK_PATH}"/staging/*.{flac,mp3}; do
-        #     [ -f "${file}" ] || continue
-        #     log "DEBUG :: Tagging ${file}"
+        shopt -s nullglob
+        for file in "${AUDIO_WORK_PATH}"/staging/*.{flac,mp3}; do
+            [ -f "${file}" ] || continue
+            log "DEBUG :: Tagging ${file}"
 
-        #     case "${file##*.}" in
-        #     flac)
-        #         log "DEBUG :: Applying metaflac tags to: ${file}"
-        #         metaflac --remove-tag=MUSICBRAINZ_ALBUMID \
-        #             --remove-tag=MUSICBRAINZ_RELEASEGROUPID \
-        #             --remove-tag=ALBUM \
-        #             --set-tag=MUSICBRAINZ_ALBUMID="${lidarrReleaseForeignId}" \
-        #             --set-tag=MUSICBRAINZ_RELEASEGROUPID="${lidarrAlbumForeignAlbumId}" \
-        #             --set-tag=ALBUM="${lidarrAlbumTitle}" "${file}"
-        #         ;;
-        #     mp3)
-        #         log "DEBUG :: Applying mutagen tags to: ${file}"
-        #         export ALBUM_TITLE="${lidarrAlbumTitle}"
-        #         export MB_ALBUMID="${lidarrReleaseForeignId}"
-        #         export MB_RELEASEGROUPID="${lidarrAlbumForeignAlbumId}"
-        #         python3 python/MutagenTagger.py "${file}"
-        #         ;;
-        #     *)
-        #         log "WARN :: Skipping unsupported format: ${file}"
-        #         ;;
-        #     esac
-        # done
-        # shopt -u nullglob
+            case "${file##*.}" in
+            flac)
+                log "DEBUG :: Applying metaflac artist corrections tags to: ${file}"
+                metaflac --remove-tag=MUSICBRAINZ_ARTISTID \
+                    --remove-tag=ALBUMARTIST \
+                    --remove-tag=ARTIST \
+                    --set-tag=MUSICBRAINZ_ARTISTID="${lidarrArtistForeignId}" \
+                    --set-tag=ALBUMARTIST="${lidarrArtistName}" \
+                    --set-tag=ARTIST="${lidarrArtistName}" "${file}"
+                ;;
+            mp3)
+                export ALBUM_TITLE=""
+                export MB_ALBUMID=""
+                export MB_RELEASEGROUPID=""
+                export ALBUMARTIST=""
+                export ARTIST=""
+                export MB_RELEASEGROUPID=""
+                log "DEBUG :: Applying mutagen artist corrections tags to: ${file}"
+                export ALBUMARTIST="${lidarrArtistName}"
+                export ARTIST="${lidarrArtistName}"
+                export MB_RELEASEGROUPID="${lidarrArtistForeignId}"
+                python3 python/MutagenTagger.py "${file}"
+                ;;
+            *)
+                log "WARN :: Skipping unsupported format: ${file}"
+                ;;
+            esac
+        done
+        shopt -u nullglob
     fi
 
     # Log Completed Download
