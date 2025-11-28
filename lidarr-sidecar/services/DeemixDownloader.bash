@@ -999,7 +999,7 @@ DownloadProcess() {
     if [ "$returnCode" -eq 0 ]; then
         local lidarrAlbumInfo="$(get_state "lidarrAlbumInfo")"
         local lidarrArtistForeignArtistId="$(get_state "lidarrArtistForeignArtistId")"
-        log "INFO :: lidarrArtistForeignId: $lidarrArtistForeignId"
+        log "INFO :: lidarrArtistForeignArtistId: $lidarrArtistForeignArtistId"
         log "INFO :: lidarrArtistName: $lidarrArtistName"
 
         shopt -s nullglob
@@ -1013,7 +1013,7 @@ DownloadProcess() {
                 metaflac --remove-tag=MUSICBRAINZ_ARTISTID \
                     --remove-tag=ALBUMARTIST \
                     --remove-tag=ARTIST \
-                    --set-tag=MUSICBRAINZ_ARTISTID="${lidarrArtistForeignId}" \
+                    --set-tag=MUSICBRAINZ_ARTISTID="${lidarrArtistForeignArtistId}" \
                     --set-tag=ALBUMARTIST="${lidarrArtistName}" \
                     --set-tag=ARTIST="${lidarrArtistName}" "${file}"
                 ;;
@@ -1027,7 +1027,7 @@ DownloadProcess() {
                 log "DEBUG :: Applying mutagen artist corrections tags to: ${file}"
                 export ALBUMARTIST="${lidarrArtistName}"
                 export ARTIST="${lidarrArtistName}"
-                export MUSICBRAINZ_ARTISTID="${lidarrArtistForeignId}"
+                export MUSICBRAINZ_ARTISTID="${lidarrArtistForeignArtistId}"
                 python3 python/MutagenTagger.py "${file}"
                 ;;
             *)
