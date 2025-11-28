@@ -643,6 +643,7 @@ ArtistDeezerSearch() {
     fi
     log "TRACE :: Exiting ArtistDeezerSearch..."
 }
+
 FuzzyDeezerSearch() {
     log "TRACE :: Entering FuzzyDeezerSearch..."
 
@@ -841,6 +842,7 @@ DownloadProcess() {
     downloadedReleaseYear="${downloadedReleaseDate:0:4}"
 
     # Check if previously downloaded or failed download
+    local lidarrArtistName="$(get_state "lidarrArtistName")"
     local lidarrArtistForeignArtistId="$(get_state "lidarrArtistForeignArtistId")"
     local lidarrAlbumForeignAlbumId="$(get_state "lidarrAlbumForeignAlbumId")"
     if [ -f "${AUDIO_DATA_PATH}/downloaded/${lidarrAlbumId}--${lidarrArtistForeignArtistId}--${lidarrAlbumForeignAlbumId}" ]; then
@@ -956,15 +958,15 @@ DownloadProcess() {
                 ;;
             mp3)
                 export ALBUM_TITLE=""
-                export MB_ALBUMID=""
-                export MB_RELEASEGROUPID=""
+                export MUSICBRAINZ_ALBUMID=""
+                export MUSICBRAINZ_RELEASEGROUPID=""
                 export ALBUMARTIST=""
                 export ARTIST=""
-                export MB_RELEASEGROUPID=""
+                export MUSICBRAINZ_ARTISTID=""
                 log "DEBUG :: Applying mutagen tags to: ${file}"
                 export ALBUM_TITLE="${lidarrAlbumTitle}"
-                export MB_ALBUMID="${lidarrReleaseForeignId}"
-                export MB_RELEASEGROUPID="${lidarrAlbumForeignAlbumId}"
+                export MUSICBRAINZ_ALBUMID="${lidarrReleaseForeignId}"
+                export MUSICBRAINZ_RELEASEGROUPID="${lidarrAlbumForeignAlbumId}"
                 python3 python/MutagenTagger.py "${file}"
                 ;;
             *)
@@ -996,9 +998,9 @@ DownloadProcess() {
     # Correct album artist to what is expected by Lidarr
     if [ "$returnCode" -eq 0 ]; then
         local lidarrAlbumInfo="$(get_state "lidarrAlbumInfo")"
-        #log "ERROR :: lidarrAlbumInfo: $lidarrAlbumInfo"
-        local lidarrArtistName="$(jq -r ".artist.artistName" <<<"${lidarrAlbumInfo}")"
-        local lidarrArtistForeignId="$(jq -r ".artist.foreignArtistId" <<<"${lidarrAlbumInfo}")"
+        local lidarrArtistForeignArtistId="$(get_state "lidarrArtistForeignArtistId")"
+        log "INFO :: lidarrArtistForeignId: $lidarrArtistForeignId"
+        log "INFO :: lidarrArtistName: $lidarrArtistName"
 
         shopt -s nullglob
         for file in "${AUDIO_WORK_PATH}"/staging/*.{flac,mp3}; do
@@ -1017,15 +1019,15 @@ DownloadProcess() {
                 ;;
             mp3)
                 export ALBUM_TITLE=""
-                export MB_ALBUMID=""
-                export MB_RELEASEGROUPID=""
+                export MUSICBRAINZ_ALBUMID=""
+                export MUSICBRAINZ_RELEASEGROUPID=""
                 export ALBUMARTIST=""
                 export ARTIST=""
-                export MB_RELEASEGROUPID=""
+                export MUSICBRAINZ_ARTISTID=""
                 log "DEBUG :: Applying mutagen artist corrections tags to: ${file}"
                 export ALBUMARTIST="${lidarrArtistName}"
                 export ARTIST="${lidarrArtistName}"
-                export MB_RELEASEGROUPID="${lidarrArtistForeignId}"
+                export MUSICBRAINZ_ARTISTID="${lidarrArtistForeignId}"
                 python3 python/MutagenTagger.py "${file}"
                 ;;
             *)
