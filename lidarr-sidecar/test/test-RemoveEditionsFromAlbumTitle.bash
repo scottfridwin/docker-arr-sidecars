@@ -32,6 +32,11 @@ declare -A TESTS=(
     ["Lesser Ground, Greater Sky Deluxe Edition"]="Lesser Ground, Greater Sky"
     ["Lesser Ground Greater Sky (Deluxe Edition)"]="Lesser Ground Greater Sky"
     ["Lesser Ground, Greater Sky (Deluxe Edition)"]="Lesser Ground, Greater Sky"
+    ["Pretty Plâte (45th Anniversary Edition)"]="Pretty Plâte"
+    ["Pretty Plâte 45th Anniversary Edition"]="Pretty Plâte"
+    ["Pretty Plâte 45th Anniversary"]="Pretty Plâte"
+    ["Crazy Bois (Deluxe)"]="Crazy Bois"
+    ["Crazy Bois Deluxe"]="Crazy Bois"
 )
 
 # --- Run tests ---

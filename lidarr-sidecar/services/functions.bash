@@ -496,19 +496,32 @@ RemoveEditionsFromAlbumTitle() {
     # Define edition patterns to remove (case-insensitive match later)
     local edition_patterns=(
         "Deluxe Edition"
+        "Deluxe Version"
         "Super Deluxe Version"
+        "Super Deluxe Edition"
         "Collector's Edition"
         "Platinum Edition"
-        "Deluxe Version"
         "Special Edition"
         "Limited Edition"
         "Expanded Edition"
         "Remastered"
         "Anniversary Edition"
+        "Deluxe"
+        "Super Deluxe"
     )
 
     # Normalize spacing
     title="${title//  / }"
+
+    # Parenthesized version: (45th Anniversary Edition)
+    if [[ "$title" =~ ^(.*)\([[:space:]]*[0-9]+(st|nd|rd|th)[[:space:]]+Anniversary([[:space:]]+(Edition|Version))?[[:space:]]*\)(.*)$ ]]; then
+        title="${BASH_REMATCH[1]}${BASH_REMATCH[5]}"
+    fi
+
+    # Plain version: 45th Anniversary Edition
+    if [[ "$title" =~ ^(.*)[[:space:]]+[0-9]+(st|nd|rd|th)[[:space:]]+Anniversary([[:space:]]+(Edition|Version))?(.*)$ ]]; then
+        title="${BASH_REMATCH[1]}${BASH_REMATCH[5]}"
+    fi
 
     # Remove edition patterns from within parentheses
     for pattern in "${edition_patterns[@]}"; do

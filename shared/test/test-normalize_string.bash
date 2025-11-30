@@ -109,6 +109,26 @@ else
     ((fail++))
 fi
 
+# Test 11: Ampersand replacement
+result=$(normalize_string "This & that")
+if [[ "$result" == "This and that" ]]; then
+    echo "✅ PASS: Ampersand replacement"
+    ((pass++))
+else
+    echo "❌ FAIL: Ampersand (got '$result')"
+    ((fail++))
+fi
+
+# Test 11: Colon removal
+result=$(normalize_string "This: Part II")
+if [[ "$result" == "This Part II" ]]; then
+    echo "✅ PASS: Colon removal"
+    ((pass++))
+else
+    echo "❌ FAIL: Colon (got '$result')"
+    ((fail++))
+fi
+
 echo "----------------------------------------------"
 echo "Passed: $pass, Failed: $fail"
 
