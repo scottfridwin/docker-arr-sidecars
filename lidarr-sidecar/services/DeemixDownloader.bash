@@ -12,7 +12,7 @@ source /app/services/functions.bash
 #### Constants
 readonly VARIOUS_ARTIST_ID="89ad4ac3-39f7-470e-963a-56509c546377"
 readonly DEEMIX_DIR="/tmp/deemix"
-readonly DEEMIX_CONFIG_PATH="${DEEMIX_DIR}/config.json"
+readonly DEEMIX_CONFIG_PATH="${DEEMIX_DIR}/config/config.json"
 readonly BEETS_DIR="/tmp/beets"
 readonly BEETS_CONFIG_PATH="${BEETS_DIR}/beets.yaml"
 
@@ -279,7 +279,7 @@ SetupDeemix() {
         exit 1
     fi
 
-    mkdir -p "${DEEMIX_DIR}"
+    mkdir -p "${DEEMIX_DIR}/config"
     cp -f "${defaultConfigFile}" "${DEEMIX_CONFIG_PATH}"
 
     # Merge custom config if provided
