@@ -869,6 +869,7 @@ DownloadProcess() {
         (
             cd ${DEEMIX_DIR}
             echo "${DEEMIX_ARL}" | deemix \
+                --portable \
                 -p "${AUDIO_WORK_PATH}/staging" \
                 "https://www.deezer.com/album/${deezerAlbumId}" 2>&1
 
