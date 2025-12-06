@@ -528,9 +528,18 @@ RemoveEditionsFromAlbumTitle() {
         title="${title% - $pattern}"        # - Deluxe Edition
         title="${title//\($pattern\)/}"     # (Deluxe Edition)
         title="${title// \/ $pattern)/\)}"  # (Something / Deluxe Edition)
+        title="${title//\/$pattern)/\)}"    # (Something/Deluxe Edition)
         title="${title//\($pattern \/ /\(}" # (Deluxe Edition / Something)
+        title="${title//\($pattern\//\(}"   # (Deluxe Edition/Something)
+        title="${title//\[$pattern\]/}"     # [Deluxe Edition]
+        title="${title// \/ $pattern]/\)}"  # [Something / Deluxe Edition]
+        title="${title//\/$pattern]/\)}"    # [Something/Deluxe Edition]
+        title="${title//\[$pattern \/ /\(}" # [Deluxe Edition / Something]
+        title="${title//\[$pattern\//\(}"   # [Deluxe Edition/Something]
         title="${title// \/ $pattern/}"     # / Deluxe Edition
+        title="${title//\/$pattern/}"       # /Deluxe Edition
         title="${title//$pattern \/ /}"     # Deluxe Edition /
+        title="${title//$pattern\/ /}"      # Deluxe Edition/
         title="${title/% $pattern/}"        # Ending with Deluxe Edition
     done
 
