@@ -6,12 +6,12 @@ RUN apk add --no-cache \
     bash \
     curl \
     jq \
+    python3 \
     python3-dev \
-    uv
+    py3-pip
 
-# Install Python packages
-RUN uv pip install --system --upgrade --no-cache-dir --break-system-packages \
-    yq
+# Install uv + Python tools
+RUN pip install --no-cache-dir uv yq
 
 # Copy all scripts and config files
 COPY radarr-sidecar/ /app/
