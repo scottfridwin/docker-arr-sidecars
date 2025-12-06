@@ -1,5 +1,5 @@
-# Use latest Alpine as base
-FROM alpine:latest
+# Use Alpine as base
+FROM alpine:3.20
 
 # Install system dependencies
 RUN apk add --no-cache \
