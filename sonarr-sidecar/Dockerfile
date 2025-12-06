@@ -11,7 +11,7 @@ RUN apk add --no-cache \
     py3-pip
 
 # Install uv + Python tools
-RUN pip install --no-cache-dir uv yq
+RUN pip install --no-cache-dir --break-system-packages uv yq
 
 # Copy all scripts and config files
 COPY sonarr-sidecar/ /app/
