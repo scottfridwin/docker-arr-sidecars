@@ -533,6 +533,7 @@ normalize_string() {
     # Removes colons
     # Replaces masculine ordinal º with degree symbol °
     # Replace & with "and"
+    # Replace … with ...
     echo "$1" |
         sed -e "s/’/'/g" \
             -e "s/‘/'/g" \
@@ -548,7 +549,8 @@ normalize_string() {
             -e 's/[?]//g' \
             -e 's/[!]//g' \
             -e 's/[,]//g' \
-            -e 's/[:]//g'
+            -e 's/[:]//g' \
+            -e 's/[…]/.../g'
 }
 
 # Removes quotes from a string
