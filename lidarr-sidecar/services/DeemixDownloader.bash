@@ -486,13 +486,14 @@ SearchProcess() {
     log "INFO :: Starting search for album \"${lidarrAlbumTitle}\" by artist \"${lidarrArtistName}\""
 
     # Extract artist links
+    local deezerArtistIds
     local lidarrArtistInfo="$(get_state "lidarrArtistInfo")"
     local deezerArtistUrl=$(safe_jq '.links[]? | select(.name=="deezer") | .url' <<<"${lidarrArtistInfo}")
     if [ -z "${deezerArtistUrl}" ]; then
-        log "WARNING :: Missing Deezer link for artist ${lidarrArtistName}, skipping..."
-        return
+        log "WARNING :: Missing Deezer link for artist ${lidarrArtistName}"
+    else
+        deezerArtistIds=($(echo "${deezerArtistUrl}" | grep -Eo '[[:digit:]]+' | sort -u))
     fi
-    local deezerArtistIds=($(echo "${deezerArtistUrl}" | grep -Eo '[[:digit:]]+' | sort -u))
 
     # Sort parameter explanations:
     #  - Track count (descending)
