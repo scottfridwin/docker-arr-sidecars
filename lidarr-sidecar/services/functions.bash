@@ -185,7 +185,7 @@ EvaluateTitleVariant() {
         log "DEBUG :: Album \"${titleVariant,,}\" does not meet matching threshold (Distance=${diff}), skipping..."
         return 0
     fi
-    if ((diff > AUDIO_MATCH_THRESHOLD_TRACKS)); then
+    if ((trackDiff > AUDIO_MATCH_THRESHOLD_TRACKS)); then
         log "DEBUG :: Album \"${titleVariant,,}\" does not meet matching threshold (Track Difference=${trackDiff}), skipping..."
         return 0
     fi
