@@ -180,9 +180,13 @@ EvaluateTitleVariant() {
     local diff=$(get_state "candidateDistance")
     local trackDiff=$(get_state "candidateTrackDiff")
 
-    # Check if meets threshold
-    if ((diff > AUDIO_MATCH_DISTANCE_THRESHOLD)); then
+    # Check if meets thresholds
+    if ((diff > AUDIO_MATCH_THRESHOLD_TITLE)); then
         log "DEBUG :: Album \"${titleVariant,,}\" does not meet matching threshold (Distance=${diff}), skipping..."
+        return 0
+    fi
+    if ((diff > AUDIO_MATCH_THRESHOLD_TRACKS)); then
+        log "DEBUG :: Album \"${titleVariant,,}\" does not meet matching threshold (Track Difference=${trackDiff}), skipping..."
         return 0
     fi
 
