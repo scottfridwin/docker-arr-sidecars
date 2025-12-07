@@ -10,7 +10,8 @@ source /app/utilities.sh
 source /app/services/functions.bash
 
 #### Constants
-readonly VARIOUS_ARTIST_ID="89ad4ac3-39f7-470e-963a-56509c546377"
+readonly VARIOUS_ARTIST_ID_MUSICBRAINZ="89ad4ac3-39f7-470e-963a-56509c546377"
+readonly VARIOUS_ARTIST_ID_DEEZER="5080"
 readonly DEEMIX_DIR="/tmp/deemix"
 readonly DEEMIX_CONFIG_PATH="${DEEMIX_DIR}/config/config.json"
 readonly BEETS_DIR="/tmp/beets"
@@ -583,14 +584,20 @@ SearchProcess() {
 
             # First search through the artist's Deezer albums to find a match on album title and track count
             log "DEBUG :: Starting search with searchReleaseTitle: ${searchReleaseTitle}"
-            if [ "${lidarrArtistForeignArtistId}" != "${VARIOUS_ARTIST_ID}" ]; then # Skip various artists
+            if [ "${lidarrArtistForeignArtistId}" != "${VARIOUS_ARTIST_ID_MUSICBRAINZ}" ]; then
                 for dId in "${!deezerArtistIds[@]}"; do
                     local deezerArtistId="${deezerArtistIds[$dId]}"
                     ArtistDeezerSearch "${deezerArtistId}"
                 done
+
+                # Fuzzy search with album and artist name
+                exactMatchFound="$(get_state "exactMatchFound")"
+                if [ "${exactMatchFound}" != "true" ]; then
+                    FuzzyDeezerSearch ${lidarrArtistName}
+                fi
             fi
 
-            # Fuzzy search only if no exact match found yet
+            # Fuzzy search with only album name
             exactMatchFound="$(get_state "exactMatchFound")"
             if [ "${exactMatchFound}" != "true" ]; then
                 FuzzyDeezerSearch
@@ -646,30 +653,32 @@ ArtistDeezerSearch() {
 
 FuzzyDeezerSearch() {
     log "TRACE :: Entering FuzzyDeezerSearch..."
+    # $1 -> Deezer Artist Name (default to blank)
+    local artistName="${1:-}"
 
     local deezerSearch=""
     local resultsCount=0
     local url=""
 
-    local lidarrAlbumInfo="$(get_state "lidarrAlbumInfo")"
     local searchReleaseTitle="$(get_state "searchReleaseTitle")"
-    local lidarrArtistForeignArtistId="$(get_state "lidarrArtistForeignArtistId")"
-    local lidarrArtistName="$(get_state "lidarrArtistName")"
-
-    log "INFO :: Fuzzy searching for '${searchReleaseTitle}' by '${lidarrArtistName}'..."
 
     # Prepare search terms
-    local albumTitleSearch albumArtistNameSearch lidarrAlbumReleaseTitleSearchClean lidarrArtistNameSearchClean
-    lidarrAlbumReleaseTitleSearchClean="$(normalize_string "${searchReleaseTitle}")"
-    lidarrArtistNameSearchClean="$(normalize_string "${lidarrArtistName}")"
-    albumTitleSearch="$(jq -R -r @uri <<<"$(remove_quotes "${lidarrAlbumReleaseTitleSearchClean}")")"
-    albumArtistNameSearch="$(jq -R -r @uri <<<"$(remove_quotes "${lidarrArtistNameSearchClean}")")"
+    local albumSearchTerm albumTitleClean
+    albumTitleClean="$(normalize_string "${searchReleaseTitle}")"
+    albumSearchTerm="$(jq -R -r @uri <<<"$(remove_quotes "${albumTitleClean}")")"
 
+    # TODO: Change fuzzy search url to "https://api.deezer.com/search/album" to reduce noise and find more matches
+    # TODO: Loop over results if more than 20 are returned
     # Build search URL
-    if [[ "${lidarrArtistForeignArtistId}" == "${VARIOUS_ARTIST_ID}" ]]; then
-        url="https://api.deezer.com/search?q=album:%22${albumTitleSearch}%22&strict=on&limit=20"
+    if [ -z "${artistName}" ]; then
+        log "INFO :: Fuzzy searching for '${searchReleaseTitle}' with no artist filter..."
+        url="https://api.deezer.com/search?q=album:%22${albumSearchTerm}%22&strict=on&limit=20"
     else
-        url="https://api.deezer.com/search?q=artist:%22${albumArtistNameSearch}%22%20album:%22${albumTitleSearch}%22&strict=on&limit=20"
+        log "INFO :: Fuzzy searching for '${searchReleaseTitle}' with artist name '${artistName}'..."
+        local artistSearchTerm artistNameClean
+        artistNameClean="$(normalize_string "${artistName}")"
+        artistSearchTerm="$(jq -R -r @uri <<<"$(remove_quotes "${artistNameClean}")")"
+        url="https://api.deezer.com/search?q=artist:%22${artistSearchTerm}%22%20album:%22${albumSearchTerm}%22&strict=on&limit=20"
     fi
 
     # Call Deezer API
@@ -682,7 +691,7 @@ FuzzyDeezerSearch() {
         # Check for valid JSON and absence of "error" key
         if [[ -n "${deezerSearch}" && "$(jq -r 'has("error")' <<<"${deezerSearch}" 2>/dev/null)" != "true" ]]; then
             resultsCount="$(jq -r '.total // 0' <<<"${deezerSearch}" 2>/dev/null || echo 0)"
-            log "DEBUG :: ${resultsCount} search results found for '${searchReleaseTitle}' by '${lidarrArtistName}'"
+            log "DEBUG :: ${resultsCount} search results found for '${searchReleaseTitle}'"
 
             if ((resultsCount > 0)); then
                 local formattedAlbums
@@ -694,13 +703,13 @@ FuzzyDeezerSearch() {
                 log "TRACE :: Formatted unique album data: ${formattedAlbums}"
                 CalculateBestMatch <<<"${formattedAlbums}"
             else
-                log "DEBUG :: No results found via Fuzzy Search for '${searchReleaseTitle}' by '${lidarrArtistName}'"
+                log "DEBUG :: No results found via Fuzzy Search for '${searchReleaseTitle}'"
             fi
         else
-            log "WARNING :: Deezer Fuzzy Search API returned an error or invalid JSON for '${searchReleaseTitle}' by '${lidarrArtistName}'"
+            log "WARNING :: Deezer Fuzzy Search API returned an error or invalid JSON for '${searchReleaseTitle}'"
         fi
     else
-        log "WARNING :: Deezer Fuzzy Search failed for '${searchReleaseTitle}' by '${lidarrArtistName}'"
+        log "WARNING :: Deezer Fuzzy Search failed for '${searchReleaseTitle}'"
     fi
 
     log "TRACE :: Exiting FuzzyDeezerSearch..."
