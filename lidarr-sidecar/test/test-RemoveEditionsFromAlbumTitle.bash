@@ -37,9 +37,9 @@ declare -A TESTS=(
     ["Pretty Plâte 45th Anniversary"]="Pretty Plâte"
     ["Crazy Bois (Deluxe)"]="Crazy Bois"
     ["Crazy Bois Deluxe"]="Crazy Bois"
-    ["Musical Original Motion Picture Soundtrack/Deluxe Edition"]="Musical Original Motion Picture Soundtrack"
-    ["Musical (Original Motion Picture Soundtrack) [Deluxe Edition]"]="Musical (Original Motion Picture Soundtrack)"
-    ["Musical Original Motion Picture Soundtrack [Deluxe Edition]"]="Musical Original Motion Picture Soundtrack"
+    ["Musical Original Motion Picture Soundtrack/Deluxe Edition"]="Musical"
+    ["Musical (Original Motion Picture Soundtrack) [Deluxe Edition]"]="Musical"
+    ["Musical Original Motion Picture Soundtrack [Deluxe Edition]"]="Musical"
 )
 
 # --- Run tests ---

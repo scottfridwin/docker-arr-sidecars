@@ -493,8 +493,8 @@ NormalizeDeezerAlbumTitle() {
 RemoveEditionsFromAlbumTitle() {
     local title="$1"
 
-    # Define edition patterns to remove (case-insensitive match later)
-    local edition_patterns=(
+    # Define patterns to remove (case-insensitive match later)
+    local patterns=(
         "Deluxe Edition"
         "Deluxe Version"
         "Super Deluxe Version"
@@ -508,6 +508,7 @@ RemoveEditionsFromAlbumTitle() {
         "Anniversary Edition"
         "Deluxe"
         "Super Deluxe"
+        "Original Motion Picture Soundtrack"
     )
 
     # Normalize spacing
@@ -523,31 +524,76 @@ RemoveEditionsFromAlbumTitle() {
         title="${BASH_REMATCH[1]}${BASH_REMATCH[5]}"
     fi
 
-    # Remove edition patterns from within parentheses
-    for pattern in "${edition_patterns[@]}"; do
-        title="${title% - $pattern}"        # - Deluxe Edition
-        title="${title//\($pattern\)/}"     # (Deluxe Edition)
-        title="${title// \/ $pattern)/\)}"  # (Something / Deluxe Edition)
-        title="${title//\/$pattern)/\)}"    # (Something/Deluxe Edition)
-        title="${title//\($pattern \/ /\(}" # (Deluxe Edition / Something)
-        title="${title//\($pattern\//\(}"   # (Deluxe Edition/Something)
-        title="${title//\[$pattern\]/}"     # [Deluxe Edition]
-        title="${title// \/ $pattern]/\)}"  # [Something / Deluxe Edition]
-        title="${title//\/$pattern]/\)}"    # [Something/Deluxe Edition]
-        title="${title//\[$pattern \/ /\(}" # [Deluxe Edition / Something]
-        title="${title//\[$pattern\//\(}"   # [Deluxe Edition/Something]
-        title="${title// \/ $pattern/}"     # / Deluxe Edition
-        title="${title//\/$pattern/}"       # /Deluxe Edition
-        title="${title//$pattern \/ /}"     # Deluxe Edition /
-        title="${title//$pattern\/ /}"      # Deluxe Edition/
-        title="${title/% $pattern/}"        # Ending with Deluxe Edition
+    # Remove patterns
+    for pattern in "${patterns[@]}"; do
+        title="${title% - $pattern}"        # - PATTERN
+        title="${title//\($pattern\)/}"     # (PATTERN)
+        title="${title// \/ $pattern)/\)}"  #  / PATTERN)
+        title="${title//\/$pattern)/\)}"    # /PATTERN)
+        title="${title//\($pattern \/ /\(}" # (PATTERN /
+        title="${title//\($pattern\//\(}"   # (PATTERN/
+        title="${title//\[$pattern\]/}"     # [PATTERN]
+        title="${title// \/ $pattern]/\)}"  #  / PATTERN]
+        title="${title//\/$pattern]/\)}"    # /PATTERN]
+        title="${title//\[$pattern \/ /\(}" # [PATTERN /
+        title="${title//\[$pattern\//\(}"   # [PATTERN/
+        title="${title// \/ $pattern/}"     # / PATTERN
+        title="${title//\/$pattern/}"       # /PATTERN
+        title="${title//$pattern \/ /}"     # PATTERN /
+        title="${title//$pattern\/ /}"      # PATTERN/
+        title="${title/% $pattern/}"        #  PATTERN
+
+        # Clean up malformed parentheses
+        title="${title//\( \/ /\(}"
+        title="${title// \/ \)/\)}"
+        title="${title//\( \)/}"
+        title="${title//\(\)/}"
+
+        # Trim spaces
+        title="${title#"${title%%[![:space:]]*}"}"
+        title="${title%"${title##*[![:space:]]}"}"
     done
 
-    # Clean up malformed parentheses
-    title="${title//\( \/ /\(}"
-    title="${title// \/ \)/\)}"
-    title="${title//\( \)/}"
-    title="${title//\(\)/}"
+    echo "$title"
+}
+
+# Remove a pattern from an album title
+RemovePatternFromAlbumTitle() {
+    local title="$1"
+    local pattern="$2"
+
+    # Normalize spacing
+    title="${title//  / }"
+
+    # Remove patterns
+    title="${title% - $pattern}"        # - PATTERN
+    title="${title//\($pattern\)/}"     # (PATTERN)
+    title="${title// \/ $pattern)/\)}"  #  / PATTERN)
+    title="${title//\/$pattern)/\)}"    # /PATTERN)
+    title="${title//\($pattern \/ /\(}" # (PATTERN /
+    title="${title//\($pattern\//\(}"   # (PATTERN/
+    title="${title//\[$pattern\]/}"     # [PATTERN]
+    title="${title// \/ $pattern]/\]}"  #  / PATTERN]
+    title="${title//\/$pattern]/\]}"    # /PATTERN]
+    title="${title//\[$pattern \/ /\[}" # [PATTERN /
+    title="${title//\[$pattern\//\[}"   # [PATTERN/
+    title="${title// \/ $pattern/}"     # / PATTERN
+    title="${title//\/$pattern/}"       # /PATTERN
+    title="${title//$pattern \/ /}"     # PATTERN /
+    title="${title//$pattern\//}"       # PATTERN/
+    title="${title/% $pattern/}"        #  PATTERN
+
+    # Handle ANY leading enclosure
+    title="${title//\($pattern\//\(}"
+    title="${title//\($pattern \/ /\(}"
+    title="${title//\[$pattern\//\[}"
+    title="${title//\[$pattern \/ /\[}"
+
+    # Handle ANY trailing enclosure
+    title="${title//\/$pattern\)/\)}"
+    title="${title// \/ $pattern\)/\)}"
+    title="${title//\/$pattern\]/\]}"
+    title="${title// \/ $pattern\]/\]}"
 
     # Trim spaces
     title="${title#"${title%%[![:space:]]*}"}"

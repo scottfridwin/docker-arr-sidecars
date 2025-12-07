@@ -593,7 +593,7 @@ SearchProcess() {
                 # Fuzzy search with album and artist name
                 exactMatchFound="$(get_state "exactMatchFound")"
                 if [ "${exactMatchFound}" != "true" ]; then
-                    FuzzyDeezerSearch ${lidarrArtistName}
+                    FuzzyDeezerSearch "${lidarrArtistName}"
                 fi
             fi
 
