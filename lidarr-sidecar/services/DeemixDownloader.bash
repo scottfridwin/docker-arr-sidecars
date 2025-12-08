@@ -735,8 +735,10 @@ CalculateBestMatch() {
 
     # Normalize Lidarr release title
     local searchReleaseTitleClean
+    log "DEBUG :: searchReleaseTitle before clean: ${searchReleaseTitle}"
     searchReleaseTitleClean="$(normalize_string "${searchReleaseTitle}")"
     searchReleaseTitleClean="${searchReleaseTitleClean:0:130}"
+    log "DEBUG :: searchReleaseTitleClean after clean: ${searchReleaseTitleClean}"
 
     log "DEBUG :: Calculating best match for \"${searchReleaseTitleClean}\" with ${albumsCount} Deezer albums to compare"
 

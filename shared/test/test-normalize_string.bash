@@ -139,6 +139,16 @@ else
     ((fail++))
 fi
 
+# Test 12: Ellipses no replacement
+result=$(normalize_string "...oh my")
+if [[ "$result" == "...oh my" ]]; then
+    echo "✅ PASS: Ellipses no replacement"
+    ((pass++))
+else
+    echo "❌ FAIL: Ellipses (got '$result')"
+    ((fail++))
+fi
+
 echo "----------------------------------------------"
 echo "Passed: $pass, Failed: $fail"
 
