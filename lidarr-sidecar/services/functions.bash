@@ -332,7 +332,9 @@ FetchMusicBrainzReleaseInfo() {
         log "DEBUG :: Fetching MusicBrainz release info: ${url}"
 
         response=$(curl -s -w "\n%{http_code}" "${url}")
+        log "DEBUG :: After curl: ${response}"
         httpCode=$(tail -n1 <<<"${response}")
+        log "DEBUG :: httpCode: ${httpCode}"
 
         case "${httpCode}" in
         200)
