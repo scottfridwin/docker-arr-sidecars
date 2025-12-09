@@ -23,7 +23,7 @@ reset_state
 set_state "bestMatchID" "12345"
 set_state "bestMatchTitle" "Some Album"
 set_state "bestMatchYear" "2023"
-set_state "bestMatchDistance" "5"
+set_state "bestMatchNameDiff" "5"
 set_state "bestMatchTrackDiff" "2"
 set_state "bestMatchNumTracks" "15"
 set_state "bestMatchContainsCommentary" "true"
@@ -39,7 +39,7 @@ ResetBestMatch
 if [[ "$(get_state "bestMatchID")" == "" ]] &&
     [[ "$(get_state "bestMatchTitle")" == "" ]] &&
     [[ "$(get_state "bestMatchYear")" == "" ]] &&
-    [[ "$(get_state "bestMatchDistance")" == "9999" ]] &&
+    [[ "$(get_state "bestMatchNameDiff")" == "9999" ]] &&
     [[ "$(get_state "bestMatchTrackDiff")" == "9999" ]] &&
     [[ "$(get_state "bestMatchNumTracks")" == "0" ]] &&
     [[ "$(get_state "bestMatchContainsCommentary")" == "false" ]] &&
@@ -55,7 +55,7 @@ else
     echo "❌ FAIL: Reset from populated state - not all values reset correctly"
     echo "  bestMatchID: '$(get_state "bestMatchID")'"
     echo "  bestMatchTitle: '$(get_state "bestMatchTitle")'"
-    echo "  bestMatchDistance: '$(get_state "bestMatchDistance")'"
+    echo "  bestMatchNameDiff: '$(get_state "bestMatchNameDiff")'"
     echo "  bestMatchTrackDiff: '$(get_state "bestMatchTrackDiff")'"
     echo "  bestMatchNumTracks: '$(get_state "bestMatchNumTracks")'"
     echo "  exactMatchFound: '$(get_state "exactMatchFound")'"
@@ -67,7 +67,7 @@ reset_state
 ResetBestMatch
 
 if [[ "$(get_state "bestMatchID")" == "" ]] &&
-    [[ "$(get_state "bestMatchDistance")" == "9999" ]] &&
+    [[ "$(get_state "bestMatchNameDiff")" == "9999" ]] &&
     [[ "$(get_state "bestMatchTrackDiff")" == "9999" ]] &&
     [[ "$(get_state "bestMatchNumTracks")" == "0" ]] &&
     [[ "$(get_state "bestMatchYearDiff")" == "-1" ]] &&
@@ -79,15 +79,15 @@ else
     ((fail++))
 fi
 
-# Test 3: Verify bestMatchDistance is set to high value
+# Test 3: Verify bestMatchNameDiff is set to high value
 reset_state
-set_state "bestMatchDistance" "1"
+set_state "bestMatchNameDiff" "1"
 ResetBestMatch
-if [[ "$(get_state "bestMatchDistance")" == "9999" ]]; then
-    echo "✅ PASS: bestMatchDistance reset to 9999"
+if [[ "$(get_state "bestMatchNameDiff")" == "9999" ]]; then
+    echo "✅ PASS: bestMatchNameDiff reset to 9999"
     ((pass++))
 else
-    echo "❌ FAIL: bestMatchDistance not reset to 9999, got '$(get_state "bestMatchDistance")'"
+    echo "❌ FAIL: bestMatchNameDiff not reset to 9999, got '$(get_state "bestMatchNameDiff")'"
     ((fail++))
 fi
 

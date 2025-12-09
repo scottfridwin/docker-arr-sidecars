@@ -553,6 +553,11 @@ normalize_string() {
             -e 's/…/.../g'
 }
 
+# Checks if a string is a numeric value
+is_numeric() {
+    [[ "$1" =~ ^-?[0-9]+$ ]]
+}
+
 # Removes quotes from a string
 remove_quotes() {
     # $1 -> the string to process

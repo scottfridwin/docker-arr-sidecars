@@ -19,8 +19,7 @@ fail=0
 echo "----------------------------------------------"
 
 # Test 1: Album not previously failed
-result=$(AlbumPreviouslyFailed "123456")
-if [[ "$result" == "false" ]]; then
+if ! AlbumPreviouslyFailed "123456"; then
     echo "✅ PASS: Album not previously failed"
     ((pass++))
 else
@@ -30,8 +29,7 @@ fi
 
 # Test 2: Album previously failed
 touch "${AUDIO_DATA_PATH}/failed/789012"
-result=$(AlbumPreviouslyFailed "789012")
-if [[ "$result" == "true" ]]; then
+if AlbumPreviouslyFailed "789012"; then
     echo "✅ PASS: Album previously failed"
     ((pass++))
 else
@@ -40,8 +38,7 @@ else
 fi
 
 # Test 3: Different album ID
-result=$(AlbumPreviouslyFailed "999999")
-if [[ "$result" == "false" ]]; then
+if ! AlbumPreviouslyFailed "999999"; then
     echo "✅ PASS: Different album ID not found"
     ((pass++))
 else
@@ -52,8 +49,7 @@ fi
 # Test 4: Multiple failed albums
 touch "${AUDIO_DATA_PATH}/failed/111111"
 touch "${AUDIO_DATA_PATH}/failed/222222"
-result=$(AlbumPreviouslyFailed "222222")
-if [[ "$result" == "true" ]]; then
+if AlbumPreviouslyFailed "222222"; then
     echo "✅ PASS: Found in multiple failed albums"
     ((pass++))
 else

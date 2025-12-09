@@ -49,31 +49,31 @@ fi
 
 # Test 4: Null first year
 result=$(CalculateYearDifference "null" "2020")
-if [[ "$result" == "-1" ]]; then
-    echo "✅ PASS: Null first year returns -1"
+if [[ "$result" == "999" ]]; then
+    echo "✅ PASS: Null first year returns 999"
     ((pass++))
 else
-    echo "❌ FAIL: Null first year (got $result, expected -1)"
+    echo "❌ FAIL: Null first year (got $result, expected 999)"
     ((fail++))
 fi
 
 # Test 5: Null second year
 result=$(CalculateYearDifference "2020" "null")
-if [[ "$result" == "-1" ]]; then
-    echo "✅ PASS: Null second year returns -1"
+if [[ "$result" == "999" ]]; then
+    echo "✅ PASS: Null second year returns 999"
     ((pass++))
 else
-    echo "❌ FAIL: Null second year (got $result, expected -1)"
+    echo "❌ FAIL: Null second year (got $result, expected 999)"
     ((fail++))
 fi
 
 # Test 6: Empty first year
 result=$(CalculateYearDifference "" "2020")
-if [[ "$result" == "-1" ]]; then
-    echo "✅ PASS: Empty first year returns -1"
+if [[ "$result" == "999" ]]; then
+    echo "✅ PASS: Empty first year returns 999"
     ((pass++))
 else
-    echo "❌ FAIL: Empty first year (got $result, expected -1)"
+    echo "❌ FAIL: Empty first year (got $result, expected 999)"
     ((fail++))
 fi
 

@@ -12,15 +12,25 @@ log() {
 }
 
 # Helper to setup best match state
-setup_best_match() {
-    set_state "bestMatchDistance" "${1:-9999}"
+setup_best_state() {
+    set_state "bestMatchNameDiff" "${1:-9999}"
     set_state "bestMatchTrackDiff" "${2:-9999}"
-    set_state "bestMatchNumTracks" "${3:-0}"
-    set_state "bestMatchLyricTypePreferred" "${4:-}"
-    set_state "bestMatchFormatPriority" "${5:-999}"
-    set_state "bestMatchCountryPriority" "${6:-999}"
-    set_state "bestMatchYearDiff" "${7:--1}"
-    set_state "lidarrReleaseYear" "2020"
+    set_state "bestMatchYearDiff" "${3:-9999}"
+    set_state "bestMatchCountryPriority" "${4:-999}"
+    set_state "bestMatchNumTracks" "${5:-0}"
+    set_state "bestMatchFormatPriority" "${6:-999}"
+    set_state "bestMatchLyricTypePreferred" "${7:-false}"
+}
+
+# Helper to setup candidate state
+setup_cand_state() {
+    set_state "candidateNameDiff" "${1:-0}"
+    set_state "candidateTrackDiff" "${2:-0}"
+    set_state "candidateYearDiff" "${3:-0}"
+    set_state "lidarrReleaseCountryPriority" "${4:-0}"
+    set_state "deezerCandidateTrackCount" "${5:-99}"
+    set_state "lidarrReleaseFormatPriority" "${6:-0}"
+    set_state "deezerCandidatelyricTypePreferred" "${7:-true}"
 }
 
 # --- Run tests ---
@@ -31,183 +41,195 @@ reset_state
 
 echo "----------------------------------------------"
 
-# Test 1: Better because of lower distance
+# Test 1: Better because of lower NameDiff
 reset_state
-setup_best_match 5 2 10 "true" 1 1 2
-set_state "currentYearDiff" 2
-if IsBetterMatch 3 2 10 "true" 1 1 "2020"; then
-    echo "✅ PASS: Better match due to lower distance (3 < 5)"
+setup_best_state 5 5 5 5 15 5 "true"
+setup_cand_state 3 5 5 5 15 5 "true"
+if IsBetterMatch; then
+    echo "✅ PASS: Better match due to lower NameDiff"
     ((pass++))
 else
-    echo "❌ FAIL: Should be better due to lower distance"
+    echo "❌ FAIL: Should be better due to lower NameDiff"
     ((fail++))
 fi
 
-# Test 2: Worse because of higher distance
+# Test 2: Worse because of higher NameDiff
 reset_state
-setup_best_match 3 2 10 "true" 1 1 2
-set_state "currentYearDiff" 2
-if ! IsBetterMatch 5 2 10 "true" 1 1 "2020"; then
-    echo "✅ PASS: Worse match due to higher distance (5 > 3)"
+setup_best_state 3 5 5 5 15 5 "true"
+setup_cand_state 5 5 5 5 15 5 "true"
+if ! IsBetterMatch; then
+    echo "✅ PASS: Worse match due to higher NameDiff"
     ((pass++))
 else
-    echo "❌ FAIL: Should be worse due to higher distance"
+    echo "❌ FAIL: Should be worse due to higher NameDiff"
     ((fail++))
 fi
 
-# Test 3: Equal distance, better track diff
+# Test 3: Equal NameDiff, better TrackDiff
 reset_state
-setup_best_match 5 5 10 "true" 1 1 2
-set_state "currentYearDiff" 2
-if IsBetterMatch 5 3 10 "true" 1 1 "2020"; then
-    echo "✅ PASS: Better match due to lower track diff (3 < 5)"
+setup_best_state 5 5 5 5 15 5 "true"
+setup_cand_state 5 3 5 5 15 5 "true"
+if IsBetterMatch; then
+    echo "✅ PASS: Better match due to lower TrackDiff"
     ((pass++))
 else
-    echo "❌ FAIL: Should be better due to lower track diff"
+    echo "❌ FAIL: Should be better due to lower TrackDiff"
     ((fail++))
 fi
 
-# Test 4: Equal distance and track diff, better year
+# Test 4: Equal NameDiff, worse TrackDiff
 reset_state
-setup_best_match 5 2 10 "true" 1 1 5
-set_state "currentYearDiff" 1
-if IsBetterMatch 5 2 10 "true" 1 1 "2021"; then
-    echo "✅ PASS: Better match due to closer year (diff 1 < 5)"
+setup_best_state 5 3 5 5 15 5 "true"
+setup_cand_state 5 5 5 5 15 5 "true"
+if ! IsBetterMatch; then
+    echo "✅ PASS: Worse match due to higher TrackDiff"
     ((pass++))
 else
-    echo "❌ FAIL: Should be better due to closer year"
+    echo "❌ FAIL: Should be worse due to higher TrackDiff"
     ((fail++))
 fi
 
-# Test 5: Equal distance, track diff, and year; more tracks wins
+# Test 5: Equal NameDiff, equal TrackDiff, better YearDiff
 reset_state
-setup_best_match 5 2 10 "true" 1 1 2
-set_state "currentYearDiff" 2
-if IsBetterMatch 5 2 15 "true" 1 1 "2022"; then
-    echo "✅ PASS: Better match due to more tracks (15 > 10)"
+setup_best_state 5 5 5 5 15 5 "true"
+setup_cand_state 5 5 3 5 15 5 "true"
+if IsBetterMatch; then
+    echo "✅ PASS: Better match due to lower YearDiff"
     ((pass++))
 else
-    echo "❌ FAIL: Should be better due to more tracks"
+    echo "❌ FAIL: Should be better due to lower YearDiff"
     ((fail++))
 fi
 
-# Test 6: All equal except lyric preference
+# Test 6: Equal NameDiff, equal TrackDiff, worse YearDiff
 reset_state
-setup_best_match 5 2 10 "false" 1 1 2
-set_state "currentYearDiff" 2
-if IsBetterMatch 5 2 10 "true" 1 1 "2022"; then
-    echo "✅ PASS: Better match due to preferred lyric type"
+setup_best_state 5 5 3 5 15 5 "true"
+setup_cand_state 5 5 5 5 15 5 "true"
+if ! IsBetterMatch; then
+    echo "✅ PASS: Worse match due to higher YearDiff"
     ((pass++))
 else
-    echo "❌ FAIL: Should be better due to preferred lyric type"
+    echo "❌ FAIL: Should be worse due to higher YearDiff"
     ((fail++))
 fi
 
-# Test 7: All equal except format priority
+# Test 7: Equal NameDiff, equal TrackDiff, equal YearDiff, better CountryPriority
 reset_state
-setup_best_match 5 2 10 "true" 3 1 2
-set_state "currentYearDiff" 2
-if IsBetterMatch 5 2 10 "true" 1 1 "2022"; then
-    echo "✅ PASS: Better match due to better format priority (1 < 3)"
+setup_best_state 5 5 5 5 15 5 "true"
+setup_cand_state 5 5 5 3 15 5 "true"
+if IsBetterMatch; then
+    echo "✅ PASS: Better match due to lower CountryPriority"
     ((pass++))
 else
-    echo "❌ FAIL: Should be better due to better format priority"
+    echo "❌ FAIL: Should be better due to lower CountryPriority"
     ((fail++))
 fi
 
-# Test 8: All equal except country priority
+# Test 8: Equal NameDiff, equal TrackDiff, equal YearDiff, worse CountryPriority
 reset_state
-setup_best_match 5 2 10 "true" 1 3 2
-set_state "currentYearDiff" 2
-if IsBetterMatch 5 2 10 "true" 1 1 "2022"; then
-    echo "✅ PASS: Better match due to better country priority (1 < 3)"
+setup_best_state 5 5 5 3 15 5 "true"
+setup_cand_state 5 5 5 5 15 5 "true"
+if ! IsBetterMatch; then
+    echo "✅ PASS: Worse match due to higher CountryPriority"
     ((pass++))
 else
-    echo "❌ FAIL: Should be better due to better country priority"
+    echo "❌ FAIL: Should be worse due to higher CountryPriority"
     ((fail++))
 fi
 
-# Test 9: Worse in all criteria
+# Test 9: Equal NameDiff, equal TrackDiff, equal YearDiff, equal CountryPriority, higher TrackCount
 reset_state
-setup_best_match 2 1 15 "true" 0 0 1
-set_state "currentYearDiff" 5
-if ! IsBetterMatch 8 5 10 "false" 5 5 "2015"; then
-    echo "✅ PASS: Worse in all criteria"
+setup_best_state 5 5 5 5 10 5 "true"
+setup_cand_state 5 5 5 5 15 5 "true"
+if IsBetterMatch; then
+    echo "✅ PASS: Better match due to higher TrackCount"
     ((pass++))
 else
-    echo "❌ FAIL: Should be worse in all criteria"
+    echo "❌ FAIL: Should be better due to higher TrackCount"
     ((fail++))
 fi
 
-# Test 10: First match (best match is at defaults)
+# Test 10: Equal NameDiff, equal TrackDiff, equal YearDiff, equal CountryPriority, lower TrackCount
 reset_state
-setup_best_match 9999 9999 0 "" 999 999 -1
-set_state "currentYearDiff" 1
-if IsBetterMatch 5 2 10 "true" 1 1 "2021"; then
-    echo "✅ PASS: First match is better than defaults"
+setup_best_state 5 5 5 5 15 5 "true"
+setup_cand_state 5 5 5 5 10 5 "true"
+if ! IsBetterMatch; then
+    echo "✅ PASS: Worse match due to lower TrackCount"
     ((pass++))
 else
-    echo "❌ FAIL: First match should be better than defaults"
+    echo "❌ FAIL: Should be worse due to lower TrackCount"
     ((fail++))
 fi
 
-# Test 11: Year diff evaluation - no year info for candidate
+# Test 11: Equal NameDiff, equal TrackDiff, equal YearDiff, equal CountryPriority, equal TrackCount, better FormatPriority
 reset_state
-setup_best_match 5 2 10 "true" 1 1 2
-set_state "currentYearDiff" -1
-if ! IsBetterMatch 5 2 10 "true" 1 1 ""; then
-    echo "✅ PASS: Candidate with no year is worse"
+setup_best_state 5 5 5 5 15 5 "true"
+setup_cand_state 5 5 5 5 15 3 "true"
+if IsBetterMatch; then
+    echo "✅ PASS: Better match due to higher FormatPriority"
     ((pass++))
 else
-    echo "❌ FAIL: Candidate with no year should be worse"
+    echo "❌ FAIL: Should be better due to higher FormatPriority"
     ((fail++))
 fi
 
-# Test 12: Year diff evaluation - best match has no year, candidate does
+# Test 12: Equal NameDiff, equal TrackDiff, equal YearDiff, equal CountryPriority, equal TrackCount, worse FormatPriority
 reset_state
-setup_best_match 5 2 10 "true" 1 1 -1
-set_state "currentYearDiff" 2
-if IsBetterMatch 5 2 10 "true" 1 1 "2022"; then
-    echo "✅ PASS: Candidate with year is better than best match without year"
+setup_best_state 5 5 5 5 15 3 "true"
+setup_cand_state 5 5 5 5 15 5 "true"
+if ! IsBetterMatch; then
+    echo "✅ PASS: Worse match due to lower FormatPriority"
     ((pass++))
 else
-    echo "❌ FAIL: Candidate with year should be better"
+    echo "❌ FAIL: Should be worse due to lower FormatPriority"
     ((fail++))
 fi
 
-# Test 13: Exact tie - should not be better
+# Test 11: Equal NameDiff, equal TrackDiff, equal YearDiff, equal CountryPriority, equal TrackCount, equal FormatPriority, more preferred LyricType
 reset_state
-setup_best_match 5 2 10 "true" 1 1 2
-set_state "currentYearDiff" 2
-if ! IsBetterMatch 5 2 10 "true" 1 1 "2022"; then
-    echo "✅ PASS: Exact tie is not considered better"
+setup_best_state 5 5 5 5 15 5 "false"
+setup_cand_state 5 5 5 5 15 5 "true"
+if IsBetterMatch; then
+    echo "✅ PASS: Better match due to more preferred LyricType"
     ((pass++))
 else
-    echo "❌ FAIL: Exact tie should not be considered better"
+    echo "❌ FAIL: Should be better due to more preferred LyricType"
     ((fail++))
 fi
 
-# Test 14: Better distance trumps everything else
+# Test 12: Equal NameDiff, equal TrackDiff, equal YearDiff, equal CountryPriority, equal TrackCount, equal FormatPriority, less preferred LyricType
 reset_state
-setup_best_match 10 1 20 "true" 0 0 0
-set_state "currentYearDiff" 10
-if IsBetterMatch 5 10 5 "false" 10 10 "2010"; then
-    echo "✅ PASS: Lower distance wins despite worse other metrics"
+setup_best_state 5 5 5 5 15 5 "true"
+setup_cand_state 5 5 5 5 15 5 "false"
+if ! IsBetterMatch; then
+    echo "✅ PASS: Worse match due to less preferred LyricType"
     ((pass++))
 else
-    echo "❌ FAIL: Lower distance should win"
+    echo "❌ FAIL: Should be worse due to less preferred LyricType"
     ((fail++))
 fi
 
-# Test 15: Same distance, better track diff trumps other metrics
+# Test 13: All equal
 reset_state
-setup_best_match 5 10 20 "true" 0 0 0
-set_state "currentYearDiff" 10
-if IsBetterMatch 5 5 5 "false" 10 10 "2010"; then
-    echo "✅ PASS: Lower track diff wins despite worse other metrics"
+setup_best_state 5 5 5 5 15 5 "true"
+setup_cand_state 5 5 5 5 15 5 "true"
+if ! IsBetterMatch; then
+    echo "✅ PASS: All equal counts as worse"
     ((pass++))
 else
-    echo "❌ FAIL: Lower track diff should win"
+    echo "❌ FAIL: All equal should count as worse"
+    ((fail++))
+fi
+
+# Test 14: Varied case
+reset_state
+setup_best_state 3 5 3 5 10 5 "false"
+setup_cand_state 5 3 5 3 15 3 "true"
+if ! IsBetterMatch; then
+    echo "✅ PASS: Varied case is worse"
+    ((pass++))
+else
+    echo "❌ FAIL: Varied case should be worse"
     ((fail++))
 fi
 

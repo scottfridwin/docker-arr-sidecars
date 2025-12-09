@@ -14,13 +14,14 @@ AddDisambiguationToTitle() {
 }
 
 # Check if album was previously marked as failed
+# Returns 0 (true) if album previously failed, 1 (false) otherwise
 AlbumPreviouslyFailed() {
     local deezerAlbumID="$1"
 
     if [ -f "${AUDIO_DATA_PATH}/failed/${deezerAlbumID}" ]; then
-        echo "true"
+        return 0
     else
-        echo "false"
+        return 1
     fi
 }
 
@@ -43,9 +44,9 @@ CalculateYearDifference() {
     local year1="$1"
     local year2="$2"
 
-    # Return -1 if either year is invalid
+    # Return 999 if either year is invalid to indicate uncalcuable difference
     if [[ -z "${year1}" || "${year1}" == "null" || -z "${year2}" || "${year2}" == "null" ]]; then
-        echo "-1"
+        echo "999"
         return
     fi
 
@@ -55,20 +56,26 @@ CalculateYearDifference() {
 }
 
 # Compute match metrics for a candidate album
-ComputeMatchMetrics() {
-    local searchReleaseTitleClean="$1"
-    local candidateTitleVariant="$2"
-    local lidarrReleaseTrackCount="$3"
-    local deezerAlbumTrackCount="$4"
+ComputePrimaryMatchMetrics() {
 
     # Calculate Levenshtein distance
-    local distance=$(LevenshteinDistance "${searchReleaseTitleClean,,}" "${candidateTitleVariant,,}")
-    set_state "candidateDistance" "${distance}"
+    local searchReleaseTitleClean="$(get_state "searchReleaseTitleClean")"
+    local deezerCandidateTitleVariant="$(get_state "deezerCandidateTitleVariant")"
+    local distance=$(LevenshteinDistance "${searchReleaseTitleClean,,}" "${deezerCandidateTitleVariant,,}")
+    set_state "candidateNameDiff" "${distance}"
 
     # Calculate track difference
-    local trackDiff=$((lidarrReleaseTrackCount - deezerAlbumTrackCount))
+    local lidarrReleaseTrackCount="$(get_state "lidarrReleaseTrackCount")"
+    local deezerCandidateTrackCount="$(get_state "deezerCandidateTrackCount")"
+    local trackDiff=$((lidarrReleaseTrackCount - deezerCandidateTrackCount))
     ((trackDiff < 0)) && trackDiff=$((-trackDiff))
     set_state "candidateTrackDiff" "${trackDiff}"
+
+    # Calculate year difference
+    local lidarrReleaseYear=$(get_state "lidarrReleaseYear")
+    local deezerCandidateReleaseYear="$(get_state "deezerCandidateReleaseYear")"
+    local yearDiff=$(CalculateYearDifference "${deezerCandidateReleaseYear}" "${lidarrReleaseYear}")
+    set_state "candidateYearDiff" "${yearDiff}"
 }
 
 # Determine priority for a countries string based on AUDIO_PREFERRED_COUNTRIES
@@ -95,62 +102,68 @@ CountriesPriority() {
 
 # Evaluate a single Deezer album candidate and update best match if better
 EvaluateDeezerAlbumCandidate() {
-    local deezerAlbumID="$1"
-    local deezerAlbumTitle="$2"
-    local deezerAlbumExplicitLyrics="$3"
-    local searchReleaseTitleClean="$4"
-    local lidarrReleaseTrackCount="$5"
-    local lidarrReleaseFormatPriority="$6"
-    local lidarrReleaseCountryPriority="$7"
-    local lidarrReleaseContainsCommentary="$8"
-    local lidarrReleaseInfo="$9"
+    local deezerCandidateAlbumID="$(get_state "deezerCandidateAlbumID")"
+    local searchReleaseTitleClean="$(get_state "searchReleaseTitleClean")"
+    local lidarrReleaseTrackCount="$(get_state "lidarrReleaseTrackCount")"
+    local lidarrReleaseFormatPriority="$(get_state "lidarrReleaseFormatPriority")"
+    local lidarrReleaseCountryPriority="$(get_state "lidarrReleaseCountryPriority")"
+    local lidarrReleaseContainsCommentary="$(get_state "lidarrReleaseContainsCommentary")"
+    local lidarrReleaseInfo="$(get_state "lidarrReleaseInfo")"
 
     # Get album info from Deezer
-    GetDeezerAlbumInfo "${deezerAlbumID}"
+    GetDeezerAlbumInfo "${deezerCandidateAlbumID}"
     local returnCode=$?
     if [ "$returnCode" -ne 0 ]; then
-        log "WARNING :: Failed to fetch album info for Deezer album ID ${deezerAlbumID}, skipping..."
+        log "WARNING :: Failed to fetch album info for Deezer album ID ${deezerCandidateAlbumID}, skipping..."
         return 1
     fi
 
+    # Extract candidate information
     local deezerAlbumData="$(get_state "deezerAlbumInfo")"
-    local deezerAlbumTrackCount=$(safe_jq .nb_tracks <<<"${deezerAlbumData}")
-    local deezerReleaseYear=$(safe_jq .release_date <<<"${deezerAlbumData}")
-    deezerReleaseYear="${deezerReleaseYear:0:4}"
+    local deezerCandidateTitle=$(jq -r ".title" <<<"${deezerAlbumData}")
+    local deezerCandidateIsExplicit=$(jq -r ".explicit_lyrics" <<<"${deezerAlbumData}")
+    local deezerCandidateTrackCount=$(safe_jq .nb_tracks <<<"${deezerAlbumData}")
+    local deezerCandidateReleaseYear=$(safe_jq .release_date <<<"${deezerAlbumData}")
+    deezerCandidateReleaseYear="${deezerCandidateReleaseYear:0:4}"
+    set_state "deezerCandidateTrackCount" "${deezerCandidateTrackCount}"
+    set_state "deezerCandidateReleaseYear" "${deezerCandidateReleaseYear}"
+    set_state "deezerCandidateIsExplicit" "${deezerCandidateIsExplicit}"
+    set_state "deezerCandidateTitle" "${deezerCandidateTitle}"
+
+    local lyricTypeSetting="${AUDIO_LYRIC_TYPE:-}"
+    local deezerCandidatelyricTypePreferred=$(IsLyricTypePreferred "${deezerCandidateIsExplicit}" "${lyricTypeSetting}")
+    set_state "deezerCandidatelyricTypePreferred" "${deezerCandidatelyricTypePreferred}"
+
+    # Skip albums that don't match the lyric type filter
+    local shouldSkip=$(ShouldSkipAlbumByLyricType "${deezerCandidateIsExplicit}" "${AUDIO_LYRIC_TYPE:-}")
+    if [[ "${shouldSkip}" == "true" ]]; then
+        log "DEBUG :: Skipping Deezer album ID ${deezerCandidateAlbumID} (${deezerCandidateTitle}) due to lyric type filter"
+        continue
+    fi
 
     # Calculate year difference
     local lidarrReleaseYear=$(get_state "lidarrReleaseYear")
-    local yearDiff=$(CalculateYearDifference "${deezerReleaseYear}" "${lidarrReleaseYear}")
-    set_state "currentYearDiff" "${yearDiff}"
+    local yearDiff=$(CalculateYearDifference "${deezerCandidateReleaseYear}" "${lidarrReleaseYear}")
+    set_state "candidateYearDiff" "${yearDiff}"
 
     # Get normalized titles
-    NormalizeDeezerAlbumTitle "${deezerAlbumTitle}"
-    local deezerAlbumTitleClean="$(get_state "deezerAlbumTitleClean")"
-    local deezerAlbumTitleEditionless="$(get_state "deezerAlbumTitleEditionless")"
+    NormalizeDeezerAlbumTitle "${deezerCandidateTitle}"
+    local deezerCandidateTitleClean="$(get_state "deezerCandidateTitleClean")"
+    local deezerCandidateTitleEditionless="$(get_state "deezerCandidateTitleEditionless")"
 
-    log "DEBUG :: Comparing lidarr release \"${searchReleaseTitleClean}\" to Deezer album ID ${deezerAlbumID} with title \"${deezerAlbumTitleClean}\" (editionless: \"${deezerAlbumTitleEditionless}\" and explicit=${deezerAlbumExplicitLyrics})"
+    log "DEBUG :: Comparing lidarr release \"${searchReleaseTitleClean}\" to Deezer album ID ${deezerCandidateAlbumID} with title \"${deezerCandidateTitleClean}\" (editionless: \"${deezerCandidateTitleEditionless}\" and explicit=${deezerCandidateIsExplicit})"
 
     # Check both with and without edition info
     local titlesToCheck=()
-    titlesToCheck+=("${deezerAlbumTitleClean}")
-    if [[ "${deezerAlbumTitleClean}" != "${deezerAlbumTitleEditionless}" ]]; then
-        titlesToCheck+=("${deezerAlbumTitleEditionless}")
-        log "DEBUG :: Checking both edition and editionless titles: \"${deezerAlbumTitleClean}\", \"${deezerAlbumTitleEditionless}\""
+    titlesToCheck+=("${deezerCandidateTitleClean}")
+    if [[ "${deezerCandidateTitleClean}" != "${deezerCandidateTitleEditionless}" ]]; then
+        titlesToCheck+=("${deezerCandidateTitleEditionless}")
+        log "DEBUG :: Checking both edition and editionless titles: \"${deezerCandidateTitleClean}\", \"${deezerCandidateTitleEditionless}\""
     fi
 
     for titleVariant in "${titlesToCheck[@]}"; do
-        EvaluateTitleVariant \
-            "${titleVariant}" \
-            "${searchReleaseTitleClean}" \
-            "${lidarrReleaseTrackCount}" \
-            "${deezerAlbumTrackCount}" \
-            "${deezerAlbumExplicitLyrics}" \
-            "${deezerAlbumID}" \
-            "${deezerReleaseYear}" \
-            "${lidarrReleaseFormatPriority}" \
-            "${lidarrReleaseCountryPriority}" \
-            "${lidarrReleaseContainsCommentary}" \
-            "${lidarrReleaseInfo}"
+        set_state "deezerCandidateTitleVariant" "${titleVariant}"
+        EvaluateTitleVariant
     done
 
     return 0
@@ -158,67 +171,43 @@ EvaluateDeezerAlbumCandidate() {
 
 # Evaluate a single title variant against matching criteria
 EvaluateTitleVariant() {
-    local titleVariant="$1"
-    local searchReleaseTitleClean="$2"
-    local lidarrReleaseTrackCount="$3"
-    local deezerAlbumTrackCount="$4"
-    local deezerAlbumExplicitLyrics="$5"
-    local deezerAlbumID="$6"
-    local deezerReleaseYear="$7"
-    local lidarrReleaseFormatPriority="$8"
-    local lidarrReleaseCountryPriority="$9"
-    local lidarrReleaseContainsCommentary="${10}"
-    local lidarrReleaseInfo="${11}"
 
     # Compute match metrics
-    ComputeMatchMetrics \
-        "${searchReleaseTitleClean}" \
-        "${titleVariant}" \
-        "${lidarrReleaseTrackCount}" \
-        "${deezerAlbumTrackCount}"
+    ComputePrimaryMatchMetrics
 
-    local diff=$(get_state "candidateDistance")
-    local trackDiff=$(get_state "candidateTrackDiff")
+    local candidateNameDiff=$(get_state "candidateNameDiff")
+    local candidateTrackDiff=$(get_state "candidateTrackDiff")
+    local candidateYearDiff=$(get_state "candidateYearDiff")
 
     # Check if meets thresholds
-    if ((diff > AUDIO_MATCH_THRESHOLD_TITLE)); then
-        log "DEBUG :: Album \"${titleVariant,,}\" does not meet matching threshold (Distance=${diff}), skipping..."
+    local deezerCandidateTitleVariant="$(get_state "deezerCandidateTitleVariant")"
+    if ((candidateNameDiff > AUDIO_MATCH_THRESHOLD_TITLE)); then
+        log "DEBUG :: Album \"${deezerCandidateTitleVariant,,}\" does not meet matching threshold (NameDiff=${candidateNameDiff}), skipping..."
         return 0
     fi
-    if ((trackDiff > AUDIO_MATCH_THRESHOLD_TRACKS)); then
-        log "DEBUG :: Album \"${titleVariant,,}\" does not meet matching threshold (Track Difference=${trackDiff}), skipping..."
+    if ((candidateTrackDiff > AUDIO_MATCH_THRESHOLD_TRACKS)); then
+        log "DEBUG :: Album \"${deezerCandidateTitleVariant,,}\" does not meet matching threshold (Track Difference=${candidateTrackDiff}), skipping..."
+        return 0
+    fi
+    if ((candidateYearDiff > AUDIO_MATCH_THRESHOLD_YEAR)); then
+        log "DEBUG :: Album \"${deezerCandidateTitleVariant,,}\" does not meet matching threshold (Year Difference=${candidateYearDiff}), skipping..."
         return 0
     fi
 
     local lidarrReleaseYear=$(get_state "lidarrReleaseYear")
-    log "INFO :: Potential match found :: \"${titleVariant,,}\" :: Distance=${diff} TrackDiff=${trackDiff} LidarrYear=${lidarrReleaseYear}"
-
-    # Check if lyric type is preferred
-    local lyricTypeSetting="${AUDIO_LYRIC_TYPE:-}"
-    local lyricTypePreferred=$(IsLyricTypePreferred "${deezerAlbumExplicitLyrics}" "${lyricTypeSetting}")
+    log "INFO :: Potential match found :: \"${deezerCandidateTitleVariant,,}\" :: NameDiff=${candidateNameDiff} TrackDiff=${candidateTrackDiff} YearDiff=${candidateYearDiff}"
 
     # Check if this is a better match
-    if IsBetterMatch "$diff" "$trackDiff" "$deezerAlbumTrackCount" "$lyricTypePreferred" "$lidarrReleaseFormatPriority" "$lidarrReleaseCountryPriority" "$deezerReleaseYear"; then
+    if IsBetterMatch; then
         # Check if previously failed
-        local previouslyFailed=$(AlbumPreviouslyFailed "${deezerAlbumID}")
-        if [[ "${previouslyFailed}" == "true" ]]; then
-            log "WARNING :: Album \"${titleVariant}\" previously failed to download (deezer: ${deezerAlbumID})...Looking for a different match..."
+        local deezerCandidateAlbumID="$(get_state "deezerCandidateAlbumID")"
+        if AlbumPreviouslyFailed "${deezerCandidateAlbumID}"; then
+            log "WARNING :: Album \"${deezerCandidateTitleVariant}\" previously failed to download (deezer: ${deezerCandidateAlbumID})...Looking for a different match..."
             return 0
         fi
 
         # Update best match
-        UpdateBestMatchState \
-            "${deezerAlbumID}" \
-            "${titleVariant}" \
-            "${deezerReleaseYear}" \
-            "${diff}" \
-            "${trackDiff}" \
-            "${deezerAlbumTrackCount}" \
-            "${lyricTypePreferred}" \
-            "${lidarrReleaseFormatPriority}" \
-            "${lidarrReleaseCountryPriority}" \
-            "${lidarrReleaseContainsCommentary}" \
-            "${lidarrReleaseInfo}"
+        UpdateBestMatchState
     fi
 
     return 0
@@ -332,70 +321,52 @@ FormatPriority() {
 }
 
 # Determine if the current candidate is a better match than the best match so far
+# Returns 0 (true) if candidate is a better match, 1 (false) otherwise
 IsBetterMatch() {
-    local diff="$1"
-    local trackDiff="$2"
-    local deezerAlbumTrackCount="$3"
-    local lyricTypePreferred="$4"
-    local lidarrReleaseFormatPriority="$5"
-    local lidarrReleaseCountryPriority="$6"
-    local deezerAlbumYear="$7"
+    local candidateNameDiff=$(get_state "candidateNameDiff")
+    local candidateTrackDiff=$(get_state "candidateTrackDiff")
+    local candidateYearDiff=$(get_state "candidateYearDiff")
+    local deezerCandidateTrackCount="$(get_state "deezerCandidateTrackCount")"
+    local lidarrReleaseFormatPriority="$(get_state "lidarrReleaseFormatPriority")"
+    local lidarrReleaseCountryPriority="$(get_state "lidarrReleaseCountryPriority")"
+    local deezerCandidatelyricTypePreferred="$(get_state "deezerCandidatelyricTypePreferred")"
 
-    local bestMatchDistance="$(get_state "bestMatchDistance")"
+    local bestMatchNameDiff="$(get_state "bestMatchNameDiff")"
     local bestMatchTrackDiff="$(get_state "bestMatchTrackDiff")"
+    local bestMatchYearDiff="$(get_state "bestMatchYearDiff")"
     local bestMatchNumTracks="$(get_state "bestMatchNumTracks")"
     local bestMatchLyricTypePreferred="$(get_state "bestMatchLyricTypePreferred")"
     local bestMatchFormatPriority="$(get_state "bestMatchFormatPriority")"
     local bestMatchCountryPriority="$(get_state "bestMatchCountryPriority")"
-    local bestMatchYearDiff="$(get_state "bestMatchYearDiff")"
 
-    # Get the expected release year from Lidarr
-    local lidarrAlbumInfo="$(get_state "lidarrAlbumInfo")"
-    local lidarrReleaseYear=$(get_state "lidarrReleaseYear")
-
-    # Check if the current release year difference is better/worse/same than the best match so far
-    # If the best match year diff is not set, any year diff is better
-    # If the current year diff is not set, it is worse than any set year diff
-    # If both are set, compare numerically
-    local yearDiffEvaluation="worse"
-    currentYearDiff=$(get_state "currentYearDiff")
-    if [[ "${bestMatchYearDiff}" -eq -1 && "${currentYearDiff}" -ne -1 ]]; then
-        yearDiffEvaluation="better"
-    elif [[ "${bestMatchYearDiff}" -ne -1 && "${currentYearDiff}" -eq -1 ]]; then
-        yearDiffEvaluation="worse"
-    elif [[ "${bestMatchYearDiff}" -ne -1 && "${currentYearDiff}" -ne -1 ]]; then
-        if ((currentYearDiff < bestMatchYearDiff)); then
-            yearDiffEvaluation="better"
-        elif ((currentYearDiff == bestMatchYearDiff)); then
-            yearDiffEvaluation="same"
-        else
-            yearDiffEvaluation="worse"
-        fi
-    fi
-
-    log "DEBUG :: Comparing candidate (Diff=${diff}, TrackDiff=${trackDiff}, YearDiff=${currentYearDiff} (${yearDiffEvaluation}), NumTracks=${deezerAlbumTrackCount}, LyricPreferred=${lyricTypePreferred}, FormatPriority=${lidarrReleaseFormatPriority}, CountryPriority=${lidarrReleaseCountryPriority}) against best match (Diff=${bestMatchDistance}, TrackDiff=${bestMatchTrackDiff}, YearDiff=${bestMatchYearDiff}, NumTracks=${bestMatchNumTracks}, LyricPreferred=${bestMatchLyricTypePreferred}, FormatPriority=${bestMatchFormatPriority}, CountryPriority=${bestMatchCountryPriority})"
     # Compare against current best-match globals
-    # Return 0 (true) if current candidate is better, 1 (false) otherwise
-    if ((diff < bestMatchDistance)); then
+    log "DEBUG :: Comparing candidate (NameDiff=${candidateNameDiff}, TrackDiff=${candidateTrackDiff}, YearDiff=${candidateYearDiff}, NumTracks=${deezerCandidateTrackCount}, LyricPreferred=${deezerCandidatelyricTypePreferred}, FormatPriority=${lidarrReleaseFormatPriority}, CountryPriority=${lidarrReleaseCountryPriority}) against best match (Diff=${bestMatchNameDiff}, TrackDiff=${bestMatchTrackDiff}, YearDiff=${bestMatchYearDiff}, NumTracks=${bestMatchNumTracks}, LyricPreferred=${bestMatchLyricTypePreferred}, FormatPriority=${bestMatchFormatPriority}, CountryPriority=${bestMatchCountryPriority})"
+
+    # Primary match criteria
+    # 1. Name difference
+    # 2. Track number difference
+    # 3. Published year difference
+    if ((candidateNameDiff < bestMatchNameDiff)); then
         return 0
-    elif ((diff == bestMatchDistance)) && ((trackDiff < bestMatchTrackDiff)); then
+    elif ((candidateNameDiff == bestMatchNameDiff)) && ((candidateTrackDiff < bestMatchTrackDiff)); then
         return 0
-    elif ((diff == bestMatchDistance)) && ((trackDiff == bestMatchTrackDiff)) && [[ "$yearDiffEvaluation" == "better" ]]; then
+    elif ((candidateNameDiff == bestMatchNameDiff)) && ((candidateTrackDiff == bestMatchTrackDiff)) && (($candidateYearDiff < bestMatchYearDiff)); then
         return 0
-    elif ((diff == bestMatchDistance)) && ((trackDiff == bestMatchTrackDiff)) && [[ "$yearDiffEvaluation" == "same" ]] && ((deezerAlbumTrackCount > bestMatchNumTracks)); then
-        return 0
-    elif ((diff == bestMatchDistance)) && ((trackDiff == bestMatchTrackDiff)) && [[ "$yearDiffEvaluation" == "same" ]] && ((deezerAlbumTrackCount == bestMatchNumTracks)) &&
-        [[ "$lyricTypePreferred" == "true" && "$bestMatchLyricTypePreferred" == "false" ]]; then
-        return 0
-    elif ((diff == bestMatchDistance)) && ((trackDiff == bestMatchTrackDiff)) && [[ "$yearDiffEvaluation" == "same" ]] && ((deezerAlbumTrackCount == bestMatchNumTracks)) &&
-        [[ "$lyricTypePreferred" == "$bestMatchLyricTypePreferred" ]] &&
-        ((lidarrReleaseFormatPriority < bestMatchFormatPriority)); then
-        return 0
-    elif ((diff == bestMatchDistance)) && ((trackDiff == bestMatchTrackDiff)) && [[ "$yearDiffEvaluation" == "same" ]] && ((deezerAlbumTrackCount == bestMatchNumTracks)) &&
-        [[ "$lyricTypePreferred" == "$bestMatchLyricTypePreferred" ]] &&
-        ((lidarrReleaseFormatPriority == bestMatchFormatPriority)) &&
-        ((lidarrReleaseCountryPriority < bestMatchCountryPriority)); then
-        return 0
+    elif ((candidateNameDiff == bestMatchNameDiff)) && ((candidateTrackDiff == bestMatchTrackDiff)) && ((candidateYearDiff == bestMatchYearDiff)); then
+        # Secondary criteria
+        # 1. Release country
+        # 2. Track count
+        # 3. Release format
+        # 4. Lyric preference
+        if ((lidarrReleaseCountryPriority < bestMatchCountryPriority)); then
+            return 0
+        elif ((lidarrReleaseCountryPriority == bestMatchCountryPriority)) && ((deezerCandidateTrackCount > bestMatchNumTracks)); then
+            return 0
+        elif ((lidarrReleaseCountryPriority == bestMatchCountryPriority)) && ((deezerCandidateTrackCount == bestMatchNumTracks)) && ((lidarrReleaseFormatPriority < bestMatchFormatPriority)); then
+            return 0
+        elif ((lidarrReleaseCountryPriority == bestMatchCountryPriority)) && ((deezerCandidateTrackCount == bestMatchNumTracks)) && ((lidarrReleaseFormatPriority == bestMatchFormatPriority)) && [[ "$deezerCandidatelyricTypePreferred" == "true" && "$bestMatchLyricTypePreferred" == "false" ]]; then
+            return 0
+        fi
     fi
 
     return 1
@@ -475,10 +446,10 @@ LevenshteinDistance() {
 
 # Normalize a Deezer album title (truncate and apply replacements)
 NormalizeDeezerAlbumTitle() {
-    local deezerAlbumTitle="$1"
+    local deezerCandidateTitle="$1"
 
     # Normalize title
-    local titleClean="$(normalize_string "$deezerAlbumTitle")"
+    local titleClean="$(normalize_string "$deezerCandidateTitle")"
     titleClean="${titleClean:0:130}"
 
     # Get editionless version
@@ -489,8 +460,8 @@ NormalizeDeezerAlbumTitle() {
     titleEditionless="$(ApplyTitleReplacements "${titleEditionless}")"
 
     # Return both as newline-separated values
-    set_state "deezerAlbumTitleClean" "${titleClean}"
-    set_state "deezerAlbumTitleEditionless" "${titleEditionless}"
+    set_state "deezerCandidateTitleClean" "${titleClean}"
+    set_state "deezerCandidateTitleEditionless" "${titleEditionless}"
 }
 
 # Remove common edition keywords from the end of an album title
@@ -611,7 +582,7 @@ ResetBestMatch() {
     set_state "bestMatchID" ""
     set_state "bestMatchTitle" ""
     set_state "bestMatchYear" ""
-    set_state "bestMatchDistance" 9999
+    set_state "bestMatchNameDiff" 9999
     set_state "bestMatchTrackDiff" 9999
     set_state "bestMatchNumTracks" 0
     set_state "bestMatchContainsCommentary" "false"
@@ -684,38 +655,94 @@ ShouldSkipAlbumByLyricType() {
     fi
 }
 
+# Determine if a release should be skipped
+# Returns 0 (true) if candidate should be skipped, 1 (false) otherwise
+SkipReleaseCandidate() {
+    # If a exact match has been found, we only want to process releases that are potentially better matches
+    local exactMatchFound="$(get_state "exactMatchFound")"
+    if [ "${exactMatchFound}" == "true" ]; then
+        # Same or better country match
+        local bestMatchCountryPriority lidarrReleaseCountryPriority
+        bestMatchCountryPriority="$(get_state "bestMatchCountryPriority")"
+        lidarrReleaseCountryPriority="$(get_state "lidarrReleaseCountryPriority")"
+        if ! is_numeric "$bestMatchCountryPriority" || ! is_numeric "$lidarrReleaseCountryPriority"; then
+            # Don't skip, error should be caught somewhere downstream
+            return 1
+        fi
+        if ((lidarrReleaseCountryPriority < bestMatchCountryPriority)); then
+            return 1
+        elif ((lidarrReleaseCountryPriority > bestMatchCountryPriority)); then
+            return 0
+        fi
+
+        # Must be same or better number of tracks
+        local bestMatchNumTracks lidarrReleaseTrackCount
+        bestMatchNumTracks="$(get_state "bestMatchNumTracks")"
+        lidarrReleaseTrackCount="$(get_state "lidarrReleaseTrackCount")"
+        if ! is_numeric "$bestMatchNumTracks" || ! is_numeric "$lidarrReleaseTrackCount"; then
+            # Don't skip, error should be caught somewhere downstream
+            return 1
+        fi
+        if ((lidarrReleaseTrackCount > bestMatchNumTracks)); then
+            return 1
+        elif ((lidarrReleaseTrackCount < bestMatchNumTracks)); then
+            return 0
+        fi
+
+        # Same or better format match
+        local bestMatchFormatPriority lidarrReleaseFormatPriority
+        bestMatchFormatPriority="$(get_state "bestMatchFormatPriority")"
+        lidarrReleaseFormatPriority="$(get_state "lidarrReleaseFormatPriority")"
+        if ! is_numeric "$bestMatchFormatPriority" || ! is_numeric "$lidarrReleaseFormatPriority"; then
+            # Don't skip, error should be caught somewhere downstream
+            return 1
+        fi
+        if ((lidarrReleaseFormatPriority < bestMatchFormatPriority)); then
+            return 1
+        elif ((lidarrReleaseFormatPriority > bestMatchFormatPriority)); then
+            return 0
+        fi
+    fi
+
+    return 1
+}
+
 # Update best match state with new candidate
 UpdateBestMatchState() {
-    local deezerAlbumID="$1"
-    local titleVariant="$2"
-    local deezerReleaseYear="$3"
-    local diff="$4"
-    local trackDiff="$5"
-    local deezerAlbumTrackCount="$6"
-    local lyricTypePreferred="$7"
-    local lidarrReleaseFormatPriority="$8"
-    local lidarrReleaseCountryPriority="$9"
-    local lidarrReleaseContainsCommentary="${10}"
-    local lidarrReleaseInfo="${11}"
+    local deezerCandidateAlbumID="$(get_state "deezerCandidateAlbumID")"
+    local deezerCandidateTitleVariant="$(get_state "deezerCandidateTitleVariant")"
+    local candidateNameDiff=$(get_state "candidateNameDiff")
+    local candidateTrackDiff=$(get_state "candidateTrackDiff")
+    local candidateYearDiff=$(get_state "candidateYearDiff")
+    local deezerCandidateTrackCount="$(get_state "deezerCandidateTrackCount")"
+    local deezerCandidateReleaseYear="$(get_state "deezerCandidateReleaseYear")"
+    local lidarrReleaseFormatPriority="$(get_state "lidarrReleaseFormatPriority")"
+    local lidarrReleaseCountryPriority="$(get_state "lidarrReleaseCountryPriority")"
+    local deezerCandidatelyricTypePreferred="$(get_state "deezerCandidatelyricTypePreferred")"
+    local lidarrReleaseContainsCommentary="$(get_state "lidarrReleaseContainsCommentary")"
+    local lidarrReleaseInfo="$(get_state "lidarrReleaseInfo")"
 
-    set_state "bestMatchID" "${deezerAlbumID}"
-    set_state "bestMatchTitle" "${titleVariant}"
-    set_state "bestMatchYear" "${deezerReleaseYear}"
-    set_state "bestMatchDistance" "${diff}"
-    set_state "bestMatchTrackDiff" "${trackDiff}"
-    set_state "bestMatchNumTracks" "${deezerAlbumTrackCount}"
+    set_state "bestMatchID" "${deezerCandidateAlbumID}"
+    set_state "bestMatchTitle" "${deezerCandidateTitleVariant}"
+    set_state "bestMatchNameDiff" "${candidateNameDiff}"
+    set_state "bestMatchTrackDiff" "${candidateTrackDiff}"
+    set_state "bestMatchYearDiff" "${candidateYearDiff}"
+
+    set_state "bestMatchYear" "${deezerCandidateReleaseYear}"
+    set_state "bestMatchNumTracks" "${deezerCandidateTrackCount}"
     set_state "bestMatchFormatPriority" "${lidarrReleaseFormatPriority}"
     set_state "bestMatchCountryPriority" "${lidarrReleaseCountryPriority}"
-    set_state "bestMatchLyricTypePreferred" "${lyricTypePreferred}"
+    set_state "bestMatchLyricTypePreferred" "${deezerCandidatelyricTypePreferred}"
     set_state "bestMatchContainsCommentary" "${lidarrReleaseContainsCommentary}"
     set_state "bestMatchLidarrReleaseInfo" "${lidarrReleaseInfo}"
-    set_state "bestMatchYearDiff" "$(get_state "currentYearDiff")"
 
-    log "INFO :: New best match :: ${titleVariant} (${deezerReleaseYear}) :: Distance=${diff} TrackDiff=${trackDiff} NumTracks=${deezerAlbumTrackCount} YearDiff=$(get_state "currentYearDiff") LyricPreferred=${lyricTypePreferred} FormatPriority=${lidarrReleaseFormatPriority} CountryPriority=${lidarrReleaseCountryPriority}"
+    log "INFO :: New best match :: ${deezerCandidateTitleVariant} (${deezerCandidateReleaseYear}) :: NameDiff=${candidateNameDiff} TrackDiff=${candidateTrackDiff} YearDiff=${candidateYearDiff} NumTracks=${deezerCandidateTrackCount} LyricPreferred=${deezerCandidatelyricTypePreferred} FormatPriority=${lidarrReleaseFormatPriority} CountryPriority=${lidarrReleaseCountryPriority}"
 
     # Check for exact match
-    if ((diff == 0 && trackDiff == 0)); then
-        log "INFO :: Exact match found :: ${titleVariant} (${deezerReleaseYear}) with ${deezerAlbumTrackCount} tracks"
-        set_state "exactMatchFound" "true"
+    if is_numeric "$candidateNameDiff" && is_numeric "$candidateTrackDiff" && is_numeric "$candidateYearDiff"; then
+        if ((candidateNameDiff == 0 && candidateTrackDiff == 0 && candidateYearDiff == 0)); then
+            log "INFO :: Exact match found :: ${deezerCandidateTitleVariant} (${deezerCandidateReleaseYear}) with ${deezerCandidateTrackCount} tracks"
+            set_state "exactMatchFound" "true"
+        fi
     fi
 }

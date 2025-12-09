@@ -523,17 +523,9 @@ SearchProcess() {
 
         log "DEBUG :: Processing Lidarr release \"${lidarrReleaseTitle}\""
 
-        # If a exact match was already found, only process releases with more tracks
-        exactMatchFound="$(get_state "exactMatchFound")"
-        if [ "${exactMatchFound}" == "true" ]; then
-            # If current release has fewer tracks than best match, skip it
-            local bestMatchNumTracks lidarrReleaseTrackCount
-            bestMatchNumTracks="$(get_state "bestMatchNumTracks")"
-            lidarrReleaseTrackCount="$(get_state "lidarrReleaseTrackCount")"
-            if ((lidarrReleaseTrackCount < bestMatchNumTracks)); then
-                log "DEBUG :: Already found an exact match with ${bestMatchNumTracks} tracks, skipping release \"${lidarrReleaseTitle}\" with ${lidarrReleaseTrackCount} tracks"
-                continue
-            fi
+        # Shortcut the evaluation process if the release isn't potentially better in some ways
+        if SkipReleaseCandidate; then
+            continue
         fi
 
         # Loop over all titles to search for this release
@@ -737,6 +729,7 @@ CalculateBestMatch() {
     local searchReleaseTitleClean
     searchReleaseTitleClean="$(normalize_string "${searchReleaseTitle}")"
     searchReleaseTitleClean="${searchReleaseTitleClean:0:130}"
+    set_state "searchReleaseTitleClean" "${searchReleaseTitleClean}"
 
     log "DEBUG :: Calculating best match for \"${searchReleaseTitleClean}\" with ${albumsCount} Deezer albums to compare"
 
@@ -745,27 +738,10 @@ CalculateBestMatch() {
 
         deezerAlbumData=$(jq -c ".[$i]" <<<"${albums}")
         deezerAlbumID=$(jq -r ".id" <<<"${deezerAlbumData}")
-        deezerAlbumTitle=$(jq -r ".title" <<<"${deezerAlbumData}")
-        deezerAlbumExplicitLyrics=$(jq -r ".explicit_lyrics" <<<"${deezerAlbumData}")
-
-        # Skip albums that don't match the lyric type filter
-        local shouldSkip=$(ShouldSkipAlbumByLyricType "${deezerAlbumExplicitLyrics}" "${AUDIO_LYRIC_TYPE:-}")
-        if [[ "${shouldSkip}" == "true" ]]; then
-            log "DEBUG :: Skipping Deezer album ID ${deezerAlbumID} (${deezerAlbumTitle}) due to lyric type filter"
-            continue
-        fi
+        set_state "deezerAlbumID" "${deezerAlbumID}"
 
         # Evaluate this candidate
-        EvaluateDeezerAlbumCandidate \
-            "${deezerAlbumID}" \
-            "${deezerAlbumTitle}" \
-            "${deezerAlbumExplicitLyrics}" \
-            "${searchReleaseTitleClean}" \
-            "${lidarrReleaseTrackCount}" \
-            "${lidarrReleaseFormatPriority}" \
-            "${lidarrReleaseCountryPriority}" \
-            "${lidarrReleaseContainsCommentary}" \
-            "${lidarrReleaseInfo}"
+        EvaluateDeezerAlbumCandidate
     done
 
     log "TRACE :: Exiting CalculateBestMatch..."
@@ -1163,6 +1139,7 @@ log "DEBUG :: AUDIO_INTERVAL=${AUDIO_INTERVAL}"
 log "DEBUG :: AUDIO_LYRIC_TYPE=${AUDIO_LYRIC_TYPE}"
 log "DEBUG :: AUDIO_MATCH_THRESHOLD_TITLE=${AUDIO_MATCH_THRESHOLD_TITLE}"
 log "DEBUG :: AUDIO_MATCH_THRESHOLD_TRACKS=${AUDIO_MATCH_THRESHOLD_TRACKS}"
+log "DEBUG :: AUDIO_MATCH_THRESHOLD_YEAR=${AUDIO_MATCH_THRESHOLD_YEAR}"
 log "DEBUG :: AUDIO_PREFERRED_COUNTRIES=${AUDIO_PREFERRED_COUNTRIES}"
 log "DEBUG :: AUDIO_PREFERRED_FORMATS=${AUDIO_PREFERRED_FORMATS}"
 log "DEBUG :: AUDIO_REQUIRE_QUALITY=${AUDIO_REQUIRE_QUALITY}"

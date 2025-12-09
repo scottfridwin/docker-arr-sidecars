@@ -51,8 +51,8 @@ echo "----------------------------------------------"
 # Test 1: Basic title without edition
 reset_state
 NormalizeDeezerAlbumTitle "Maple Street"
-titleClean=$(get_state "deezerAlbumTitleClean")
-titleEditionless=$(get_state "deezerAlbumTitleEditionless")
+titleClean=$(get_state "deezerCandidateTitleClean")
+titleEditionless=$(get_state "deezerCandidateTitleEditionless")
 if [[ "$titleClean" == "maple street" ]] && [[ "$titleEditionless" == "maple street" ]]; then
     echo "✅ PASS: Basic title without edition"
     ((pass++))
@@ -64,8 +64,8 @@ fi
 # Test 2: Title with Deluxe Edition
 reset_state
 NormalizeDeezerAlbumTitle "2048 (Deluxe Edition)"
-titleClean=$(get_state "deezerAlbumTitleClean")
-titleEditionless=$(get_state "deezerAlbumTitleEditionless")
+titleClean=$(get_state "deezerCandidateTitleClean")
+titleEditionless=$(get_state "deezerCandidateTitleEditionless")
 if [[ "$titleClean" == "2048 (deluxe edition)" ]] && [[ "$titleEditionless" == "2048" ]]; then
     echo "✅ PASS: Title with Deluxe Edition removed"
     ((pass++))
@@ -78,8 +78,8 @@ fi
 reset_state
 set_state "titleReplacement_the vectors (deluxe edition)" "the vectors dlx"
 NormalizeDeezerAlbumTitle "The Vectors (Deluxe Edition)"
-titleClean=$(get_state "deezerAlbumTitleClean")
-titleEditionless=$(get_state "deezerAlbumTitleEditionless")
+titleClean=$(get_state "deezerCandidateTitleClean")
+titleEditionless=$(get_state "deezerCandidateTitleEditionless")
 if [[ "$titleClean" == "the vectors dlx" ]]; then
     echo "✅ PASS: Replacement rule applied to clean title"
     ((pass++))
@@ -92,8 +92,8 @@ fi
 reset_state
 set_state "titleReplacement_2048" "2048 deluxe version"
 NormalizeDeezerAlbumTitle "2048 (Deluxe Edition)"
-titleClean=$(get_state "deezerAlbumTitleClean")
-titleEditionless=$(get_state "deezerAlbumTitleEditionless")
+titleClean=$(get_state "deezerCandidateTitleClean")
+titleEditionless=$(get_state "deezerCandidateTitleEditionless")
 if [[ "$titleEditionless" == "2048 deluxe version" ]]; then
     echo "✅ PASS: Replacement rule applied to editionless title"
     ((pass++))
@@ -107,8 +107,8 @@ reset_state
 set_state "titleReplacement_album (deluxe edition)" "album dlx"
 set_state "titleReplacement_album" "album standard"
 NormalizeDeezerAlbumTitle "Album (Deluxe Edition)"
-titleClean=$(get_state "deezerAlbumTitleClean")
-titleEditionless=$(get_state "deezerAlbumTitleEditionless")
+titleClean=$(get_state "deezerCandidateTitleClean")
+titleEditionless=$(get_state "deezerCandidateTitleEditionless")
 if [[ "$titleClean" == "album dlx" ]] && [[ "$titleEditionless" == "album standard" ]]; then
     echo "✅ PASS: Different replacements for clean and editionless"
     ((pass++))
@@ -120,8 +120,8 @@ fi
 # Test 6: Empty title
 reset_state
 NormalizeDeezerAlbumTitle ""
-titleClean=$(get_state "deezerAlbumTitleClean")
-titleEditionless=$(get_state "deezerAlbumTitleEditionless")
+titleClean=$(get_state "deezerCandidateTitleClean")
+titleEditionless=$(get_state "deezerCandidateTitleEditionless")
 if [[ "$titleClean" == "" ]] && [[ "$titleEditionless" == "" ]]; then
     echo "✅ PASS: Empty title handled"
     ((pass++))
@@ -133,8 +133,8 @@ fi
 # Test 7: Title with Remastered
 reset_state
 NormalizeDeezerAlbumTitle "The Bright Side of the Sun (Remastered)"
-titleClean=$(get_state "deezerAlbumTitleClean")
-titleEditionless=$(get_state "deezerAlbumTitleEditionless")
+titleClean=$(get_state "deezerCandidateTitleClean")
+titleEditionless=$(get_state "deezerCandidateTitleEditionless")
 if [[ "$titleEditionless" == "the bright side of the sun" ]]; then
     echo "✅ PASS: Remastered edition removed"
     ((pass++))
@@ -147,7 +147,7 @@ fi
 reset_state
 long_title="This Is A Very Long Album Title That Should Be Truncated At Exactly One Hundred And Thirty Characters To Prevent Issues With Database Storage And Other Systems That Might Have Length Limitations For String Fields"
 NormalizeDeezerAlbumTitle "$long_title"
-titleClean=$(get_state "deezerAlbumTitleClean")
+titleClean=$(get_state "deezerCandidateTitleClean")
 length=${#titleClean}
 if [[ $length -le 130 ]]; then
     echo "✅ PASS: Long title truncated to 130 chars (length=$length)"
@@ -160,8 +160,8 @@ fi
 # Test 9: Title with special characters
 reset_state
 NormalizeDeezerAlbumTitle "Deluxe Version (Deluxe Edition)"
-titleClean=$(get_state "deezerAlbumTitleClean")
-titleEditionless=$(get_state "deezerAlbumTitleEditionless")
+titleClean=$(get_state "deezerCandidateTitleClean")
+titleEditionless=$(get_state "deezerCandidateTitleEditionless")
 if [[ -n "$titleClean" ]] && [[ -n "$titleEditionless" ]]; then
     echo "✅ PASS: Special characters handled"
     ((pass++))
@@ -173,8 +173,8 @@ fi
 # Test 10: Clean and editionless are same when no edition
 reset_state
 NormalizeDeezerAlbumTitle "Storybook"
-titleClean=$(get_state "deezerAlbumTitleClean")
-titleEditionless=$(get_state "deezerAlbumTitleEditionless")
+titleClean=$(get_state "deezerCandidateTitleClean")
+titleEditionless=$(get_state "deezerCandidateTitleEditionless")
 if [[ "$titleClean" == "$titleEditionless" ]]; then
     echo "✅ PASS: Clean and editionless are same when no edition"
     ((pass++))
@@ -186,8 +186,8 @@ fi
 # Test 11: Multiple edition keywords
 reset_state
 NormalizeDeezerAlbumTitle "Greatest Hits (Super Deluxe Version)"
-titleClean=$(get_state "deezerAlbumTitleClean")
-titleEditionless=$(get_state "deezerAlbumTitleEditionless")
+titleClean=$(get_state "deezerCandidateTitleClean")
+titleEditionless=$(get_state "deezerCandidateTitleEditionless")
 if [[ "$titleEditionless" == "greatest hits" ]]; then
     echo "✅ PASS: Multiple edition keywords removed"
     ((pass++))
@@ -199,7 +199,7 @@ fi
 # Test 12: No replacement applied when not in state
 reset_state
 NormalizeDeezerAlbumTitle "Test Album"
-titleClean=$(get_state "deezerAlbumTitleClean")
+titleClean=$(get_state "deezerCandidateTitleClean")
 if [[ "$titleClean" == "test album" ]]; then
     echo "✅ PASS: No replacement when not in state"
     ((pass++))
@@ -212,7 +212,7 @@ fi
 reset_state
 set_state "titleReplacement_other album" "replaced album"
 NormalizeDeezerAlbumTitle "Test Album"
-titleClean=$(get_state "deezerAlbumTitleClean")
+titleClean=$(get_state "deezerCandidateTitleClean")
 if [[ "$titleClean" == "test album" ]]; then
     echo "✅ PASS: Replacement not applied for non-matching title"
     ((pass++))
@@ -226,8 +226,8 @@ reset_state
 set_state "titleReplacement_album (deluxe edition)" "album special"
 set_state "titleReplacement_album" "album basic"
 NormalizeDeezerAlbumTitle "Album (Deluxe Edition)"
-titleClean=$(get_state "deezerAlbumTitleClean")
-titleEditionless=$(get_state "deezerAlbumTitleEditionless")
+titleClean=$(get_state "deezerCandidateTitleClean")
+titleEditionless=$(get_state "deezerCandidateTitleEditionless")
 if [[ "$titleClean" == "album special" ]] && [[ "$titleEditionless" == "album basic" ]]; then
     echo "✅ PASS: Independent replacements for clean and editionless"
     ((pass++))
