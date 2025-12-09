@@ -10,6 +10,9 @@ source "${SCRIPT_DIR}/../services/functions.bash"
 log() {
     : # Do nothing, suppress logs in tests
 }
+FetchMusicBrainzReleaseInfo() {
+    set_state "Mock_FetchMusicBrainzReleaseInfo" "true"
+}
 # Mock environment variables
 export AUDIO_PREFERRED_FORMATS="CD,Vinyl,Digital"
 export AUDIO_PREFERRED_COUNTRIES="US,UK,JP"
@@ -117,9 +120,10 @@ else
     ((fail++))
 fi
 
-# Test 5: Release with null date falls back to album year
+# Test 5: Release with null date checks musicbrainz date
 reset_state
 set_state "lidarrAlbumReleaseYear" "2015"
+set_state "musicbrainzReleaseJson" "{ \"date\":\"2000\" }"
 release_json='{
   "title": "Test Release",
   "disambiguation": "",
@@ -132,7 +136,35 @@ release_json='{
 
 ExtractReleaseInfo "$release_json"
 
-if [[ "$(get_state "lidarrReleaseYear")" == "2015" ]]; then
+Mock_FetchMusicBrainzReleaseInfo=$(get_state "Mock_FetchMusicBrainzReleaseInfo")
+if [[ "$(get_state "lidarrReleaseYear")" == "2000" ]] &&
+    [[ "$Mock_FetchMusicBrainzReleaseInfo" == "true" ]]; then
+    echo "✅ PASS: Release year falls back to musicbrainz year"
+    ((pass++))
+else
+    echo "❌ FAIL: Release year fallback (got '$(get_state "lidarrReleaseYear")')"
+    ((fail++))
+fi
+
+# Test 6: Release with null date falls back to album year
+reset_state
+set_state "lidarrAlbumReleaseYear" "2015"
+set_state "musicbrainzReleaseJson" "{ }"
+release_json='{
+  "title": "Test Release",
+  "disambiguation": "",
+  "trackCount": 12,
+  "foreignReleaseId": "test-789",
+  "format": "Digital",
+  "country": ["US"],
+  "releaseDate": null
+}'
+
+ExtractReleaseInfo "$release_json"
+
+Mock_FetchMusicBrainzReleaseInfo=$(get_state "Mock_FetchMusicBrainzReleaseInfo")
+if [[ "$(get_state "lidarrReleaseYear")" == "2015" ]] &&
+    [[ "$Mock_FetchMusicBrainzReleaseInfo" == "true" ]]; then
     echo "✅ PASS: Release year falls back to album year"
     ((pass++))
 else
@@ -140,7 +172,7 @@ else
     ((fail++))
 fi
 
-# Test 6: Verify JSON stored correctly
+# Test 7: Verify JSON stored correctly
 reset_state
 release_json='{"title":"Test","disambiguation":"","trackCount":5,"foreignReleaseId":"id","format":"CD","country":["US"],"releaseDate":"2020-01-01T00:00:00Z"}'
 
@@ -154,7 +186,7 @@ else
     ((fail++))
 fi
 
-# Test 7: Unknown format gets low priority
+# Test 8: Unknown format gets low priority
 reset_state
 release_json='{
   "title": "Test",

@@ -281,10 +281,18 @@ ExtractReleaseInfo() {
     local albumReleaseYear="$(get_state "lidarrAlbumReleaseYear")"
     if [ -n "${lidarrReleaseDate}" ] && [ "${lidarrReleaseDate}" != "null" ]; then
         lidarrReleaseYear="${lidarrReleaseDate:0:4}"
-    elif [ -n "${albumReleaseYear}" ] && [ "${albumReleaseYear}" != "null" ]; then
-        lidarrReleaseYear="${albumReleaseYear}"
     else
-        lidarrReleaseYear=""
+        FetchMusicBrainzReleaseInfo "$lidarrReleaseForeignId"
+        local mbJson="$(get_state "musicbrainzReleaseJson")"
+        local mb_year="$(safe_jq --optional '.date' <<<"$mbJson")"
+        if [[ -n "$mb_year" ]]; then
+            mb_year="${mb_year:0:4}"
+            lidarrReleaseYear="$mb_year"
+        elif [ -n "${albumReleaseYear}" ] && [ "${albumReleaseYear}" != "null" ]; then
+            lidarrReleaseYear="${albumReleaseYear}"
+        else
+            lidarrReleaseYear=""
+        fi
     fi
     set_state "lidarrReleaseInfo" "${release_json}"
     set_state "lidarrReleaseTitle" "${lidarrReleaseTitle}"
@@ -296,6 +304,47 @@ ExtractReleaseInfo() {
     set_state "lidarrReleaseYear" "${lidarrReleaseYear}"
 
     log "TRACE :: Exiting ExtractReleaseInfo..."
+}
+
+# Fetch MusicBrainz release JSON with caching
+FetchMusicBrainzReleaseInfo() {
+    log "TRACE :: Entering FetchMusicBrainzReleaseInfo..."
+    local mbid="$1"
+    local cacheFile="${AUDIO_WORK_PATH}/cache/mb-release-${mbid}.json"
+    local mbJson=""
+
+    mkdir -p "${AUDIO_WORK_PATH}/cache"
+
+    # Use cache if exists and valid
+    if [[ -f "${cacheFile}" ]]; then
+        if safe_jq --optional '.' <"${cacheFile}" >/dev/null 2>&1; then
+            log "DEBUG :: Using cached MusicBrainz release info for ${mbid}"
+            mbJson="$(<"${cacheFile}")"
+            set_state "musicbrainzReleaseJson" "${mbJson}"
+        else
+            log "WARNING :: Cached musicbrainz release JSON invalid, will refetch: ${cacheFile}"
+        fi
+    fi
+    pause
+    # Fetch new data
+    if [[ -z "$mbJson" ]]; then
+        local url="https://musicbrainz.org/ws/2/release/${mbid}?fmt=json"
+        log "DEBUG :: Fetching MusicBrainz release info: ${url}"
+
+        if ! mbJson="$(curl -s --fail "$url" 2>/dev/null)"; then
+            log "WARN :: Failed to fetch MusicBrainz data for ${mbid}"
+            set_state "musicbrainzReleaseJson" ""
+            return 0
+        fi
+
+        echo "$mbJson" >"$cacheFile"
+    fi
+
+    # Store the entire JSON for caller to parse
+    set_state "musicbrainzReleaseJson" "${mbJson}"
+
+    log "TRACE :: Exiting FetchMusicBrainzReleaseInfo..."
+    return 0
 }
 
 # Determine priority for a format string based on AUDIO_PREFERRED_FORMATS
