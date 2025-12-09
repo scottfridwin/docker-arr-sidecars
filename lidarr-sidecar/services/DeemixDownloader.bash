@@ -738,7 +738,7 @@ CalculateBestMatch() {
 
         deezerAlbumData=$(jq -c ".[$i]" <<<"${albums}")
         deezerAlbumID=$(jq -r ".id" <<<"${deezerAlbumData}")
-        set_state "deezerAlbumID" "${deezerAlbumID}"
+        set_state "deezerCandidateAlbumID" "${deezerAlbumID}"
 
         # Evaluate this candidate
         EvaluateDeezerAlbumCandidate

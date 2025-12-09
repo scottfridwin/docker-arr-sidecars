@@ -115,7 +115,7 @@ EvaluateDeezerAlbumCandidate() {
     local returnCode=$?
     if [ "$returnCode" -ne 0 ]; then
         log "WARNING :: Failed to fetch album info for Deezer album ID ${deezerCandidateAlbumID}, skipping..."
-        return 1
+        return
     fi
 
     # Extract candidate information
@@ -138,7 +138,7 @@ EvaluateDeezerAlbumCandidate() {
     local shouldSkip=$(ShouldSkipAlbumByLyricType "${deezerCandidateIsExplicit}" "${AUDIO_LYRIC_TYPE:-}")
     if [[ "${shouldSkip}" == "true" ]]; then
         log "DEBUG :: Skipping Deezer album ID ${deezerCandidateAlbumID} (${deezerCandidateTitle}) due to lyric type filter"
-        continue
+        return
     fi
 
     # Calculate year difference
@@ -166,7 +166,7 @@ EvaluateDeezerAlbumCandidate() {
         EvaluateTitleVariant
     done
 
-    return 0
+    return
 }
 
 # Evaluate a single title variant against matching criteria
