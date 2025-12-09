@@ -331,13 +331,20 @@ FetchMusicBrainzReleaseInfo() {
         local url="https://musicbrainz.org/ws/2/release/${mbid}?fmt=json"
         log "DEBUG :: Fetching MusicBrainz release info: ${url}"
 
-        if ! mbJson="$(curl -s --fail "$url" 2>/dev/null)"; then
-            log "WARN :: Failed to fetch MusicBrainz data for ${mbid}"
-            set_state "musicbrainzReleaseJson" ""
-            return 0
-        fi
+        response=$(curl -s -w "\n%{http_code}" "${url}")
+        httpCode=$(tail -n1 <<<"${response}")
 
-        echo "$mbJson" >"$cacheFile"
+        case "${httpCode}" in
+        200)
+            # Successful request
+            mbJson=$(sed '$d' <<<"${response}")
+            echo "$mbJson" >"$cacheFile"
+            ;;
+        *)
+            # Any other HTTP error is invalid
+            log "WARNING :: curl call failed (HTTP ${httpCode}) for ${url}"
+            ;;
+        esac
     fi
 
     # Store the entire JSON for caller to parse
