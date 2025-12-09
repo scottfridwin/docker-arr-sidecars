@@ -325,7 +325,7 @@ FetchMusicBrainzReleaseInfo() {
             log "WARNING :: Cached musicbrainz release JSON invalid, will refetch: ${cacheFile}"
         fi
     fi
-    pause
+
     # Fetch new data
     if [[ -z "$mbJson" ]]; then
         local url="https://musicbrainz.org/ws/2/release/${mbid}?fmt=json"
