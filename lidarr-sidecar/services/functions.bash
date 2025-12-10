@@ -56,6 +56,7 @@ CalculateYearDifference() {
 }
 
 # Generic MusicBrainz API caller
+# TODO: UnitTest
 CallMusicBrainzAPI() {
     log "TRACE :: Entering CallMusicBrainzAPI..."
     local url="$1"
@@ -192,6 +193,7 @@ CountriesPriority() {
 }
 
 # Evaluate a single Deezer album candidate and update best match if better
+# TODO: UnitTest
 EvaluateDeezerAlbumCandidate() {
     local deezerCandidateAlbumID="$(get_state "deezerCandidateAlbumID")"
     local searchReleaseTitleClean="$(get_state "searchReleaseTitleClean")"
@@ -394,6 +396,7 @@ ExtractReleaseInfo() {
 }
 
 # Fetch MusicBrainz release JSON with caching
+# TODO: UnitTest
 FetchMusicBrainzReleaseInfo() {
     local mbid="$1"
 

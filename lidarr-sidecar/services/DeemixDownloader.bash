@@ -661,7 +661,9 @@ FuzzyDeezerSearch() {
     # Prepare search terms
     local albumSearchTerm albumTitleClean
     albumTitleClean="$(normalize_string "${searchReleaseTitle}")"
+    log "TRACE :: before first safe_jq"
     albumSearchTerm="$(safe_jq -R -r @uri <<<"$(remove_quotes "${albumTitleClean}")")"
+    log "TRACE :: after first safe_jq"
 
     # Prepare artist filter if provided
     local artistSearchTerm=""
@@ -669,6 +671,7 @@ FuzzyDeezerSearch() {
         local artistNameClean
         artistNameClean="$(normalize_string "${artistName}")"
         artistSearchTerm="$(safe_jq -R -r @uri <<<"$(remove_quotes "${artistNameClean}")")"
+        log "TRACE :: after second safe_jq"
     fi
 
     # Deezer API allows 25 items per page max for album search
