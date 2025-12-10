@@ -149,6 +149,16 @@ else
     ((fail++))
 fi
 
+# Test 13: U+2010 HYPHEN to hyphen
+result=$(normalize_string "2020‐2021")
+if [[ "$result" == "2020-2021" ]]; then
+    echo "✅ PASS: U+2010 HYPHEN converted to hyphen"
+    ((pass++))
+else
+    echo "❌ FAIL: U+2010 HYPHEN (got '$result')"
+    ((fail++))
+fi
+
 echo "----------------------------------------------"
 echo "Passed: $pass, Failed: $fail"
 

@@ -523,6 +523,7 @@ normalize_string() {
 
     # Converts smart quotes → plain quotes
     # Converts en dashes → hyphens
+    # Converts U+2010 HYPHEN → hyphen
     # Converts non-breaking spaces → regular spaces
     # Collapses multiple spaces → one
     # Trims leading/trailing spaces
@@ -540,6 +541,7 @@ normalize_string() {
             -e 's/“/"/g' \
             -e 's/”/"/g' \
             -e 's/–/-/g' \
+            -e 's/‐/-/g' \
             -e 's/º/°/g' \
             -e 's/&/and/g' \
             -e 's/\xA0/ /g' \
