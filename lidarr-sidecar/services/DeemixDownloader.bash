@@ -646,63 +646,79 @@ ArtistDeezerSearch() {
 
 FuzzyDeezerSearch() {
     log "TRACE :: Entering FuzzyDeezerSearch..."
-    # $1 -> Deezer Artist Name (default to blank)
     local artistName="${1:-}"
 
     local deezerSearch=""
     local resultsCount=0
     local url=""
+    local page=0
+    local limit=25
+    local accumulatedAlbums="[]" # single array of albums
 
-    local searchReleaseTitle="$(get_state "searchReleaseTitle")"
+    local searchReleaseTitle
+    searchReleaseTitle="$(get_state "searchReleaseTitle")"
 
     # Prepare search terms
     local albumSearchTerm albumTitleClean
     albumTitleClean="$(normalize_string "${searchReleaseTitle}")"
-    albumSearchTerm="$(jq -R -r @uri <<<"$(remove_quotes "${albumTitleClean}")")"
+    albumSearchTerm="$(safe_jq -R -r @uri <<<"$(remove_quotes "${albumTitleClean}")")"
 
-    # TODO: Change fuzzy search url to "https://api.deezer.com/search/album" to reduce noise and find more matches
-    # TODO: Loop over results if more than 20 are returned
-    # Build search URL
-    if [ -z "${artistName}" ]; then
-        log "INFO :: Fuzzy searching for '${searchReleaseTitle}' with no artist filter..."
-        url="https://api.deezer.com/search?q=album:%22${albumSearchTerm}%22&strict=on&limit=20"
-    else
-        log "INFO :: Fuzzy searching for '${searchReleaseTitle}' with artist name '${artistName}'..."
-        local artistSearchTerm artistNameClean
+    # Prepare artist filter if provided
+    local artistSearchTerm=""
+    if [ -n "${artistName}" ]; then
+        local artistNameClean
         artistNameClean="$(normalize_string "${artistName}")"
-        artistSearchTerm="$(jq -R -r @uri <<<"$(remove_quotes "${artistNameClean}")")"
-        url="https://api.deezer.com/search?q=artist:%22${artistSearchTerm}%22%20album:%22${albumSearchTerm}%22&strict=on&limit=20"
+        artistSearchTerm="$(safe_jq -R -r @uri <<<"$(remove_quotes "${artistNameClean}")")"
     fi
 
-    # Call Deezer API
-    CallDeezerAPI "${url}"
-    local returnCode=$?
-    if ((returnCode == 0)); then
-        deezerSearch="$(get_state "deezerApiResponse" || echo "")"
-        log "TRACE :: deezerSearch: ${deezerSearch}"
-
-        # Check for valid JSON and absence of "error" key
-        if [[ -n "${deezerSearch}" && "$(jq -r 'has("error")' <<<"${deezerSearch}" 2>/dev/null)" != "true" ]]; then
-            resultsCount="$(jq -r '.total // 0' <<<"${deezerSearch}" 2>/dev/null || echo 0)"
-            log "DEBUG :: ${resultsCount} search results found for '${searchReleaseTitle}'"
-
-            if ((resultsCount > 0)); then
-                local formattedAlbums
-                formattedAlbums="$(jq '{
-                    data: ([.data[]] | unique_by(.album.id | select(. != null)) | map(.album)),
-                    total: ([.data[] | .album.id] | unique | length)
-                }' <<<"${deezerSearch}" 2>/dev/null || echo '{}')"
-
-                log "TRACE :: Formatted unique album data: ${formattedAlbums}"
-                CalculateBestMatch <<<"${formattedAlbums}"
-            else
-                log "DEBUG :: No results found via Fuzzy Search for '${searchReleaseTitle}'"
-            fi
+    # Deezer API allows 25 items per page max for album search
+    while :; do
+        if [ -z "${artistSearchTerm}" ]; then
+            url="https://api.deezer.com/search/album?q=album:%22${albumSearchTerm}%22&strict=on&index=$((page * limit))&limit=${limit}"
+            log "INFO :: Fuzzy searching for '${searchReleaseTitle}' (page $((page + 1)))..."
         else
-            log "WARNING :: Deezer Fuzzy Search API returned an error or invalid JSON for '${searchReleaseTitle}'"
+            url="https://api.deezer.com/search/album?q=artist:%22${artistSearchTerm}%22%20album:%22${albumSearchTerm}%22&strict=on&index=$((page * limit))&limit=${limit}"
+            log "INFO :: Fuzzy searching for '${searchReleaseTitle}' with artist '${artistName}' (page $((page + 1)))..."
         fi
+
+        # Call Deezer API
+        CallDeezerAPI "${url}"
+        local returnCode=$?
+        if ((returnCode != 0)); then
+            log "WARNING :: Deezer Fuzzy Search failed for '${searchReleaseTitle}' (page $((page + 1)))"
+            break
+        fi
+
+        deezerSearch="$(get_state "deezerApiResponse" || echo "")"
+
+        if [[ -z "${deezerSearch}" || "$(safe_jq 'has("error")' <<<"${deezerSearch}" 2>/dev/null)" == "true" ]]; then
+            log "WARNING :: Deezer Fuzzy Search API returned an error or invalid JSON for '${searchReleaseTitle}' (page $((page + 1)))"
+            break
+        fi
+
+        # Merge current page data into accumulatedAlbums and deduplicate
+        accumulatedAlbums="$(safe_jq --argjson acc "${accumulatedAlbums}" '
+            ($acc + (.data // [])) | unique_by(.id)
+        ' <<<"${deezerSearch}")"
+
+        resultsCount="$(safe_jq 'length' <<<"${accumulatedAlbums}")"
+        log "DEBUG :: Total accumulated albums: ${resultsCount}"
+
+        # Check if we have fetched all results
+        local totalAvailable
+        totalAvailable="$(safe_jq -r '.total // 0' <<<"${deezerSearch}" 2>/dev/null || echo 0)"
+        if ((resultsCount >= totalAvailable)); then
+            break
+        fi
+
+        ((page++))
+    done
+
+    if ((resultsCount > 0)); then
+        log "TRACE :: Formatted unique album data: ${accumulatedAlbums}"
+        CalculateBestMatch <<<"${accumulatedAlbums}"
     else
-        log "WARNING :: Deezer Fuzzy Search failed for '${searchReleaseTitle}'"
+        log "DEBUG :: No results found via Fuzzy Search for '${searchReleaseTitle}'"
     fi
 
     log "TRACE :: Exiting FuzzyDeezerSearch..."
