@@ -29,6 +29,8 @@ declare -A TESTS=(
     ["albumTitle PATTERN / realToken"]="albumTitle realToken"
     ["albumTitle PATTERN/realToken"]="albumTitle realToken"
     ["albumTitle realToken PATTERN"]="albumTitle realToken"
+    ["albumTitle:PATTERN"]="albumTitle"
+    ["albumTitle: PATTERN"]="albumTitle"
 )
 
 # --- Run tests ---

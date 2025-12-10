@@ -629,32 +629,7 @@ RemoveEditionsFromAlbumTitle() {
 
     # Remove patterns
     for pattern in "${patterns[@]}"; do
-        title="${title% - $pattern}"        # - PATTERN
-        title="${title//\($pattern\)/}"     # (PATTERN)
-        title="${title// \/ $pattern)/\)}"  #  / PATTERN)
-        title="${title//\/$pattern)/\)}"    # /PATTERN)
-        title="${title//\($pattern \/ /\(}" # (PATTERN /
-        title="${title//\($pattern\//\(}"   # (PATTERN/
-        title="${title//\[$pattern\]/}"     # [PATTERN]
-        title="${title// \/ $pattern]/\)}"  #  / PATTERN]
-        title="${title//\/$pattern]/\)}"    # /PATTERN]
-        title="${title//\[$pattern \/ /\(}" # [PATTERN /
-        title="${title//\[$pattern\//\(}"   # [PATTERN/
-        title="${title// \/ $pattern/}"     # / PATTERN
-        title="${title//\/$pattern/}"       # /PATTERN
-        title="${title//$pattern \/ /}"     # PATTERN /
-        title="${title//$pattern\/ /}"      # PATTERN/
-        title="${title/% $pattern/}"        #  PATTERN
-
-        # Clean up malformed parentheses
-        title="${title//\( \/ /\(}"
-        title="${title// \/ \)/\)}"
-        title="${title//\( \)/}"
-        title="${title//\(\)/}"
-
-        # Trim spaces
-        title="${title#"${title%%[![:space:]]*}"}"
-        title="${title%"${title##*[![:space:]]}"}"
+        title=$(RemovePatternFromAlbumTitle "$title" "$pattern")
     done
 
     echo "$title"
@@ -669,7 +644,7 @@ RemovePatternFromAlbumTitle() {
     title="${title//  / }"
 
     # Remove patterns
-    title="${title% - $pattern}"        # - PATTERN
+    title="${title// - $pattern/}"      # - PATTERN
     title="${title//\($pattern\)/}"     # (PATTERN)
     title="${title// \/ $pattern)/\)}"  #  / PATTERN)
     title="${title//\/$pattern)/\)}"    # /PATTERN)
@@ -684,21 +659,29 @@ RemovePatternFromAlbumTitle() {
     title="${title//\/$pattern/}"       # /PATTERN
     title="${title//$pattern \/ /}"     # PATTERN /
     title="${title//$pattern\//}"       # PATTERN/
+    title="${title//:$pattern/}"        # :PATTERN
+    title="${title//: $pattern/}"       # : PATTERN
     title="${title/% $pattern/}"        #  PATTERN
 
-    # Handle ANY leading enclosure
-    title="${title//\($pattern\//\(}"
-    title="${title//\($pattern \/ /\(}"
-    title="${title//\[$pattern\//\[}"
-    title="${title//\[$pattern \/ /\[}"
+    # Final cleanup: fix malformed parentheses and slashes
+    title="${title//( \/ /(}"
+    title="${title//\/ )/)}"
 
-    # Handle ANY trailing enclosure
-    title="${title//\/$pattern\)/\)}"
-    title="${title// \/ $pattern\)/\)}"
-    title="${title//\/$pattern\]/\]}"
-    title="${title// \/ $pattern\]/\]}"
+    title="${title//( \/ )/}"
+    title="${title//( \/)/}"
+    title="${title//(\/ )/}"
 
-    # Trim spaces
+    # Remove space before closing parentheses
+    title="${title// )/)}"
+
+    # Collapse redundant spaces
+    title="${title//  / }"
+
+    # Remove empty parentheses: "()", "( )"
+    title="${title//( )/}"
+    title="${title//()/}"
+
+    # Trim again
     title="${title#"${title%%[![:space:]]*}"}"
     title="${title%"${title##*[![:space:]]}"}"
 

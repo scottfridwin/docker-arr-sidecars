@@ -40,6 +40,12 @@ declare -A TESTS=(
     ["Musical Original Motion Picture Soundtrack/Deluxe Edition"]="Musical"
     ["Musical (Original Motion Picture Soundtrack) [Deluxe Edition]"]="Musical"
     ["Musical Original Motion Picture Soundtrack [Deluxe Edition]"]="Musical"
+    ["Musical:Original Motion Picture Soundtrack"]="Musical"
+    ["Musical: Original Motion Picture Soundtrack"]="Musical"
+    ["Musical:Original Motion Picture Soundtrack [Deluxe Edition]"]="Musical"
+    ["Musical: Original Motion Picture Soundtrack [Deluxe Edition]"]="Musical"
+    ["Musical:Original Motion Picture Soundtrack (Deluxe Edition)"]="Musical"
+    ["Musical: Original Motion Picture Soundtrack (Deluxe Edition)"]="Musical"
 )
 
 # --- Run tests ---
