@@ -65,8 +65,8 @@ CallMusicBrainzAPI() {
     local mbUserAgent="MyApp/1.0.0 ( my-email@example.com )"
 
     local attempts=0
-    local maxAttempts=3
-    local backoff=2
+    local maxAttempts=10
+    local backoff=5
 
     local response curlExit httpCode body
 
@@ -142,9 +142,8 @@ CallMusicBrainzAPI() {
 
     # Failed completely
     log "ERROR :: CallMusicBrainzAPI failed after ${maxAttempts} attempts"
-    set_state "$stateKey" ""
-    log "TRACE :: Exiting CallMusicBrainzAPI with failure"
-    return 1
+    setUnhealthy
+    exit 1
 }
 
 # Compute match metrics for a candidate album
