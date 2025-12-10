@@ -9,7 +9,6 @@ source "${SCRIPT_DIR}/../services/functions.bash"
 
 AUDIO_MATCH_THRESHOLD_TITLE=5
 AUDIO_MATCH_THRESHOLD_TRACKS=3
-AUDIO_MATCH_THRESHOLD_YEAR=1
 
 #### Mocks ####
 log() {
@@ -104,22 +103,17 @@ reset_state
 setup_state 5 4 0 "title" "2001" "12345" "0" "1"
 run_test "TrackDiff" "true" "false" "false" "unset" "false"
 
-# Test 03: Skipped due to year diff
-reset_state
-setup_state 5 3 2 "title" "2001" "12345" "0" "1"
-run_test "YearDiff" "true" "false" "false" "unset" "false"
-
-# Test 04: Not better match
+# Test 03: Not better match
 reset_state
 setup_state 5 3 1 "title" "2001" "12345" "1" "1"
 run_test "WorseMatch" "true" "true" "false" "unset" "false"
 
-# Test 05: Better match, previously failed
+# Test 04: Better match, previously failed
 reset_state
 setup_state 5 3 1 "title" "2001" "12345" "0" "0"
 run_test "PreviouslyFailed" "true" "true" "true" "12345" "false"
 
-# Test 06: Better match, not previously failed
+# Test 05: Better match, not previously failed
 reset_state
 setup_state 5 3 1 "title" "2001" "12345" "0" "1"
 run_test "PreviouslyFailed" "true" "true" "true" "12345" "true"

@@ -87,7 +87,6 @@ Services:
 | AUDIO_LYRIC_TYPE | prefer-explicit | Lyric preference: prefer-explicit, prefer-clean, both |
 | AUDIO_MATCH_THRESHOLD_TITLE | 0 | Maximum Levenshtein distance for title matching |
 | AUDIO_MATCH_THRESHOLD_TRACKS | 0 | Maximum track number distance |
-| AUDIO_MATCH_THRESHOLD_YEAR | 0 | Maximum year distance |
 | AUDIO_PREFER_SPECIAL_EDITIONS | true | Prefer deluxe/special editions when tied |
 | AUDIO_REQUIRE_QUALITY | true | Require target quality (vs. accept best-effort) |
 | AUDIO_RETRY_NOTFOUND_DAYS | 90 | Give up-not-found entries a retry after this many days |

@@ -280,10 +280,6 @@ EvaluateTitleVariant() {
         log "DEBUG :: Album \"${deezerCandidateTitleVariant,,}\" does not meet matching threshold (Track Difference=${candidateTrackDiff}), skipping..."
         return 0
     fi
-    if ((candidateYearDiff > AUDIO_MATCH_THRESHOLD_YEAR)); then
-        log "DEBUG :: Album \"${deezerCandidateTitleVariant,,}\" does not meet matching threshold (Year Difference=${candidateYearDiff}), skipping..."
-        return 0
-    fi
 
     local lidarrReleaseYear=$(get_state "lidarrReleaseYear")
     log "INFO :: Potential match found :: \"${deezerCandidateTitleVariant,,}\" :: NameDiff=${candidateNameDiff} TrackDiff=${candidateTrackDiff} YearDiff=${candidateYearDiff}"
