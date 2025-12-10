@@ -55,6 +55,97 @@ CalculateYearDifference() {
     echo "${diff#-}"
 }
 
+# Generic MusicBrainz API caller
+CallMusicBrainzAPI() {
+    log "TRACE :: Entering CallMusicBrainzAPI..."
+    local url="$1"
+
+    # Required by MusicBrainz: MUST identify client
+    local mbUserAgent="MyApp/1.0.0 ( my-email@example.com )"
+
+    local attempts=0
+    local maxAttempts=3
+    local backoff=2
+
+    local response curlExit httpCode body
+
+    while ((attempts < maxAttempts)); do
+        ((attempts++))
+
+        log "DEBUG :: MB API attempt ${attempts}/${maxAttempts}: ${url}"
+
+        # Run curl with:
+        #   -S : show errors
+        #   -s : silent otherwise
+        #   timeouts: prevent hangs
+        response="$(
+            curl -sS \
+                --connect-timeout 5 \
+                --max-time 10 \
+                -H "User-Agent: ${mbUserAgent}" \
+                -H "Accept: application/json" \
+                -w "\n%{http_code}" \
+                "${url}" 2>&1
+        )"
+
+        curlExit=$?
+        log "DEBUG :: curl exit code: ${curlExit}"
+
+        # On total failure, retry
+        if ((curlExit != 0)); then
+            log "WARNING :: curl failed (exit ${curlExit}). Retrying..."
+            sleep ${backoff}
+            backoff=$((backoff * 2))
+            continue
+        fi
+
+        httpCode=$(tail -n1 <<<"${response}")
+        body=$(sed '$d' <<<"${response}")
+
+        log "DEBUG :: HTTP response code: ${httpCode}"
+
+        case "$httpCode" in
+        200)
+            # Validate JSON
+            if safe_jq --optional '.' <<<"${body}" >/dev/null 2>&1; then
+                log "DEBUG :: Valid MusicBrainz JSON received"
+                set_state "musicBrainzApiResponse" "${body}"
+                log "TRACE :: Exiting CallMusicBrainzAPI with success"
+                return 0
+            else
+                log "WARNING :: Invalid JSON from MusicBrainz. Retrying..."
+            fi
+            ;;
+        503)
+            # MusicBrainz rate limits heavily
+            log "WARNING :: MusicBrainz returned 503. Backing off..."
+            sleep ${backoff}
+            backoff=$((backoff * 2))
+            ;;
+        429)
+            log "WARNING :: HTTP 429 (Too Many Requests). Backing off..."
+            sleep ${backoff}
+            backoff=$((backoff * 2))
+            ;;
+        5*)
+            log "WARNING :: Server error ${httpCode}. Retrying..."
+            sleep ${backoff}
+            backoff=$((backoff * 2))
+            ;;
+        *)
+            log "WARNING :: Unexpected HTTP ${httpCode} from MusicBrainz"
+            break
+            ;;
+        esac
+    done
+
+    # Failed completely
+    log "ERROR :: CallMusicBrainzAPI failed after ${maxAttempts} attempts"
+    set_state "$stateKey" ""
+    log "TRACE :: Exiting CallMusicBrainzAPI with failure"
+    return 1
+}
+
 # Compute match metrics for a candidate album
 ComputePrimaryMatchMetrics() {
 
@@ -308,52 +399,35 @@ ExtractReleaseInfo() {
 
 # Fetch MusicBrainz release JSON with caching
 FetchMusicBrainzReleaseInfo() {
-    log "TRACE :: Entering FetchMusicBrainzReleaseInfo..."
     local mbid="$1"
+
+    if [[ -z "$mbid" || "$mbid" == "null" ]]; then
+        set_state "musicbrainzReleaseJson" ""
+        return 0
+    fi
+
+    local url="https://musicbrainz.org/ws/2/release/${mbid}?fmt=json"
     local cacheFile="${AUDIO_WORK_PATH}/cache/mb-release-${mbid}.json"
-    local mbJson=""
 
     mkdir -p "${AUDIO_WORK_PATH}/cache"
 
-    # Use cache if exists and valid
-    if [[ -f "${cacheFile}" ]]; then
-        if safe_jq --optional '.' <"${cacheFile}" >/dev/null 2>&1; then
-            log "DEBUG :: Using cached MusicBrainz release info for ${mbid}"
-            mbJson="$(<"${cacheFile}")"
-            set_state "musicbrainzReleaseJson" "${mbJson}"
-        else
-            log "WARNING :: Cached musicbrainz release JSON invalid, will refetch: ${cacheFile}"
-        fi
+    # Try cache first
+    if [[ -f "${cacheFile}" ]] &&
+        safe_jq --optional '.' <"${cacheFile}" >/dev/null 2>&1; then
+        log "DEBUG :: Using cached MB release for ${mbid}"
+        set_state "musicbrainzReleaseJson" "$(<"${cacheFile}")"
+        return 0
     fi
 
-    # Fetch new data
-    if [[ -z "$mbJson" ]]; then
-        local url="https://musicbrainz.org/ws/2/release/${mbid}?fmt=json"
-        log "DEBUG :: Fetching MusicBrainz release info: ${url}"
-
-        response=$(curl -s -w "\n%{http_code}" "${url}")
-        log "DEBUG :: After curl: ${response}"
-        httpCode=$(tail -n1 <<<"${response}")
-        log "DEBUG :: httpCode: ${httpCode}"
-
-        case "${httpCode}" in
-        200)
-            # Successful request
-            mbJson=$(sed '$d' <<<"${response}")
-            echo "$mbJson" >"$cacheFile"
-            ;;
-        *)
-            # Any other HTTP error is invalid
-            log "WARNING :: curl call failed (HTTP ${httpCode}) for ${url}"
-            ;;
-        esac
+    # API fetch using generic helper
+    if CallMusicBrainzAPI "${url}" "musicbrainzReleaseJson"; then
+        json="$(get_state "musicBrainzApiResponse")"
+        set_state "musicbrainzReleaseJson" "${json}"
+        echo "${json}" >"${cacheFile}"
+        return 0
     fi
 
-    # Store the entire JSON for caller to parse
-    set_state "musicbrainzReleaseJson" "${mbJson}"
-
-    log "TRACE :: Exiting FetchMusicBrainzReleaseInfo..."
-    return 0
+    return 1
 }
 
 # Determine priority for a format string based on AUDIO_PREFERRED_FORMATS
