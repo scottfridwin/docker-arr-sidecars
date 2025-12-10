@@ -669,13 +669,13 @@ FuzzyDeezerSearch() {
     # -------------------------------
     if [[ -z "${artistName}" ]]; then
         log "INFO :: Fuzzy searching for '${searchReleaseTitle}' with no artist filter..."
-        url="https://api.deezer.com/search/album?q=album:%22${albumSearchTerm}%22&strict=on&limit=20"
+        url="https://api.deezer.com/search/album?q=album:${albumSearchTerm}&strict=on&limit=20"
     else
         log "INFO :: Fuzzy searching for '${searchReleaseTitle}' with artist name '${artistName}'..."
         local artistNameClean artistSearchTerm
         artistNameClean="$(normalize_string "${artistName}")"
         artistSearchTerm="$(jq -Rn --arg str "$(remove_quotes "${artistNameClean}")" '$str|@uri')"
-        url="https://api.deezer.com/search/album?q=artist:%22${artistSearchTerm}%22%20album:%22${albumSearchTerm}%22&strict=on&limit=20"
+        url="https://api.deezer.com/search/album?q=artist:${artistSearchTerm}%20album:${albumSearchTerm}&strict=on&limit=20"
     fi
 
     # -------------------------------
