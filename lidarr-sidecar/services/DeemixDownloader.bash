@@ -656,8 +656,13 @@ FuzzyDeezerSearch() {
     # Normalize and URI-encode album title safely
     local albumTitleClean albumSearchTerm
     albumTitleClean="$(normalize_string "${searchReleaseTitle}")"
-    log "TRACE :: Calling safe_jq #1..."
-    albumSearchTerm="$(safe_jq -Rn --arg str "$(remove_quotes "${albumTitleClean}")" '$str|@uri')"
+    albumSearchTerm="$(remove_quotes "${albumTitleClean}")"
+    log "TRACE :: Encoding album search term: ${albumSearchTerm}"
+    albumSearchTerm="$(safe_jq -Rn --arg str "${albumSearchTerm}" '$str|@uri' <<<"")"
+
+    # albumTitleClean="$(normalize_string "${searchReleaseTitle}")"
+    # log "TRACE :: Calling safe_jq #1..."
+    # albumSearchTerm="$(safe_jq -Rn --arg str "$(remove_quotes "${albumTitleClean}")" '$str|@uri')"
 
     if [ -z "${artistName}" ]; then
         log "INFO :: Fuzzy searching for '${searchReleaseTitle}' with no artist filter..."
