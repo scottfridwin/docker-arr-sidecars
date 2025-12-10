@@ -656,6 +656,7 @@ FuzzyDeezerSearch() {
     # Normalize and URI-encode album title safely
     local albumTitleClean albumSearchTerm
     albumTitleClean="$(normalize_string "${searchReleaseTitle}")"
+    log "TRACE :: Calling safe_jq #1..."
     albumSearchTerm="$(safe_jq -Rn --arg str "$(remove_quotes "${albumTitleClean}")" '$str|@uri')"
 
     if [ -z "${artistName}" ]; then
@@ -665,6 +666,7 @@ FuzzyDeezerSearch() {
         log "INFO :: Fuzzy searching for '${searchReleaseTitle}' with artist name '${artistName}'..."
         local artistNameClean artistSearchTerm
         artistNameClean="$(normalize_string "${artistName}")"
+        log "TRACE :: Calling safe_jq #2..."
         artistSearchTerm="$(safe_jq -Rn --arg str "$(remove_quotes "${artistNameClean}")" '$str|@uri')"
         url="https://api.deezer.com/search?q=artist:%22${artistSearchTerm}%22%20album:%22${albumSearchTerm}%22&strict=on&limit=20"
     fi
@@ -684,6 +686,7 @@ FuzzyDeezerSearch() {
         deezerSearch="$(get_state "deezerApiResponse" || echo '{}')"
 
         # Validate JSON
+        log "TRACE :: Calling safe_jq #3..."
         if [[ -z "${deezerSearch}" ]] || [[ "$(safe_jq 'has("error")' <<<"${deezerSearch}")" == "true" ]]; then
             log "WARNING :: Deezer Fuzzy Search API returned an error for '${searchReleaseTitle}'"
             break
@@ -694,15 +697,18 @@ FuzzyDeezerSearch() {
             <(echo "${allResults}") <(echo "${deezerSearch}"))"
 
         # Check for next page
+        log "TRACE :: Calling safe_jq #4..."
         nextUrl="$(safe_jq -r '.next // empty' <<<"${deezerSearch}")"
         [ -n "${nextUrl}" ] && log "TRACE :: Fetching next page: ${nextUrl}"
     done
 
+    log "TRACE :: Calling safe_jq #5..."
     resultsCount="$(safe_jq '.total // 0' <<<"${allResults}")"
     log "DEBUG :: ${resultsCount} search results found for '${searchReleaseTitle}'"
 
     if ((resultsCount > 0)); then
         local formattedAlbums
+        log "TRACE :: Calling safe_jq #6..."
         formattedAlbums="$(safe_jq '{
             data: (.data | unique_by(.album.id | select(. != null)) | map(.album)),
             total: (.data | map(.album.id) | unique | length)
