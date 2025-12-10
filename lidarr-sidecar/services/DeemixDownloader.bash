@@ -701,10 +701,10 @@ FuzzyDeezerSearch() {
 
         if ((resultsCount > 0)); then
             local formattedAlbums
-            formattedAlbums="$(safe_jq --optional '{
-                data: ([.data[]] | unique_by(.album.id | select(. != null)) | map(.album)),
-                total: ([.data[] | .album.id] | unique | length)
-            }' <<<"${deezerSearch}")"
+            formattedAlbums="$(safe_jq '{
+                data: ([.data[]] | unique_by(.id | select(. != null))),
+                total: ([.data[] | .id] | unique | length)
+            }' <<<"${deezerSearch}" || echo '{}')"
 
             log "TRACE :: Formatted unique album data: ${formattedAlbums}"
             CalculateBestMatch <<<"${formattedAlbums}"
