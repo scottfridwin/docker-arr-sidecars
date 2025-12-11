@@ -16,6 +16,7 @@ FetchMusicBrainzReleaseInfo() {
 # Mock environment variables
 export AUDIO_PREFERRED_FORMATS="CD,Vinyl,Digital"
 export AUDIO_PREFERRED_COUNTRIES="US,UK,JP"
+export AUDIO_COMMENTARY_KEYWORDS="commentary,talkytalky"
 
 # --- Run tests ---
 pass=0
@@ -45,6 +46,7 @@ if [[ "$(get_state "lidarrReleaseTitle")" == "2048" ]] &&
     [[ "$(get_state "lidarrReleaseTrackCount")" == "13" ]] &&
     [[ "$(get_state "lidarrReleaseForeignId")" == "abc123-def456" ]] &&
     [[ "$(get_state "lidarrReleaseYear")" == "2014" ]] &&
+    [[ "$(get_state "lidarrReleaseContainsCommentary")" == "false" ]] &&
     [[ "$(get_state "lidarrReleaseMBJson")" == "{ \"abc\": \"123\" }" ]]; then
     echo "✅ PASS: Extract basic release info"
     ((pass++))
@@ -212,6 +214,105 @@ if [[ "$(get_state "lidarrReleaseFormatPriority")" == "999" ]]; then
     ((pass++))
 else
     echo "❌ FAIL: Unknown format priority (got '$(get_state "lidarrReleaseFormatPriority")')"
+    ((fail++))
+fi
+
+# Test 9: Commentary detection in title
+reset_state
+set_state "musicbrainzReleaseJson" "{ \"abc\": \"123\" }"
+release_json='{
+  "title": "2048 (Commentary)",
+  "disambiguation": "Deluxe Edition",
+  "trackCount": 13,
+  "foreignReleaseId": "abc123-def456",
+  "format": "CD",
+  "country": ["US"],
+  "releaseDate": "2014-10-27T00:00:00Z"
+}'
+
+ExtractReleaseInfo "$release_json"
+
+if [[ "$(get_state "lidarrReleaseTitle")" == "2048 (Commentary)" ]] &&
+    [[ "$(get_state "lidarrReleaseDisambiguation")" == "Deluxe Edition" ]] &&
+    [[ "$(get_state "lidarrReleaseTrackCount")" == "13" ]] &&
+    [[ "$(get_state "lidarrReleaseForeignId")" == "abc123-def456" ]] &&
+    [[ "$(get_state "lidarrReleaseYear")" == "2014" ]] &&
+    [[ "$(get_state "lidarrReleaseContainsCommentary")" == "true" ]] &&
+    [[ "$(get_state "lidarrReleaseMBJson")" == "{ \"abc\": \"123\" }" ]]; then
+    echo "✅ PASS: Commentary detection in title"
+    ((pass++))
+else
+    echo "❌ FAIL: Commentary detection in title"
+    echo "  title: '$(get_state "lidarrReleaseTitle")'"
+    echo "  trackCount: '$(get_state "lidarrReleaseTrackCount")'"
+    echo "  year: '$(get_state "lidarrReleaseYear")'"
+    echo "  lidarrReleaseContainsCommentary: '$(get_state "lidarrReleaseContainsCommentary")'"
+    ((fail++))
+fi
+
+# Test 10: Commentary detection in disambiguation
+reset_state
+set_state "musicbrainzReleaseJson" "{ \"abc\": \"123\" }"
+release_json='{
+  "title": "2048",
+  "disambiguation": "Deluxe Edition (talkyTALKY)",
+  "trackCount": 13,
+  "foreignReleaseId": "abc123-def456",
+  "format": "CD",
+  "country": ["US"],
+  "releaseDate": "2014-10-27T00:00:00Z"
+}'
+
+ExtractReleaseInfo "$release_json"
+
+if [[ "$(get_state "lidarrReleaseTitle")" == "2048" ]] &&
+    [[ "$(get_state "lidarrReleaseDisambiguation")" == "Deluxe Edition (talkyTALKY)" ]] &&
+    [[ "$(get_state "lidarrReleaseTrackCount")" == "13" ]] &&
+    [[ "$(get_state "lidarrReleaseForeignId")" == "abc123-def456" ]] &&
+    [[ "$(get_state "lidarrReleaseYear")" == "2014" ]] &&
+    [[ "$(get_state "lidarrReleaseContainsCommentary")" == "true" ]] &&
+    [[ "$(get_state "lidarrReleaseMBJson")" == "{ \"abc\": \"123\" }" ]]; then
+    echo "✅ PASS: Commentary detection in disambiguation"
+    ((pass++))
+else
+    echo "❌ FAIL: Commentary detection in disambiguation"
+    echo "  title: '$(get_state "lidarrReleaseTitle")'"
+    echo "  trackCount: '$(get_state "lidarrReleaseTrackCount")'"
+    echo "  year: '$(get_state "lidarrReleaseYear")'"
+    echo "  lidarrReleaseContainsCommentary: '$(get_state "lidarrReleaseContainsCommentary")'"
+    ((fail++))
+fi
+
+# Test 11: Commentary detection in track name
+reset_state
+set_state "musicbrainzReleaseJson" "{\"media\":[{\"tracks\": [{\"title\": \"Overture\"},{\"title\": \"Overture (Commentary)\"}]}]}"
+release_json='{
+  "title": "2048",
+  "disambiguation": "Deluxe Edition",
+  "trackCount": 13,
+  "foreignReleaseId": "abc123-def456",
+  "format": "CD",
+  "country": ["US"],
+  "releaseDate": "2014-10-27T00:00:00Z"
+}'
+
+ExtractReleaseInfo "$release_json"
+
+if [[ "$(get_state "lidarrReleaseTitle")" == "2048" ]] &&
+    [[ "$(get_state "lidarrReleaseDisambiguation")" == "Deluxe Edition" ]] &&
+    [[ "$(get_state "lidarrReleaseTrackCount")" == "13" ]] &&
+    [[ "$(get_state "lidarrReleaseForeignId")" == "abc123-def456" ]] &&
+    [[ "$(get_state "lidarrReleaseYear")" == "2014" ]] &&
+    [[ "$(get_state "lidarrReleaseContainsCommentary")" == "true" ]] &&
+    [[ "$(get_state "lidarrReleaseMBJson")" == "{\"media\":[{\"tracks\": [{\"title\": \"Overture\"},{\"title\": \"Overture (Commentary)\"}]}]}" ]]; then
+    echo "✅ PASS: Commentary detection in track name"
+    ((pass++))
+else
+    echo "❌ FAIL: Commentary detection in track name"
+    echo "  title: '$(get_state "lidarrReleaseTitle")'"
+    echo "  trackCount: '$(get_state "lidarrReleaseTrackCount")'"
+    echo "  year: '$(get_state "lidarrReleaseYear")'"
+    echo "  lidarrReleaseContainsCommentary: '$(get_state "lidarrReleaseContainsCommentary")'"
     ((fail++))
 fi
 

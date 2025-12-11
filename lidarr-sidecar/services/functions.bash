@@ -146,7 +146,6 @@ CallMusicBrainzAPI() {
 
 # Compute match metrics for a candidate album
 ComputePrimaryMatchMetrics() {
-
     # Calculate Levenshtein distance
     local searchReleaseTitleClean="$(get_state "searchReleaseTitleClean")"
     local deezerCandidateTitleVariant="$(get_state "deezerCandidateTitleVariant")"
@@ -165,35 +164,6 @@ ComputePrimaryMatchMetrics() {
     local deezerCandidateReleaseYear="$(get_state "deezerCandidateReleaseYear")"
     local yearDiff=$(CalculateYearDifference "${deezerCandidateReleaseYear}" "${lidarrReleaseYear}")
     set_state "candidateYearDiff" "${yearDiff}"
-
-    # Check for commentary keywords in the search title
-    IFS=',' read -r -a commentaryArray <<<"${AUDIO_COMMENTARY_KEYWORDS}"
-    commentaryPattern="($(
-        IFS="|"
-        echo "${commentaryArray[*]}"
-    ))" # join array with | for pattern matching
-    local lidarrReleaseContainsCommentary="false"
-    if [[ "${searchReleaseTitleClean,,}" =~ ${commentaryPattern,,} ]]; then
-        log "DEBUG :: Search title \"${searchReleaseTitleClean}\" matched commentary keyword (${AUDIO_COMMENTARY_KEYWORDS})"
-        lidarrReleaseContainsCommentary="true"
-    else
-        # Check track names
-        local lidarrReleaseMBJson=$(get_state "lidarrReleaseMBJson")
-        while IFS= read -r track_title; do
-            # Skip blank (just in case safe_jq returns empty)
-            [[ -z "$track_title" ]] && continue
-            if [[ "${track_title,,}" =~ ${commentaryPattern,,} ]]; then
-                log "DEBUG :: track \"${track_title}\" matched commentary keyword (${AUDIO_COMMENTARY_KEYWORDS})"
-                lidarrReleaseContainsCommentary="true"
-                break
-            fi
-        done < <(
-            safe_jq --optional -r '
-        .media[]?.tracks[]?.title // empty
-    ' <<<"$lidarrReleaseMBJson"
-        )
-    fi
-    set_state "lidarrReleaseContainsCommentary" "${lidarrReleaseContainsCommentary}"
 }
 
 # Determine priority for a countries string based on AUDIO_PREFERRED_COUNTRIES
@@ -437,6 +407,42 @@ ExtractReleaseInfo() {
             lidarrReleaseYear=""
         fi
     fi
+
+    # Check for commentary keywords
+    IFS=',' read -r -a commentaryArray <<<"${AUDIO_COMMENTARY_KEYWORDS}"
+    lowercaseKeywords=()
+    for kw in "${commentaryArray[@]}"; do
+        lowercaseKeywords+=("${kw,,}")
+    done
+
+    commentaryPattern="($(
+        IFS='|'
+        echo "${lowercaseKeywords[*]}"
+    ))"
+    local lidarrReleaseContainsCommentary="false"
+    if [[ "${lidarrReleaseTitle,,}" =~ ${commentaryPattern,,} ]]; then
+        log "DEBUG :: Release title \"${lidarrReleaseTitle}\" matched commentary keyword (${AUDIO_COMMENTARY_KEYWORDS})"
+        lidarrReleaseContainsCommentary="true"
+    elif [[ "${lidarrReleaseDisambiguation,,}" =~ ${commentaryPattern,,} ]]; then
+        log "DEBUG :: Release disambiguation \"${lidarrReleaseDisambiguation}\" matched commentary keyword (${AUDIO_COMMENTARY_KEYWORDS})"
+        lidarrReleaseContainsCommentary="true"
+    else
+        # Check track names
+        while IFS= read -r track_title; do
+            # Skip blank (just in case safe_jq returns empty)
+            [[ -z "$track_title" ]] && continue
+            if [[ "${track_title,,}" =~ ${commentaryPattern,,} ]]; then
+                log "DEBUG :: track \"${track_title}\" matched commentary keyword (${AUDIO_COMMENTARY_KEYWORDS})"
+                lidarrReleaseContainsCommentary="true"
+                break
+            fi
+        done < <(
+            safe_jq --optional -r '
+        .media[]?.tracks[]?.title // empty
+    ' <<<"$mbJson"
+        )
+    fi
+    set_state "lidarrReleaseContainsCommentary" "${lidarrReleaseContainsCommentary}"
 
     set_state "lidarrReleaseInfo" "${release_json}"
     set_state "lidarrReleaseTitle" "${lidarrReleaseTitle}"
