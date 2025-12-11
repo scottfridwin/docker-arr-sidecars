@@ -27,6 +27,7 @@ echo "----------------------------------------------"
 
 # Test 1: Extract basic release info
 reset_state
+set_state "musicbrainzReleaseJson" "{ \"abc\": \"123\" }"
 release_json='{
   "title": "2048",
   "disambiguation": "Deluxe Edition",
@@ -43,7 +44,8 @@ if [[ "$(get_state "lidarrReleaseTitle")" == "2048" ]] &&
     [[ "$(get_state "lidarrReleaseDisambiguation")" == "Deluxe Edition" ]] &&
     [[ "$(get_state "lidarrReleaseTrackCount")" == "13" ]] &&
     [[ "$(get_state "lidarrReleaseForeignId")" == "abc123-def456" ]] &&
-    [[ "$(get_state "lidarrReleaseYear")" == "2014" ]]; then
+    [[ "$(get_state "lidarrReleaseYear")" == "2014" ]] &&
+    [[ "$(get_state "lidarrReleaseMBJson")" == "{ \"abc\": \"123\" }" ]]; then
     echo "✅ PASS: Extract basic release info"
     ((pass++))
 else
@@ -56,6 +58,7 @@ fi
 
 # Test 2: Format priority calculation
 reset_state
+set_state "musicbrainzReleaseJson" "{ \"abc\": \"123\" }"
 release_json='{
   "title": "Test Album",
   "disambiguation": "",
@@ -78,6 +81,7 @@ fi
 
 # Test 3: Country priority calculation
 reset_state
+set_state "musicbrainzReleaseJson" "{ \"abc\": \"123\" }"
 release_json='{
   "title": "Test Album",
   "disambiguation": "",
@@ -100,6 +104,7 @@ fi
 
 # Test 4: Release without disambiguation
 reset_state
+set_state "musicbrainzReleaseJson" "{ \"abc\": \"123\" }"
 release_json='{
   "title": "Maple Street",
   "disambiguation": null,
@@ -149,7 +154,7 @@ fi
 # Test 6: Release with null date falls back to album year
 reset_state
 set_state "lidarrAlbumReleaseYear" "2015"
-set_state "musicbrainzReleaseJson" "{ }"
+set_state "musicbrainzReleaseJson" "{ \"abc\": \"123\" }"
 release_json='{
   "title": "Test Release",
   "disambiguation": "",
@@ -174,6 +179,7 @@ fi
 
 # Test 7: Verify JSON stored correctly
 reset_state
+set_state "musicbrainzReleaseJson" "{ \"abc\": \"123\" }"
 release_json='{"title":"Test","disambiguation":"","trackCount":5,"foreignReleaseId":"id","format":"CD","country":["US"],"releaseDate":"2020-01-01T00:00:00Z"}'
 
 ExtractReleaseInfo "$release_json"
@@ -188,6 +194,7 @@ fi
 
 # Test 8: Unknown format gets low priority
 reset_state
+set_state "musicbrainzReleaseJson" "{ \"abc\": \"123\" }"
 release_json='{
   "title": "Test",
   "disambiguation": "",

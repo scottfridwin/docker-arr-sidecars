@@ -178,6 +178,22 @@ ComputePrimaryMatchMetrics() {
     if [[ "${searchReleaseTitleClean,,}" =~ ${commentaryPattern,,} ]]; then
         log "DEBUG :: Search title \"${searchReleaseTitleClean}\" matched commentary keyword (${AUDIO_COMMENTARY_KEYWORDS})"
         lidarrReleaseContainsCommentary="true"
+    else
+        # Check track names
+        local lidarrReleaseMBJson=$(get_state "lidarrReleaseMBJson")
+        while IFS= read -r track_title; do
+            # Skip blank (just in case safe_jq returns empty)
+            [[ -z "$track_title" ]] && continue
+            if [[ "${track_title,,}" =~ ${commentaryPattern,,} ]]; then
+                log "DEBUG :: track \"${track_title}\" matched commentary keyword (${AUDIO_COMMENTARY_KEYWORDS})"
+                lidarrReleaseContainsCommentary="true"
+                break
+            fi
+        done < <(
+            safe_jq -r '
+        .media[]?.tracks[]?.title // empty
+    ' <<<"$lidarrReleaseMBJson"
+        )
     fi
     set_state "lidarrReleaseContainsCommentary" "${lidarrReleaseContainsCommentary}"
 }
@@ -405,11 +421,14 @@ ExtractReleaseInfo() {
     local lidarrReleaseDate=$(safe_jq --optional '.releaseDate' <<<"${release_json}")
     local lidarrReleaseYear=""
     local albumReleaseYear="$(get_state "lidarrAlbumReleaseYear")"
+
+    # Get up-to-date musicbrainz information
+    FetchMusicBrainzReleaseInfo "$lidarrReleaseForeignId"
+    local mbJson="$(get_state "musicbrainzReleaseJson")"
+
     if [ -n "${lidarrReleaseDate}" ] && [ "${lidarrReleaseDate}" != "null" ]; then
         lidarrReleaseYear="${lidarrReleaseDate:0:4}"
     else
-        FetchMusicBrainzReleaseInfo "$lidarrReleaseForeignId"
-        local mbJson="$(get_state "musicbrainzReleaseJson")"
         local mb_year="$(safe_jq --optional '.date' <<<"$mbJson")"
         if [[ -n "$mb_year" ]]; then
             mb_year="${mb_year:0:4}"
@@ -429,6 +448,7 @@ ExtractReleaseInfo() {
     set_state "lidarrReleaseFormatPriority" "${lidarrReleaseFormatPriority}"
     set_state "lidarrReleaseCountryPriority" "${lidarrReleaseCountryPriority}"
     set_state "lidarrReleaseYear" "${lidarrReleaseYear}"
+    set_state "lidarrReleaseMBJson" "${mbJson}"
 
     log "TRACE :: Exiting ExtractReleaseInfo..."
 }
@@ -443,7 +463,7 @@ FetchMusicBrainzReleaseInfo() {
         return 0
     fi
 
-    local url="https://musicbrainz.org/ws/2/release/${mbid}?fmt=json"
+    local url="https://musicbrainz.org/ws/2/release/${mbid}?fmt=json&inc=recordings"
     local cacheFile="${AUDIO_WORK_PATH}/cache/mb-release-${mbid}.json"
 
     mkdir -p "${AUDIO_WORK_PATH}/cache"
