@@ -146,11 +146,18 @@ CallMusicBrainzAPI() {
 
 # Compute match metrics for a candidate album
 ComputePrimaryMatchMetrics() {
-    # Calculate Levenshtein distance
+    # Calculate name difference
     local searchReleaseTitleClean="$(get_state "searchReleaseTitleClean")"
     local deezerCandidateTitleVariant="$(get_state "deezerCandidateTitleVariant")"
-    local distance=$(LevenshteinDistance "${searchReleaseTitleClean,,}" "${deezerCandidateTitleVariant,,}")
-    set_state "candidateNameDiff" "${distance}"
+    if [[ "${AUDIO_MATCH_THRESHOLD_TITLE}" == "0" ]]; then
+        if [[ "${searchReleaseTitleClean,,}" == "${deezerCandidateTitleVariant,,}" ]]; then
+            set_state "candidateNameDiff" "0"
+        else
+            set_state "candidateNameDiff" "999"
+        fi
+    else
+        set_state "candidateNameDiff" "$(LevenshteinDistance "${searchReleaseTitleClean,,}" "${deezerCandidateTitleVariant,,}")"
+    fi
 
     # Calculate track difference
     local lidarrReleaseTrackCount="$(get_state "lidarrReleaseTrackCount")"

@@ -20,6 +20,8 @@ setup_state() {
     set_state "deezerCandidateReleaseYear" "${6}"
     set_state "lidarrReleaseMBJson" "${7}"
 }
+# Mock environment variables
+export AUDIO_MATCH_THRESHOLD_TITLE=5
 
 pass=0
 fail=0
@@ -87,6 +89,40 @@ else
     echo "❌ FAIL: Case insensitivity (got candidateNameDiff=$candidateNameDiff, candidateTrackDiff=$candidateTrackDiff, candidateYearDiff=$candidateYearDiff)"
     ((fail++))
 fi
+
+# Test 5: Name bypass positive
+reset_state
+setup_state "oak street" "OAK STREET" "17" "17" "1999" "1999" "{ \"abc\": \"123\" }"
+export AUDIO_MATCH_THRESHOLD_TITLE=0
+ComputePrimaryMatchMetrics
+candidateNameDiff=$(get_state "candidateNameDiff")
+candidateTrackDiff=$(get_state "candidateTrackDiff")
+candidateYearDiff=$(get_state "candidateYearDiff")
+if [[ "$candidateNameDiff" == "0" ]] && [[ "$candidateTrackDiff" == "0" ]] && [[ "$candidateYearDiff" == "0" ]]; then
+    echo "✅ PASS: Name bypass positive (candidateNameDiff=$candidateNameDiff, candidateTrackDiff=$candidateTrackDiff, candidateYearDiff=$candidateYearDiff)"
+    ((pass++))
+else
+    echo "❌ FAIL: Name bypass positive (got candidateNameDiff=$candidateNameDiff, candidateTrackDiff=$candidateTrackDiff, candidateYearDiff=$candidateYearDiff)"
+    ((fail++))
+fi
+export AUDIO_MATCH_THRESHOLD_TITLE=5
+
+# Test 6: Name bypass negative
+reset_state
+setup_state "oak street" "ELM STREET" "17" "17" "1999" "1999" "{ \"abc\": \"123\" }"
+export AUDIO_MATCH_THRESHOLD_TITLE=0
+ComputePrimaryMatchMetrics
+candidateNameDiff=$(get_state "candidateNameDiff")
+candidateTrackDiff=$(get_state "candidateTrackDiff")
+candidateYearDiff=$(get_state "candidateYearDiff")
+if [[ "$candidateNameDiff" == "999" ]] && [[ "$candidateTrackDiff" == "0" ]] && [[ "$candidateYearDiff" == "0" ]]; then
+    echo "✅ PASS: Name bypass negative (candidateNameDiff=$candidateNameDiff, candidateTrackDiff=$candidateTrackDiff, candidateYearDiff=$candidateYearDiff)"
+    ((pass++))
+else
+    echo "❌ FAIL: Name bypass negative (got candidateNameDiff=$candidateNameDiff, candidateTrackDiff=$candidateTrackDiff, candidateYearDiff=$candidateYearDiff)"
+    ((fail++))
+fi
+export AUDIO_MATCH_THRESHOLD_TITLE=5
 
 echo "----------------------------------------------"
 echo "Passed: $pass, Failed: $fail"
