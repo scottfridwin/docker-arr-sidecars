@@ -58,7 +58,6 @@ CalculateYearDifference() {
 # Generic MusicBrainz API caller
 # TODO: UnitTest
 CallMusicBrainzAPI() {
-    log "TRACE :: Entering CallMusicBrainzAPI..."
     local url="$1"
 
     # Required by MusicBrainz: MUST identify client
@@ -104,14 +103,13 @@ CallMusicBrainzAPI() {
         body=$(sed '$d' <<<"${response}")
 
         log "DEBUG :: HTTP response code: ${httpCode}"
+        log "TRACE :: HTTP response body: ${body}"
 
         case "$httpCode" in
         200)
             # Validate JSON
             if safe_jq --optional '.' <<<"${body}" >/dev/null 2>&1; then
-                log "DEBUG :: Valid MusicBrainz JSON received"
                 set_state "musicBrainzApiResponse" "${body}"
-                log "TRACE :: Exiting CallMusicBrainzAPI with success"
                 return 0
             else
                 log "WARNING :: Invalid JSON from MusicBrainz. Retrying..."
