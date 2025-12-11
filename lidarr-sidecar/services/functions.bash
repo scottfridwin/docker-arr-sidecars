@@ -421,22 +421,6 @@ ExtractReleaseInfo() {
         fi
     fi
 
-    # Check for commentary keywords in the search title
-    local lidarrReleaseContainsCommentary="false"
-    IFS=',' read -r -a commentaryArray <<<"${AUDIO_COMMENTARY_KEYWORDS}"
-    commentaryPattern="($(
-        IFS="|"
-        echo "${commentaryArray[*]}"
-    ))" # join array with | for pattern matching
-
-    if [[ "${searchReleaseTitle,,}" =~ ${commentaryPattern,,} ]]; then
-        log "DEBUG :: Search title \"${searchReleaseTitle}\" matched commentary keyword (${AUDIO_COMMENTARY_KEYWORDS})"
-        lidarrReleaseContainsCommentary="true"
-    elif [[ "${searchReleaseTitle,,}" =~ ${commentaryPattern,,} ]]; then
-        log "DEBUG :: Search title \"${searchReleaseTitle}\" matched commentary keyword (${AUDIO_COMMENTARY_KEYWORDS})"
-        lidarrReleaseContainsCommentary="true"
-    fi
-
     set_state "lidarrReleaseInfo" "${release_json}"
     set_state "lidarrReleaseTitle" "${lidarrReleaseTitle}"
     set_state "lidarrReleaseDisambiguation" "${lidarrReleaseDisambiguation}"
@@ -445,7 +429,6 @@ ExtractReleaseInfo() {
     set_state "lidarrReleaseFormatPriority" "${lidarrReleaseFormatPriority}"
     set_state "lidarrReleaseCountryPriority" "${lidarrReleaseCountryPriority}"
     set_state "lidarrReleaseYear" "${lidarrReleaseYear}"
-    set_state "lidarrReleaseContainsCommentary" "${lidarrReleaseContainsCommentary}"
 
     log "TRACE :: Exiting ExtractReleaseInfo..."
 }
