@@ -783,8 +783,10 @@ SkipReleaseCandidate() {
             return 1
         fi
         if ((lidarrReleaseCountryPriority < bestMatchCountryPriority)); then
+            log "DEBUG :: Current candidate has better country priority than best match; Proceeding..."
             return 1
         elif ((lidarrReleaseCountryPriority > bestMatchCountryPriority)); then
+            log "DEBUG :: Current candidate has worse country priority than best match; Skipping..."
             return 0
         fi
 
@@ -797,8 +799,10 @@ SkipReleaseCandidate() {
             return 1
         fi
         if ((lidarrReleaseTrackCount > bestMatchNumTracks)); then
+            log "DEBUG :: Current candidate has more tracks than best match; Proceeding..."
             return 1
         elif ((lidarrReleaseTrackCount < bestMatchNumTracks)); then
+            log "DEBUG :: Current candidate has fewer tracks than best match; Skipping..."
             return 0
         fi
 
@@ -811,8 +815,10 @@ SkipReleaseCandidate() {
             return 1
         fi
         if ((lidarrReleaseFormatPriority < bestMatchFormatPriority)); then
+            log "DEBUG :: Current candidate has better format priority than best match; Proceeding..."
             return 1
         elif ((lidarrReleaseFormatPriority > bestMatchFormatPriority)); then
+            log "DEBUG :: Current candidate has worse format priority than best match; Skipping..."
             return 0
         fi
     fi
