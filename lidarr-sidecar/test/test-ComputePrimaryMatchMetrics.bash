@@ -10,6 +10,18 @@ log() {
     : # Do nothing, suppress logs in tests
 }
 
+# Helper to setup state for the test
+setup_state() {
+    set_state "searchReleaseTitleClean" "${1}"
+    set_state "deezerCandidateTitleVariant" "${2}"
+    set_state "lidarrReleaseTrackCount" "${3}"
+    set_state "deezerCandidateTrackCount" "${4}"
+    set_state "lidarrReleaseYear" "${5}"
+    set_state "deezerCandidateReleaseYear" "${6}"
+}
+# Mock environment variables
+export AUDIO_COMMENTARY_KEYWORDS="commentary,talkytalky"
+
 pass=0
 fail=0
 init_state
@@ -19,12 +31,7 @@ echo "----------------------------------------------"
 
 # Test 1: Identical match
 reset_state
-set_state "searchReleaseTitleClean" "oak street"
-set_state "deezerCandidateTitleVariant" "oak street"
-set_state "lidarrReleaseTrackCount" "17"
-set_state "deezerCandidateTrackCount" "17"
-set_state "lidarrReleaseYear" "1999"
-set_state "deezerCandidateReleaseYear" "1999"
+setup_state "oak street" "oak street" "17" "17" "1999" "1999"
 ComputePrimaryMatchMetrics
 candidateNameDiff=$(get_state "candidateNameDiff")
 candidateTrackDiff=$(get_state "candidateTrackDiff")
@@ -39,12 +46,7 @@ fi
 
 # Test 2: Similar
 reset_state
-set_state "searchReleaseTitleClean" "oak street"
-set_state "deezerCandidateTitleVariant" "elm street"
-set_state "lidarrReleaseTrackCount" "13"
-set_state "deezerCandidateTrackCount" "16"
-set_state "lidarrReleaseYear" "1999"
-set_state "deezerCandidateReleaseYear" "2002"
+setup_state "oak street" "elm street" "13" "16" "1999" "2002"
 ComputePrimaryMatchMetrics
 candidateNameDiff=$(get_state "candidateNameDiff")
 candidateTrackDiff=$(get_state "candidateTrackDiff")
@@ -59,12 +61,7 @@ fi
 
 # Test 3: Very different
 reset_state
-set_state "searchReleaseTitleClean" "oak street"
-set_state "deezerCandidateTitleVariant" "green album"
-set_state "lidarrReleaseTrackCount" "17"
-set_state "deezerCandidateTrackCount" "30"
-set_state "lidarrReleaseYear" "1999"
-set_state "deezerCandidateReleaseYear" "2015"
+setup_state "oak street" "green album" "17" "30" "1999" "2015"
 ComputePrimaryMatchMetrics
 candidateNameDiff=$(get_state "candidateNameDiff")
 candidateTrackDiff=$(get_state "candidateTrackDiff")
@@ -79,12 +76,7 @@ fi
 
 # Test 4: Case insensitivity
 reset_state
-set_state "searchReleaseTitleClean" "oak street"
-set_state "deezerCandidateTitleVariant" "OAK STREET"
-set_state "lidarrReleaseTrackCount" "17"
-set_state "deezerCandidateTrackCount" "17"
-set_state "lidarrReleaseYear" "1999"
-set_state "deezerCandidateReleaseYear" "1999"
+setup_state "oak street" "OAK STREET" "17" "17" "1999" "1999"
 ComputePrimaryMatchMetrics
 candidateNameDiff=$(get_state "candidateNameDiff")
 candidateTrackDiff=$(get_state "candidateTrackDiff")
@@ -94,6 +86,58 @@ if [[ "$candidateNameDiff" == "0" ]] && [[ "$candidateTrackDiff" == "0" ]] && [[
     ((pass++))
 else
     echo "❌ FAIL: Case insensitivity (got candidateNameDiff=$candidateNameDiff, candidateTrackDiff=$candidateTrackDiff, candidateYearDiff=$candidateYearDiff)"
+    ((fail++))
+fi
+
+# Test 5: Commentary detection positive 1
+reset_state
+setup_state "oak street (talkytalky)" "elm street" "13" "16" "1999" "2002"
+ComputePrimaryMatchMetrics
+lidarrReleaseContainsCommentary=$(get_state "lidarrReleaseContainsCommentary")
+if [[ "$lidarrReleaseContainsCommentary" == "true" ]]; then
+    echo "✅ PASS: Commentary detection positive 1"
+    ((pass++))
+else
+    echo "❌ FAIL: Commentary detection positive 1"
+    ((fail++))
+fi
+
+# Test 6: Commentary detection positive 2
+reset_state
+setup_state "oak street (commentary)" "elm street" "13" "16" "1999" "2002"
+ComputePrimaryMatchMetrics
+lidarrReleaseContainsCommentary=$(get_state "lidarrReleaseContainsCommentary")
+if [[ "$lidarrReleaseContainsCommentary" == "true" ]]; then
+    echo "✅ PASS: Commentary detection positive 2"
+    ((pass++))
+else
+    echo "❌ FAIL: Commentary detection positive 2"
+    ((fail++))
+fi
+
+# Test 7: Commentary detection negative 1
+reset_state
+setup_state "oak street (commantary)" "elm street" "13" "16" "1999" "2002"
+ComputePrimaryMatchMetrics
+lidarrReleaseContainsCommentary=$(get_state "lidarrReleaseContainsCommentary")
+if [[ "$lidarrReleaseContainsCommentary" == "false" ]]; then
+    echo "✅ PASS: Commentary detection negative 1"
+    ((pass++))
+else
+    echo "❌ FAIL: Commentary detection negative 1"
+    ((fail++))
+fi
+
+# Test 8: Commentary detection negative 2
+reset_state
+setup_state "oak street (deluxe)" "elm street" "13" "16" "1999" "2002"
+ComputePrimaryMatchMetrics
+lidarrReleaseContainsCommentary=$(get_state "lidarrReleaseContainsCommentary")
+if [[ "$lidarrReleaseContainsCommentary" == "false" ]]; then
+    echo "✅ PASS: Commentary detection negative 2"
+    ((pass++))
+else
+    echo "❌ FAIL: Commentary detection negative 2"
     ((fail++))
 fi
 
