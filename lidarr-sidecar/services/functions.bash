@@ -799,9 +799,14 @@ SkipReleaseCandidate() {
     # Optionally de-prioritize releases that contain commentary tracks
     bestMatchContainsCommentary=$(get_state "bestMatchContainsCommentary")
     lidarrReleaseContainsCommentary=$(get_state "lidarrReleaseContainsCommentary")
-    if [[ "${AUDIO_DEPRIORITIZE_COMMENTARY_RELEASES}" == "true" && "${lidarrReleaseContainsCommentary}" == "true" && "${bestMatchContainsCommentary}" == "false" ]]; then
-        log "DEBUG :: Current candidate has commentary while best match does not. Skipping..."
-        return 0
+    if [[ "${AUDIO_DEPRIORITIZE_COMMENTARY_RELEASES}" == "true" ]]; then
+        if [[ "${lidarrReleaseContainsCommentary}" == "true" && "${bestMatchContainsCommentary}" == "false" ]]; then
+            log "DEBUG :: Current candidate has commentary while best match does not. Skipping..."
+            return 0
+        elif [[ "${lidarrReleaseContainsCommentary}" == "false" && "${bestMatchContainsCommentary}" == "true" ]]; then
+            log "DEBUG :: Current candidate does not have commentary while best match does. Proceeding..."
+            return 1
+        fi
     fi
 
     # If a exact match has been found, we only want to process releases that are potentially better matches
