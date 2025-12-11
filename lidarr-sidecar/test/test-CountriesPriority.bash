@@ -11,20 +11,39 @@ log() {
     : # Do nothing, suppress logs in tests
 }
 
-# --- Define test cases: "countries|preferredCountries" -> expected_priority ---
+# --- Define test cases: "countries:preferredCountries" -> expected_priority ---
 declare -A TESTS=(
-    ["US|US,UK,JP"]="0"
-    ["UK|US,UK,JP"]="1"
-    ["JP|US,UK,JP"]="2"
-    ["US,UK|US,UK,JP"]="0"
-    ["FR|US,UK,JP"]="999"
-    ["US|"]="0"
-    ["UK|"]="0"
-    ["US|US"]="0"
-    ["us|US,UK,JP"]="0"
-    ["United States|US,UK,JP"]="999"
-    ["uk|US,UK,JP"]="1"
-    ["Japan|US,UK,JP"]="999"
+    ["US:US,UK,JP"]="0"
+    ["UK:US,UK,JP"]="1"
+    ["JP:US,UK,JP"]="2"
+    ["US,UK:US,UK,JP"]="0"
+    ["FR:US,UK,JP"]="999"
+    ["US:"]="0"
+    ["UK:"]="0"
+    ["US:US"]="0"
+    ["us:US,UK,JP"]="0"
+    ["United States:US,UK,JP"]="999"
+    ["uk:US,UK,JP"]="1"
+    ["Japan:US,UK,JP"]="999"
+    ["UK|US:UK,JP"]="0"
+    ["US|UK,JP:US,UK,JP"]="0"
+    ["JP,UK|US:US,UK,JP"]="0"
+    ["JP|UK|US:US,UK,JP"]="0"
+    ["UK|JP|US:US,UK,JP"]="0"
+    ["US|US|UK:US,UK,JP"]="0"
+    ["JP,JP:US,UK,JP"]="2"
+    [" US , UK :US,UK,JP"]="0"
+    ["  JP | UK  :US,UK,JP"]="1"
+    ["US:  US ,  UK , JP  "]="0"
+    ["uS|Uk:Us,uK,Jp"]="0"
+    ["RUS:US,UK,JP"]="999"
+    ["AUS:US,UK,JP"]="999"
+    ["RUS|AUS:US,UK,JP"]="999"
+    ["USA:US,UK,JP"]="999"
+    ["England:US,UK,JP"]="999"
+    ["Great Britain:US,UK,JP"]="999"
+    ["UK:US,UK,UK,JP"]="1"
+    ["JP:US,JP,JP"]="1"
 )
 
 # --- Run tests ---
@@ -34,7 +53,7 @@ fail=0
 echo "----------------------------------------------"
 
 for test_case in "${!TESTS[@]}"; do
-    IFS='|' read -r countries prefs <<<"$test_case"
+    IFS=':' read -r countries prefs <<<"$test_case"
     expected="${TESTS[$test_case]}"
     output="$(CountriesPriority "$countries" "$prefs")"
 

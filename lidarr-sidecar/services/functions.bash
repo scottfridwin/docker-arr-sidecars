@@ -175,19 +175,44 @@ CountriesPriority() {
     local preferredCountries="${2:-}"
     local priority=999 # Default low priority
 
-    # If preferredCountries is blank, all countries are equal priority
+    # Convert countriesString into an array, splitting on comma or pipe
+    IFS=',|' read -r -a inputCountries <<<"${countriesString}"
+
+    # If no preferred list, all equal priority
     if [[ -z "${preferredCountries}" ]]; then
-        priority=0
-    else
-        IFS=',' read -r -a countryArray <<<"${preferredCountries}"
-        for i in "${!countryArray[@]}"; do
-            if [[ "${countriesString,,}" == *"${countryArray[$i],,}"* ]]; then
-                priority=$i
-                break
-            fi
-        done
+        echo 0
+        return
     fi
 
+    # Parse preferred countries (comma separated)
+    IFS=',' read -r -a preferredArray <<<"${preferredCountries}"
+
+    # Trim whitespace and lowercase all preferred tokens *before use*
+    for i in "${!preferredArray[@]}"; do
+        preferredArray[$i]="${preferredArray[$i]//\"/}" # remove quotes
+        preferredArray[$i]="${preferredArray[$i]// /}"  # trim left
+        preferredArray[$i]="${preferredArray[$i]// /}"  # trim right
+        preferredArray[$i]="${preferredArray[$i],,}"    # lowercase
+        preferredArray[$i]="$(echo -e "${preferredArray[$i]}" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+    done
+
+    # Normalize input countries too
+    for i in "${!inputCountries[@]}"; do
+        inputCountries[$i]="${inputCountries[$i],,}"
+        inputCountries[$i]="$(echo -e "${inputCountries[$i]}" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+    done
+
+    # Determine priority by the earliest preferred match
+    for i in "${!preferredArray[@]}"; do
+        for c in "${inputCountries[@]}"; do
+            if [[ "${c}" == "${preferredArray[$i]}" ]]; then
+                echo "$i"
+                return
+            fi
+        done
+    done
+
+    # No matches
     echo "${priority}"
 }
 
