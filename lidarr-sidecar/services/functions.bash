@@ -771,6 +771,14 @@ ShouldSkipAlbumByLyricType() {
 # Determine if a release should be skipped
 # Returns 0 (true) if candidate should be skipped, 1 (false) otherwise
 SkipReleaseCandidate() {
+    # Optionally de-prioritize releases that contain commentary tracks
+    bestMatchContainsCommentary=$(get_state "bestMatchContainsCommentary")
+    lidarrReleaseContainsCommentary=$(get_state "lidarrReleaseContainsCommentary")
+    if [[ "${AUDIO_DEPRIORITIZE_COMMENTARY_RELEASES}" == "true" && "${lidarrReleaseContainsCommentary}" == "true" && "${bestMatchContainsCommentary}" == "false" ]]; then
+        log "DEBUG :: Current candidate has commentary while best match does not. Skipping..."
+        return 0
+    fi
+
     # If a exact match has been found, we only want to process releases that are potentially better matches
     local exactMatchFound="$(get_state "exactMatchFound")"
     if [ "${exactMatchFound}" == "true" ]; then
