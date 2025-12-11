@@ -907,7 +907,7 @@ UpdateBestMatchState() {
     set_state "bestMatchContainsCommentary" "${lidarrReleaseContainsCommentary}"
     set_state "bestMatchLidarrReleaseInfo" "${lidarrReleaseInfo}"
 
-    log "INFO :: New best match :: ${deezerCandidateTitleVariant} (${deezerCandidateReleaseYear}) :: NameDiff=${candidateNameDiff} TrackDiff=${candidateTrackDiff} YearDiff=${candidateYearDiff} NumTracks=${deezerCandidateTrackCount} LyricPreferred=${deezerCandidatelyricTypePreferred} FormatPriority=${lidarrReleaseFormatPriority} CountryPriority=${lidarrReleaseCountryPriority}"
+    log "INFO :: New best match :: ${deezerCandidateTitleVariant} (${deezerCandidateReleaseYear}) :: NameDiff=${candidateNameDiff} TrackDiff=${candidateTrackDiff} YearDiff=${candidateYearDiff} NumTracks=${deezerCandidateTrackCount} LyricPreferred=${deezerCandidatelyricTypePreferred} FormatPriority=${lidarrReleaseFormatPriority} CountryPriority=${lidarrReleaseCountryPriority} ContainsCommentary=${lidarrReleaseContainsCommentary}"
 
     # Check for exact match
     if is_numeric "$candidateNameDiff" && is_numeric "$candidateTrackDiff" && is_numeric "$candidateYearDiff"; then
