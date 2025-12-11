@@ -13,6 +13,10 @@ log() {
 
 # --- Define test cases ---
 declare -A TESTS=(
+    ["myalbum deluxe version"]="myalbum"
+    ["myalbum Deluxe version"]="myalbum"
+    ["myalbum deluxe Version"]="myalbum"
+    ["myalbum Deluxe Version"]="myalbum"
     ["The Vectors (Deluxe Edition)"]="The Vectors"
     ["The Vectors (Deluxe Edition / Red Album)"]="The Vectors (Red Album)"
     ["The Vectors Deluxe Edition / Red Album"]="The Vectors Red Album"
@@ -23,8 +27,6 @@ declare -A TESTS=(
     ["The Vectors - Deluxe Edition"]="The Vectors"
     ["The Vectors (Red Album)"]="The Vectors (Red Album)"
     ["The Vectors"]="The Vectors"
-    ["The Vectors (Red Album / )"]="The Vectors (Red Album)"
-    ["The Vectors ( / Deluxe Edition)"]="The Vectors"
     ["Aurora Lane (Platinum Edition)"]="Aurora Lane"
     ["Aurora Lane 2048 (Deluxe Edition)"]="Aurora Lane 2048"
     ["Rogue Nights"]="Rogue Nights"

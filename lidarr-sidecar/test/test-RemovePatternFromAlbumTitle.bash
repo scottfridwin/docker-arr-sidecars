@@ -13,8 +13,11 @@ log() {
 
 # --- Define test cases ---
 declare -A TESTS=(
+    ["albumTitle PATTERN"]="albumTitle"
+    ["albumTitle pattern"]="albumTitle"
     ["albumTitle - PATTERN"]="albumTitle"
     ["albumTitle (PATTERN)"]="albumTitle"
+    ["albumTitle (PaTTERN|realToken)"]="albumTitle (realToken)"
     ["albumTitle (realToken / PATTERN)"]="albumTitle (realToken)"
     ["albumTitle (realToken/PATTERN)"]="albumTitle (realToken)"
     ["albumTitle (PATTERN / realToken)"]="albumTitle (realToken)"
@@ -22,7 +25,7 @@ declare -A TESTS=(
     ["albumTitle [PATTERN]"]="albumTitle"
     ["albumTitle [realToken / PATTERN]"]="albumTitle [realToken]"
     ["albumTitle [realToken/PATTERN]"]="albumTitle [realToken]"
-    ["albumTitle [PATTERN / realToken]"]="albumTitle [realToken]"
+    ["albumTitle [PAttERN / realToken]"]="albumTitle [realToken]"
     ["albumTitle [PATTERN/realToken]"]="albumTitle [realToken]"
     ["albumTitle realToken / PATTERN"]="albumTitle realToken"
     ["albumTitle realToken/PATTERN"]="albumTitle realToken"
@@ -31,6 +34,7 @@ declare -A TESTS=(
     ["albumTitle realToken PATTERN"]="albumTitle realToken"
     ["albumTitle:PATTERN"]="albumTitle"
     ["albumTitle: PATTERN"]="albumTitle"
+    ["albumTitle (realToken:PATTERN)"]="albumTitle (realToken)"
 )
 
 # --- Run tests ---

@@ -660,44 +660,45 @@ NormalizeDeezerAlbumTitle() {
 # Remove common edition keywords from the end of an album title
 RemoveEditionsFromAlbumTitle() {
     local title="$1"
+    local lower="${title,,}" # lowercase once
 
-    # Define patterns to remove (case-insensitive match later)
+    # Ordered patterns
     local patterns=(
-        "Deluxe Edition"
-        "Deluxe Version"
-        "Super Deluxe Version"
-        "Super Deluxe Edition"
-        "Collector's Edition"
-        "Platinum Edition"
-        "Special Edition"
-        "Limited Edition"
-        "Expanded Edition"
-        "Remastered"
-        "Anniversary Edition"
-        "Deluxe"
-        "Super Deluxe"
-        "Original Motion Picture Soundtrack"
+        "super deluxe version"
+        "super deluxe edition"
+        "deluxe edition"
+        "deluxe version"
+        "super deluxe"
+        "deluxe"
+        "collector's edition"
+        "platinum edition"
+        "special edition"
+        "limited edition"
+        "expanded edition"
+        "remastered"
+        "anniversary edition"
+        "original motion picture soundtrack"
     )
 
-    # Normalize spacing
-    title="${title//  / }"
-
-    # Parenthesized version: (45th Anniversary Edition)
+    # Handle numeric Anniversary patterns FIRST
     if [[ "$title" =~ ^(.*)\([[:space:]]*[0-9]+(st|nd|rd|th)[[:space:]]+Anniversary([[:space:]]+(Edition|Version))?[[:space:]]*\)(.*)$ ]]; then
         title="${BASH_REMATCH[1]}${BASH_REMATCH[5]}"
     fi
 
-    # Plain version: 45th Anniversary Edition
     if [[ "$title" =~ ^(.*)[[:space:]]+[0-9]+(st|nd|rd|th)[[:space:]]+Anniversary([[:space:]]+(Edition|Version))?(.*)$ ]]; then
         title="${BASH_REMATCH[1]}${BASH_REMATCH[5]}"
     fi
 
-    # Remove patterns
-    for pattern in "${patterns[@]}"; do
-        title=$(RemovePatternFromAlbumTitle "$title" "$pattern")
+    # Filter only patterns that exist in the title
+    local p
+    for p in "${patterns[@]}"; do
+        if [[ "$lower" == *"$p"* ]]; then
+            # Call your existing complex logic
+            title=$(RemovePatternFromAlbumTitle "$title" "$p")
+        fi
     done
 
-    echo "$title"
+    printf '%s\n' "$title"
 }
 
 # Remove a pattern from an album title
@@ -705,52 +706,48 @@ RemovePatternFromAlbumTitle() {
     local title="$1"
     local pattern="$2"
 
-    # Normalize spacing
-    title="${title//  / }"
+    # Escape pattern for literal use in regex
+    local esc
+    esc="$(printf '%s\n' "$pattern" | sed 's/[][\^$.*/]/\\&/g')"
 
-    # Remove patterns
-    title="${title// - $pattern/}"      # - PATTERN
-    title="${title//\($pattern\)/}"     # (PATTERN)
-    title="${title// \/ $pattern)/\)}"  #  / PATTERN)
-    title="${title//\/$pattern)/\)}"    # /PATTERN)
-    title="${title//\($pattern \/ /\(}" # (PATTERN /
-    title="${title//\($pattern\//\(}"   # (PATTERN/
-    title="${title//\[$pattern\]/}"     # [PATTERN]
-    title="${title// \/ $pattern]/\]}"  #  / PATTERN]
-    title="${title//\/$pattern]/\]}"    # /PATTERN]
-    title="${title//\[$pattern \/ /\[}" # [PATTERN /
-    title="${title//\[$pattern\//\[}"   # [PATTERN/
-    title="${title// \/ $pattern/}"     # / PATTERN
-    title="${title//\/$pattern/}"       # /PATTERN
-    title="${title//$pattern \/ /}"     # PATTERN /
-    title="${title//$pattern\//}"       # PATTERN/
-    title="${title//:$pattern/}"        # :PATTERN
-    title="${title//: $pattern/}"       # : PATTERN
-    title="${title/% $pattern/}"        #  PATTERN
+    title="$(
+        perl -pe "
+            my \$esc = q{$esc};
 
-    # Final cleanup: fix malformed parentheses and slashes
-    title="${title//( \/ /(}"
-    title="${title//\/ )/)}"
+            # 1. Remove containers that consist ONLY of the pattern
+            s/\((?:\s*\$esc\s*)\)//ig;
+            s/\[(?:\s*\$esc\s*)\]//ig;
 
-    title="${title//( \/ )/}"
-    title="${title//( \/)/}"
-    title="${title//(\/ )/}"
+            # 2. Remove pattern in containers with separators, keep other side
+            s/\(\s*\$esc\s*[\|\/:\-]\s*([^)]+)\)/(\\1)/ig;
+            s/\(\s*([^)]+)\s*[\|\/:\-]\s*\$esc\s*\)/(\\1)/ig;
 
-    # Remove space before closing parentheses
-    title="${title// )/)}"
+            s/\[\s*\$esc\s*[\|\/:\-]\s*([^\]]+)\]/[\\1]/ig;
+            s/\[\s*([^\]]+)\s*[\|\/:\-]\s*\$esc\s*\]/[\\1]/ig;
 
-    # Collapse redundant spaces
-    title="${title//  / }"
+            # 3. Top-level separators
+            s/\b\$esc\s*[\|\/:\-]\s*([A-Za-z0-9]+)/\\1/ig;
+            s/([A-Za-z0-9]+)\s*[\|\/:\-]\s*\$esc\b/\\1/ig;
 
-    # Remove empty parentheses: "()", "( )"
-    title="${title//( )/}"
-    title="${title//()/}"
+            # 4. Standalone pattern removal
+            s/\b\$esc\b//ig;
+            s/[:\-\|\/]\s*\$esc\b//ig;
 
-    # Trim again
-    title="${title#"${title%%[![:space:]]*}"}"
-    title="${title%"${title##*[![:space:]]}"}"
+            # 5. Remove empty containers
+            s/\(\s*\)//g;
+            s/\[\s*\]//g;
 
-    echo "$title"
+            # 6. Normalize spacing and punctuation
+            s/\s{2,}/ /g;
+            s/\(\s+/\(/g;
+            s/\s+\)/\)/g;
+            s/\[\s+/\[/g;
+            s/\s+\]/\]/g;
+            s/^\s+|\s+$//g;
+        " <<<"$title"
+    )"
+
+    printf '%s\n' "$title"
 }
 
 # Reset best match state variables
