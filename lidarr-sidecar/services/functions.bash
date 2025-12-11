@@ -181,6 +181,7 @@ ComputePrimaryMatchMetrics() {
     else
         # Check track names
         local lidarrReleaseMBJson=$(get_state "lidarrReleaseMBJson")
+        log "ERROR :: ${lidarrReleaseMBJson}"
         while IFS= read -r track_title; do
             # Skip blank (just in case safe_jq returns empty)
             [[ -z "$track_title" ]] && continue
