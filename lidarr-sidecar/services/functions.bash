@@ -41,51 +41,54 @@ ApplyTitleReplacements() {
 
 # Determine priority for a string based on preferences
 CalculatePriority() {
-    local inputString="${1}"
-    local preferenceString="${2:-}"
-    local priority=999 # Default low priority
+    local input="$1"
+    local prefs="$2"
 
-    log "DEBUG :: inputString \"${inputString}\""
-    log "DEBUG :: preferenceString \"${preferenceString}\""
-    # Convert inputString into an array, splitting on comma or pipe
-    IFS=',|' read -r -a inputValues <<<"${inputString}"
+    perl -e '
+        use strict;
+        use warnings;
 
-    # If no preferred list, all equal priority
-    if [[ -z "${preferenceString}" ]]; then
-        echo 0
-        return
-    fi
+        my ($input, $prefs) = @ARGV;
 
-    # Parse preferred values (comma separated)
-    IFS=',' read -r -a preferredArray <<<"${preferenceString}"
+        # --- Split input tokens (always comma-separated) and normalize ---
+        my @input_tokens = map {
+            my $t = $_;
+            $t =~ s/^"+|"+$//g;      # remove quotes
+            $t =~ s/^\s+|\s+$//g;    # trim spaces
+            lc($t)
+        } split /,/, $input // "";
+        @input_tokens = ("") unless @input_tokens;
 
-    # Trim whitespace and lowercase all preferred tokens *before use*
-    for i in "${!preferredArray[@]}"; do
-        preferredArray[$i]="${preferredArray[$i]//\"/}" # remove quotes
-        preferredArray[$i]="${preferredArray[$i]// /}"  # trim left
-        preferredArray[$i]="${preferredArray[$i]// /}"  # trim right
-        preferredArray[$i]="${preferredArray[$i],,}"    # lowercase
-        preferredArray[$i]="$(echo -e "${preferredArray[$i]}" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
-    done
+        # --- Split prefs into groups by comma ---
+        my @groups = split /,/, $prefs // "";
 
-    # Normalize input values too
-    for i in "${!inputValues[@]}"; do
-        inputValues[$i]="${inputValues[$i],,}"
-        inputValues[$i]="$(echo -e "${inputValues[$i]}" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
-    done
+        my %priority;
+        my $prio = 0;
+        for my $grp (@groups) {
+            next unless length $grp;
+            # split group by | and normalize each token
+            my @tokens = map {
+                my $t = $_;
+                $t =~ s/^"+|"+$//g;
+                $t =~ s/^\s+|\s+$//g;
+                lc($t)
+            } split /\|/, $grp;
 
-    # Determine priority by the earliest preferred match
-    for i in "${!preferredArray[@]}"; do
-        for c in "${inputValues[@]}"; do
-            if [[ "${c}" == "${preferredArray[$i]}" ]]; then
-                echo "$i"
-                return
-            fi
-        done
-    done
+            for my $tok (@tokens) {
+                next unless length $tok;
+                $priority{$tok} //= $prio;   # first occurrence wins
+            }
+            $prio++;
+        }
 
-    # No matches
-    echo "${priority}"
+        # --- Find lowest priority matching input token ---
+        my $best = 999;
+        for my $tok (@input_tokens) {
+            $best = $priority{$tok} if exists $priority{$tok} && $priority{$tok} < $best;
+        }
+
+        print $best;
+    ' "$input" "$prefs"
 }
 
 # Calculate year difference between two years (returns absolute value)
