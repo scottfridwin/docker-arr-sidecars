@@ -33,7 +33,7 @@ echo "----------------------------------------------"
 # Test 1: Identical match
 reset_state
 setup_state "oak street" "oak street" "17" "17" "1999" "1999" "{ \"abc\": \"123\" }"
-ComputePrimaryMatchMetrics
+ComputeMatchMetrics
 candidateNameDiff=$(get_state "candidateNameDiff")
 candidateTrackDiff=$(get_state "candidateTrackDiff")
 candidateYearDiff=$(get_state "candidateYearDiff")
@@ -48,7 +48,7 @@ fi
 # Test 2: Similar
 reset_state
 setup_state "oak street" "elm street" "13" "16" "1999" "2002" "{ \"abc\": \"123\" }"
-ComputePrimaryMatchMetrics
+ComputeMatchMetrics
 candidateNameDiff=$(get_state "candidateNameDiff")
 candidateTrackDiff=$(get_state "candidateTrackDiff")
 candidateYearDiff=$(get_state "candidateYearDiff")
@@ -63,7 +63,7 @@ fi
 # Test 3: Very different
 reset_state
 setup_state "oak street" "green album" "17" "30" "1999" "2015" "{ \"abc\": \"123\" }"
-ComputePrimaryMatchMetrics
+ComputeMatchMetrics
 candidateNameDiff=$(get_state "candidateNameDiff")
 candidateTrackDiff=$(get_state "candidateTrackDiff")
 candidateYearDiff=$(get_state "candidateYearDiff")
@@ -78,7 +78,7 @@ fi
 # Test 4: Case insensitivity
 reset_state
 setup_state "oak street" "OAK STREET" "17" "17" "1999" "1999" "{ \"abc\": \"123\" }"
-ComputePrimaryMatchMetrics
+ComputeMatchMetrics
 candidateNameDiff=$(get_state "candidateNameDiff")
 candidateTrackDiff=$(get_state "candidateTrackDiff")
 candidateYearDiff=$(get_state "candidateYearDiff")
@@ -94,7 +94,7 @@ fi
 reset_state
 setup_state "oak street" "OAK STREET" "17" "17" "1999" "1999" "{ \"abc\": \"123\" }"
 export AUDIO_MATCH_THRESHOLD_TITLE=0
-ComputePrimaryMatchMetrics
+ComputeMatchMetrics
 candidateNameDiff=$(get_state "candidateNameDiff")
 candidateTrackDiff=$(get_state "candidateTrackDiff")
 candidateYearDiff=$(get_state "candidateYearDiff")
@@ -111,7 +111,7 @@ export AUDIO_MATCH_THRESHOLD_TITLE=5
 reset_state
 setup_state "oak street" "ELM STREET" "17" "17" "1999" "1999" "{ \"abc\": \"123\" }"
 export AUDIO_MATCH_THRESHOLD_TITLE=0
-ComputePrimaryMatchMetrics
+ComputeMatchMetrics
 candidateNameDiff=$(get_state "candidateNameDiff")
 candidateTrackDiff=$(get_state "candidateTrackDiff")
 candidateYearDiff=$(get_state "candidateYearDiff")

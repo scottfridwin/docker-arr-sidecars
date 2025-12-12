@@ -14,8 +14,8 @@ AUDIO_MATCH_THRESHOLD_TRACKS=3
 log() {
     : # Do nothing, suppress logs in tests
 }
-ComputePrimaryMatchMetrics() {
-    set_state "MOCK_ComputePrimaryMatchMetrics" "true"
+ComputeMatchMetrics() {
+    set_state "MOCK_ComputeMatchMetrics" "true"
 }
 
 IsBetterMatch() {
@@ -36,7 +36,7 @@ UpdateBestMatchState() {
 
 # Helper to setup state for the test
 setup_state() {
-    set_state "MOCK_ComputePrimaryMatchMetrics" "false"
+    set_state "MOCK_ComputeMatchMetrics" "false"
     set_state "MOCK_IsBetterMatch" "false"
     set_state "MOCK_AlbumPreviouslyFailed" "false"
     set_state "MOCK_AlbumPreviouslyFailed_Val1" "unset"
@@ -54,7 +54,7 @@ setup_state() {
 # Helper to execute a test
 run_test() {
     local testName="$1"
-    local expected_ComputePrimaryMatchMetrics="$2"
+    local expected_ComputeMatchMetrics="$2"
     local expected_IsBetterMatch="$3"
     local expected_AlbumPreviouslyFailed="$4"
     local expected_AlbumPreviouslyFailed_Val1="$5"
@@ -62,12 +62,12 @@ run_test() {
 
     EvaluateTitleVariant
 
-    MOCK_ComputePrimaryMatchMetrics=$(get_state "MOCK_ComputePrimaryMatchMetrics")
+    MOCK_ComputeMatchMetrics=$(get_state "MOCK_ComputeMatchMetrics")
     MOCK_IsBetterMatch=$(get_state "MOCK_IsBetterMatch")
     MOCK_AlbumPreviouslyFailed=$(get_state "MOCK_AlbumPreviouslyFailed")
     MOCK_AlbumPreviouslyFailed_Val1=$(get_state "MOCK_AlbumPreviouslyFailed_Val1")
     MOCK_UpdateBestMatchState=$(get_state "MOCK_UpdateBestMatchState")
-    if [[ "${MOCK_ComputePrimaryMatchMetrics}" == "${expected_ComputePrimaryMatchMetrics}" ]] &&
+    if [[ "${MOCK_ComputeMatchMetrics}" == "${expected_ComputeMatchMetrics}" ]] &&
         [[ "${MOCK_IsBetterMatch}" == "${expected_IsBetterMatch}" ]] &&
         [[ "${MOCK_AlbumPreviouslyFailed}" == "${expected_AlbumPreviouslyFailed}" ]] &&
         [[ "${MOCK_AlbumPreviouslyFailed_Val1}" == "${expected_AlbumPreviouslyFailed_Val1}" ]] &&
@@ -76,7 +76,7 @@ run_test() {
         ((pass++))
     else
         echo "❌ FAIL: $testName"
-        echo "    MOCK_ComputePrimaryMatchMetrics=$MOCK_ComputePrimaryMatchMetrics (expected $expected_ComputePrimaryMatchMetrics)"
+        echo "    MOCK_ComputeMatchMetrics=$MOCK_ComputeMatchMetrics (expected $expected_ComputeMatchMetrics)"
         echo "    MOCK_IsBetterMatch=$MOCK_IsBetterMatch (expected $expected_IsBetterMatch)"
         echo "    MOCK_AlbumPreviouslyFailed=$MOCK_AlbumPreviouslyFailed (expected $expected_AlbumPreviouslyFailed)"
         echo "    MOCK_AlbumPreviouslyFailed_Val1=$MOCK_AlbumPreviouslyFailed_Val1 (expected $expected_AlbumPreviouslyFailed_Val1)"

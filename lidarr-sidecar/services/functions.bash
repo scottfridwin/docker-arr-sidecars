@@ -197,7 +197,7 @@ CallMusicBrainzAPI() {
 }
 
 # Compute match metrics for a candidate album
-ComputePrimaryMatchMetrics() {
+ComputeMatchMetrics() {
     # Calculate name difference
     local searchReleaseTitleClean="$(get_state "searchReleaseTitleClean")"
     local deezerCandidateTitleVariant="$(get_state "deezerCandidateTitleVariant")"
@@ -300,7 +300,7 @@ EvaluateDeezerAlbumCandidate() {
 EvaluateTitleVariant() {
 
     # Compute match metrics
-    ComputePrimaryMatchMetrics
+    ComputeMatchMetrics
 
     local candidateNameDiff=$(get_state "candidateNameDiff")
     local candidateTrackDiff=$(get_state "candidateTrackDiff")
@@ -531,26 +531,26 @@ IsBetterMatch() {
     # Primary match criteria
     # 1. Name difference
     # 2. Track number difference
-    # 3. Published year difference
     if ((candidateNameDiff < bestMatchNameDiff)); then
         return 0
     elif ((candidateNameDiff == bestMatchNameDiff)) && ((candidateTrackDiff < bestMatchTrackDiff)); then
         return 0
-    elif ((candidateNameDiff == bestMatchNameDiff)) && ((candidateTrackDiff == bestMatchTrackDiff)) && (($candidateYearDiff < bestMatchYearDiff)); then
-        return 0
-    elif ((candidateNameDiff == bestMatchNameDiff)) && ((candidateTrackDiff == bestMatchTrackDiff)) && ((candidateYearDiff == bestMatchYearDiff)); then
+    elif ((candidateNameDiff == bestMatchNameDiff)) && ((candidateTrackDiff == bestMatchTrackDiff)); then
         # Secondary criteria
         # 1. Release country
         # 2. Track count
-        # 3. Release format
-        # 4. Lyric preference
+        # 3. Published year difference
+        # 4. Release format
+        # 5. Lyric preference
         if ((lidarrReleaseCountryPriority < bestMatchCountryPriority)); then
             return 0
         elif ((lidarrReleaseCountryPriority == bestMatchCountryPriority)) && ((deezerCandidateTrackCount > bestMatchNumTracks)); then
             return 0
-        elif ((lidarrReleaseCountryPriority == bestMatchCountryPriority)) && ((deezerCandidateTrackCount == bestMatchNumTracks)) && ((lidarrReleaseFormatPriority < bestMatchFormatPriority)); then
+        elif ((lidarrReleaseCountryPriority == bestMatchCountryPriority)) && ((deezerCandidateTrackCount == bestMatchNumTracks)) && ((candidateYearDiff < bestMatchYearDiff)); then
             return 0
-        elif ((lidarrReleaseCountryPriority == bestMatchCountryPriority)) && ((deezerCandidateTrackCount == bestMatchNumTracks)) && ((lidarrReleaseFormatPriority == bestMatchFormatPriority)) && [[ "$deezerCandidatelyricTypePreferred" == "true" && "$bestMatchLyricTypePreferred" == "false" ]]; then
+        elif ((lidarrReleaseCountryPriority == bestMatchCountryPriority)) && ((deezerCandidateTrackCount == bestMatchNumTracks)) && ((candidateYearDiff == bestMatchYearDiff)) && ((lidarrReleaseFormatPriority < bestMatchFormatPriority)); then
+            return 0
+        elif ((lidarrReleaseCountryPriority == bestMatchCountryPriority)) && ((deezerCandidateTrackCount == bestMatchNumTracks)) && ((candidateYearDiff == bestMatchYearDiff)) && ((lidarrReleaseFormatPriority == bestMatchFormatPriority)) && [[ "$deezerCandidatelyricTypePreferred" == "true" && "$bestMatchLyricTypePreferred" == "false" ]]; then
             return 0
         fi
     fi
@@ -924,7 +924,7 @@ UpdateBestMatchState() {
     # Check for exact match
     if is_numeric "$candidateNameDiff" && is_numeric "$candidateTrackDiff" && is_numeric "$candidateYearDiff"; then
         if ((candidateNameDiff == 0 && candidateTrackDiff == 0 && candidateYearDiff == 0)); then
-            log "INFO :: Exact match found: ${deezerCandidateTitleVariant} (${deezerCandidateAlbumID})"
+            log "INFO :: New best match: ${deezerCandidateTitleVariant} (${deezerCandidateAlbumID}) - Exact Match"
             set_state "exactMatchFound" "true"
         fi
     else
