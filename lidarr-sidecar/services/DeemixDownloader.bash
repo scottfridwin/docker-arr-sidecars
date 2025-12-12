@@ -1093,15 +1093,21 @@ AddBeetsTags() {
             mkdir -p "${XDG_CONFIG_HOME}"
 
             # Determine if output should be suppressed
+            local beetOutputTarget beetVerbosityFlag
             if DebugLogging; then
                 beetOutputTarget="/dev/stderr" # show all output
+                beetVerbosityFlag="-v"
+                if TraceLogging; then
+                    beetVerbosityFlag="-vv"
+                fi
             else
                 beetOutputTarget="/dev/null" # suppress output
+                beetVerbosityFlag=""
             fi
 
             beet -c "${BEETS_DIR}/beets.yaml" \
                 -l "${BEETS_DIR}/beets-library.blb" \
-                -d "$1" import -qCw \
+                -d "$1" import -qCw ${beetVerbosityFlag} \
                 -S "${lidarrReleaseForeignId}" \
                 "$1" >"$beetOutputTarget" 2>&1
 
