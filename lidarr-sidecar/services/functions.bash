@@ -45,6 +45,8 @@ CalculatePriority() {
     local preferenceString="${2:-}"
     local priority=999 # Default low priority
 
+    log "DEBUG :: inputString \"${inputString}\""
+    log "DEBUG :: preferenceString \"${preferenceString}\""
     # Convert inputString into an array, splitting on comma or pipe
     IFS=',|' read -r -a inputValues <<<"${inputString}"
 
