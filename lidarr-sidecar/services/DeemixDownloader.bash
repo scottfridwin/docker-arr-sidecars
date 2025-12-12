@@ -1115,10 +1115,8 @@ AddBeetsTags() {
                 returnCode=1
             fi
 
-            return $returnCode
-        )
-
-        finalReturn=$?
+            exit $returnCode
+        ) || finalReturn=$?
         log "DEBUG :: Beets subshell returned ${finalReturn}"
 
         # Success?
