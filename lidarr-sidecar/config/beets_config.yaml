@@ -63,7 +63,7 @@ import:
   move: no
   resume: no
   incremental: no
-  quiet_fallback: apply
+  quiet_fallback: asis
   timid: no
   duplicate_action: skip
   log: /tmp/beets.log
