@@ -1119,6 +1119,7 @@ AddBeetsTags() {
         )
 
         finalReturn=$?
+        log "DEBUG :: Beets subshell returned ${finalReturn}"
 
         # Success?
         if [ $finalReturn -eq 0 ]; then
