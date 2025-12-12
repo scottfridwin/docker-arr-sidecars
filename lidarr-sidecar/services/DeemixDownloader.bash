@@ -1116,16 +1116,16 @@ AddBeetsTags() {
             fi
 
             exit $returnCode
-        ) || finalReturn=$?
-        log "DEBUG :: Beets subshell returned ${finalReturn}"
+        ) || returnCode=$?
+        log "DEBUG :: Beets subshell returned ${returnCode}"
 
         # Success?
-        if [ $finalReturn -eq 0 ]; then
+        if [ $returnCode -eq 0 ]; then
             break
         fi
 
         # Retry only on soft error code 1
-        if [ $finalReturn -eq 1 ] && [ $attempt -lt $max_retries ]; then
+        if [ $returnCode -eq 1 ] && [ $attempt -lt $max_retries ]; then
             attempt=$((attempt + 1))
             log "WARNING :: Beets failed with rc=1 — retrying in ${delay}s (attempt ${attempt}/${max_retries})..."
             sleep $delay
