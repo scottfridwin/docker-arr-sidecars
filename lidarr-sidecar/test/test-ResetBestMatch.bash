@@ -44,9 +44,9 @@ if [[ "$(get_state "bestMatchID")" == "" ]] &&
     [[ "$(get_state "bestMatchNumTracks")" == "0" ]] &&
     [[ "$(get_state "bestMatchContainsCommentary")" == "false" ]] &&
     [[ "$(get_state "bestMatchLidarrReleaseInfo")" == "" ]] &&
-    [[ "$(get_state "bestMatchFormatPriority")" == "" ]] &&
-    [[ "$(get_state "bestMatchCountryPriority")" == "" ]] &&
-    [[ "$(get_state "bestMatchLyricTypePreferred")" == "" ]] &&
+    [[ "$(get_state "bestMatchFormatPriority")" == "999" ]] &&
+    [[ "$(get_state "bestMatchCountryPriority")" == "999" ]] &&
+    [[ "$(get_state "bestMatchLyricTypePreferred")" == "false" ]] &&
     [[ "$(get_state "bestMatchYearDiff")" == "-1" ]] &&
     [[ "$(get_state "exactMatchFound")" != "true" ]]; then
     echo "✅ PASS: Reset from populated state"
@@ -166,10 +166,7 @@ ResetBestMatch
 if [[ "$(get_state "bestMatchID")" == "" ]] &&
     [[ "$(get_state "bestMatchTitle")" == "" ]] &&
     [[ "$(get_state "bestMatchYear")" == "" ]] &&
-    [[ "$(get_state "bestMatchLidarrReleaseInfo")" == "" ]] &&
-    [[ "$(get_state "bestMatchFormatPriority")" == "" ]] &&
-    [[ "$(get_state "bestMatchCountryPriority")" == "" ]] &&
-    [[ "$(get_state "bestMatchLyricTypePreferred")" == "" ]]; then
+    [[ "$(get_state "bestMatchLidarrReleaseInfo")" == "" ]]; then
     echo "✅ PASS: All string fields reset to empty"
     ((pass++))
 else
