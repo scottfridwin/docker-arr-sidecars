@@ -47,7 +47,7 @@ if [[ "$(get_state "bestMatchID")" == "" ]] &&
     [[ "$(get_state "bestMatchFormatPriority")" == "999" ]] &&
     [[ "$(get_state "bestMatchCountryPriority")" == "999" ]] &&
     [[ "$(get_state "bestMatchLyricTypePreferred")" == "false" ]] &&
-    [[ "$(get_state "bestMatchYearDiff")" == "-1" ]] &&
+    [[ "$(get_state "bestMatchYearDiff")" == "999" ]] &&
     [[ "$(get_state "exactMatchFound")" != "true" ]]; then
     echo "✅ PASS: Reset from populated state"
     ((pass++))
@@ -70,7 +70,7 @@ if [[ "$(get_state "bestMatchID")" == "" ]] &&
     [[ "$(get_state "bestMatchNameDiff")" == "9999" ]] &&
     [[ "$(get_state "bestMatchTrackDiff")" == "9999" ]] &&
     [[ "$(get_state "bestMatchNumTracks")" == "0" ]] &&
-    [[ "$(get_state "bestMatchYearDiff")" == "-1" ]] &&
+    [[ "$(get_state "bestMatchYearDiff")" == "999" ]] &&
     [[ "$(get_state "exactMatchFound")" != "true" ]]; then
     echo "✅ PASS: Reset from empty state"
     ((pass++))
@@ -139,15 +139,15 @@ else
     ((fail++))
 fi
 
-# Test 8: Verify bestMatchYearDiff is set to -1
+# Test 8: Verify bestMatchYearDiff is set to 999
 reset_state
 set_state "bestMatchYearDiff" "5"
 ResetBestMatch
-if [[ "$(get_state "bestMatchYearDiff")" == "-1" ]]; then
-    echo "✅ PASS: bestMatchYearDiff reset to -1"
+if [[ "$(get_state "bestMatchYearDiff")" == "999" ]]; then
+    echo "✅ PASS: bestMatchYearDiff reset to 999"
     ((pass++))
 else
-    echo "❌ FAIL: bestMatchYearDiff not reset to -1, got '$(get_state "bestMatchYearDiff")'"
+    echo "❌ FAIL: bestMatchYearDiff not reset to 999, got '$(get_state "bestMatchYearDiff")'"
     ((fail++))
 fi
 

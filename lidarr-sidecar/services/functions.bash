@@ -756,7 +756,7 @@ ResetBestMatch() {
     set_state "bestMatchFormatPriority" "999"
     set_state "bestMatchCountryPriority" "999"
     set_state "bestMatchLyricTypePreferred" "false"
-    set_state "bestMatchYearDiff" -1
+    set_state "bestMatchYearDiff" 999
     set_state "exactMatchFound" "false"
 }
 
