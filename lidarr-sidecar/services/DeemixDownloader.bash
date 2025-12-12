@@ -521,6 +521,7 @@ SearchProcess() {
         local lidarrTitlesToSearch=$(get_state "lidarrTitlesToSearch")
         mapfile -t titleArray <<<"${lidarrTitlesToSearch}"
 
+        local lidarrReleaseForeignId="$(get_state "lidarrReleaseForeignId")"
         log "INFO :: Processing Lidarr release \"${lidarrReleaseTitle}\" (${lidarrReleaseForeignId})"
 
         # Shortcut the evaluation process if the release isn't potentially better in some ways
