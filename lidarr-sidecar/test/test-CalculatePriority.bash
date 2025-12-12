@@ -55,7 +55,7 @@ echo "----------------------------------------------"
 for test_case in "${!TESTS[@]}"; do
     IFS=':' read -r countries prefs <<<"$test_case"
     expected="${TESTS[$test_case]}"
-    output="$(CountriesPriority "$countries" "$prefs")"
+    output="$(CalculatePriority "$countries" "$prefs")"
 
     if [[ "$output" == "$expected" ]]; then
         printf "✅ PASS: %-50s → %s\n" "\"$countries\" with prefs \"$prefs\"" "$output"

@@ -39,6 +39,53 @@ ApplyTitleReplacements() {
     fi
 }
 
+# Determine priority for a string based on preferences
+CalculatePriority() {
+    local inputString="${1}"
+    local preferenceString="${2:-}"
+    local priority=999 # Default low priority
+
+    # Convert inputString into an array, splitting on comma or pipe
+    IFS=',|' read -r -a inputValues <<<"${inputString}"
+
+    # If no preferred list, all equal priority
+    if [[ -z "${preferenceString}" ]]; then
+        echo 0
+        return
+    fi
+
+    # Parse preferred values (comma separated)
+    IFS=',' read -r -a preferredArray <<<"${preferenceString}"
+
+    # Trim whitespace and lowercase all preferred tokens *before use*
+    for i in "${!preferredArray[@]}"; do
+        preferredArray[$i]="${preferredArray[$i]//\"/}" # remove quotes
+        preferredArray[$i]="${preferredArray[$i]// /}"  # trim left
+        preferredArray[$i]="${preferredArray[$i]// /}"  # trim right
+        preferredArray[$i]="${preferredArray[$i],,}"    # lowercase
+        preferredArray[$i]="$(echo -e "${preferredArray[$i]}" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+    done
+
+    # Normalize input values too
+    for i in "${!inputValues[@]}"; do
+        inputValues[$i]="${inputValues[$i],,}"
+        inputValues[$i]="$(echo -e "${inputValues[$i]}" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+    done
+
+    # Determine priority by the earliest preferred match
+    for i in "${!preferredArray[@]}"; do
+        for c in "${inputValues[@]}"; do
+            if [[ "${c}" == "${preferredArray[$i]}" ]]; then
+                echo "$i"
+                return
+            fi
+        done
+    done
+
+    # No matches
+    echo "${priority}"
+}
+
 # Calculate year difference between two years (returns absolute value)
 CalculateYearDifference() {
     local year1="$1"
@@ -171,53 +218,6 @@ ComputePrimaryMatchMetrics() {
     local deezerCandidateReleaseYear="$(get_state "deezerCandidateReleaseYear")"
     local yearDiff=$(CalculateYearDifference "${deezerCandidateReleaseYear}" "${lidarrReleaseYear}")
     set_state "candidateYearDiff" "${yearDiff}"
-}
-
-# Determine priority for a countries string based on AUDIO_PREFERRED_COUNTRIES
-CountriesPriority() {
-    local countriesString="${1}"
-    local preferredCountries="${2:-}"
-    local priority=999 # Default low priority
-
-    # Convert countriesString into an array, splitting on comma or pipe
-    IFS=',|' read -r -a inputCountries <<<"${countriesString}"
-
-    # If no preferred list, all equal priority
-    if [[ -z "${preferredCountries}" ]]; then
-        echo 0
-        return
-    fi
-
-    # Parse preferred countries (comma separated)
-    IFS=',' read -r -a preferredArray <<<"${preferredCountries}"
-
-    # Trim whitespace and lowercase all preferred tokens *before use*
-    for i in "${!preferredArray[@]}"; do
-        preferredArray[$i]="${preferredArray[$i]//\"/}" # remove quotes
-        preferredArray[$i]="${preferredArray[$i]// /}"  # trim left
-        preferredArray[$i]="${preferredArray[$i]// /}"  # trim right
-        preferredArray[$i]="${preferredArray[$i],,}"    # lowercase
-        preferredArray[$i]="$(echo -e "${preferredArray[$i]}" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
-    done
-
-    # Normalize input countries too
-    for i in "${!inputCountries[@]}"; do
-        inputCountries[$i]="${inputCountries[$i],,}"
-        inputCountries[$i]="$(echo -e "${inputCountries[$i]}" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
-    done
-
-    # Determine priority by the earliest preferred match
-    for i in "${!preferredArray[@]}"; do
-        for c in "${inputCountries[@]}"; do
-            if [[ "${c}" == "${preferredArray[$i]}" ]]; then
-                echo "$i"
-                return
-            fi
-        done
-    done
-
-    # No matches
-    echo "${priority}"
 }
 
 # Evaluate a single Deezer album candidate and update best match if better
@@ -391,8 +391,8 @@ ExtractReleaseInfo() {
     local lidarrReleaseForeignId="$(safe_jq ".foreignReleaseId" <<<"${release_json}")"
     local lidarrReleaseFormat="$(safe_jq ".format" <<<"${release_json}")"
     local lidarrReleaseCountries="$(safe_jq --optional '.country // [] | join(",")' <<<"${release_json}")"
-    local lidarrReleaseFormatPriority="$(FormatPriority "${lidarrReleaseFormat}" "${AUDIO_PREFERRED_FORMATS}")"
-    local lidarrReleaseCountryPriority="$(CountriesPriority "${lidarrReleaseCountries}" "${AUDIO_PREFERRED_COUNTRIES}")"
+    local lidarrReleaseFormatPriority="$(CalculatePriority "${lidarrReleaseFormat}" "${AUDIO_PREFERRED_FORMATS}")"
+    local lidarrReleaseCountryPriority="$(CalculatePriority "${lidarrReleaseCountries}" "${AUDIO_PREFERRED_COUNTRIES}")"
     local lidarrReleaseDate=$(safe_jq --optional '.releaseDate' <<<"${release_json}")
     local lidarrReleaseYear=""
     local albumReleaseYear="$(get_state "lidarrAlbumReleaseYear")"
@@ -496,28 +496,6 @@ FetchMusicBrainzReleaseInfo() {
     fi
 
     return 1
-}
-
-# Determine priority for a format string based on AUDIO_PREFERRED_FORMATS
-FormatPriority() {
-    local formatString="${1}"
-    local preferredFormats="${2:-}"
-    local priority=999 # Default low priority
-
-    # If preferredFormats is blank, all formats are equal priority
-    if [[ -z "${preferredFormats}" ]]; then
-        priority=0
-    else
-        IFS=',' read -r -a formatArray <<<"${preferredFormats}"
-        for i in "${!formatArray[@]}"; do
-            if [[ "${formatString,,}" == *"${formatArray[$i],,}"* ]]; then
-                priority=$i
-                break
-            fi
-        done
-    fi
-
-    echo "${priority}"
 }
 
 # Determine if the current candidate is a better match than the best match so far
