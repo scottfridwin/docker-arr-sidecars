@@ -26,7 +26,7 @@ CallDeezerAPI() {
     local httpCode body response curlExit returnCode=1
 
     while ((retries < maxRetries)); do
-        log "DEBUG :: url: ${url}"
+        log "DEBUG :: Calling Deezer api: ${url}"
 
         # Run curl and capture output + HTTP code
         response="$(curl -sS -w '\n%{http_code}' \
@@ -521,7 +521,7 @@ SearchProcess() {
         local lidarrTitlesToSearch=$(get_state "lidarrTitlesToSearch")
         mapfile -t titleArray <<<"${lidarrTitlesToSearch}"
 
-        log "DEBUG :: Processing Lidarr release \"${lidarrReleaseTitle}\""
+        log "INFO :: Processing Lidarr release \"${lidarrReleaseTitle}\" (${lidarrReleaseForeignId})"
 
         # Shortcut the evaluation process if the release isn't potentially better in some ways
         if SkipReleaseCandidate; then
@@ -560,10 +560,10 @@ SearchProcess() {
             ))" # join array with | for pattern matching
 
             if [[ "${searchReleaseTitle,,}" =~ ${commentaryPattern,,} ]]; then
-                log "DEBUG :: Search title \"${searchReleaseTitle}\" matched commentary keyword (${AUDIO_COMMENTARY_KEYWORDS})"
+                log "TRACE :: Search title \"${searchReleaseTitle}\" matched commentary keyword (${AUDIO_COMMENTARY_KEYWORDS})"
                 lidarrReleaseContainsCommentary="true"
             elif [[ "${searchReleaseTitle,,}" =~ ${commentaryPattern,,} ]]; then
-                log "DEBUG :: Search title \"${searchReleaseTitle}\" matched commentary keyword (${AUDIO_COMMENTARY_KEYWORDS})"
+                log "TRACE :: Search title \"${searchReleaseTitle}\" matched commentary keyword (${AUDIO_COMMENTARY_KEYWORDS})"
                 lidarrReleaseContainsCommentary="true"
             fi
             set_state "lidarrReleaseContainsCommentary" "${lidarrReleaseContainsCommentary}"
@@ -937,15 +937,12 @@ DownloadProcess() {
         local downloadedLidarrReleaseInfo="$(get_state "downloadedLidarrReleaseInfo")"
         local lidarrReleaseForeignId="$(jq -r ".foreignReleaseId" <<<"${downloadedLidarrReleaseInfo}")"
 
-        log "DEBUG :: Title='${lidarrAlbumTitle}' AlbumID='${lidarrReleaseForeignId}' ReleaseGroupID='${lidarrAlbumForeignAlbumId}'"
         shopt -s nullglob
         for file in "${AUDIO_WORK_PATH}"/staging/*.{flac,mp3}; do
             [ -f "${file}" ] || continue
-            log "DEBUG :: Tagging ${file}"
 
             case "${file##*.}" in
             flac)
-                log "DEBUG :: Applying metaflac tags to: ${file}"
                 metaflac --remove-tag=MUSICBRAINZ_ALBUMID \
                     --remove-tag=MUSICBRAINZ_RELEASEGROUPID \
                     --remove-tag=ALBUM \
@@ -960,7 +957,6 @@ DownloadProcess() {
                 export ALBUMARTIST=""
                 export ARTIST=""
                 export MUSICBRAINZ_ARTISTID=""
-                log "DEBUG :: Applying mutagen tags to: ${file}"
                 export ALBUM_TITLE="${lidarrAlbumTitle}"
                 export MUSICBRAINZ_ALBUMID="${lidarrReleaseForeignId}"
                 export MUSICBRAINZ_RELEASEGROUPID="${lidarrAlbumForeignAlbumId}"
@@ -978,7 +974,6 @@ DownloadProcess() {
     if [ "${returnCode}" -eq 0 ] && [ "${AUDIO_APPLY_REPLAYGAIN}" == "true" ]; then
         AddReplaygainTags "${AUDIO_WORK_PATH}/staging"
         returnCode=$?
-        log "DEBUG :: returnCode=${returnCode}"
     else
         log "INFO :: Replaygain tagging disabled"
     fi
@@ -987,7 +982,6 @@ DownloadProcess() {
     if [ "${returnCode}" -eq 0 ] && [ "${AUDIO_APPLY_BEETS}" == "true" ]; then
         AddBeetsTags "${AUDIO_WORK_PATH}/staging"
         returnCode=$?
-        log "DEBUG :: returnCode=${returnCode}"
     else
         log "INFO :: Beets tagging disabled"
     fi
@@ -996,17 +990,13 @@ DownloadProcess() {
     if [ "$returnCode" -eq 0 ]; then
         local lidarrAlbumInfo="$(get_state "lidarrAlbumInfo")"
         local lidarrArtistForeignArtistId="$(get_state "lidarrArtistForeignArtistId")"
-        log "INFO :: lidarrArtistForeignArtistId: $lidarrArtistForeignArtistId"
-        log "INFO :: lidarrArtistName: $lidarrArtistName"
 
         shopt -s nullglob
         for file in "${AUDIO_WORK_PATH}"/staging/*.{flac,mp3}; do
             [ -f "${file}" ] || continue
-            log "DEBUG :: Tagging ${file}"
 
             case "${file##*.}" in
             flac)
-                log "DEBUG :: Applying metaflac artist corrections tags to: ${file}"
                 metaflac --remove-tag=MUSICBRAINZ_ARTISTID \
                     --remove-tag=ALBUMARTIST \
                     --remove-tag=ARTIST \
@@ -1021,14 +1011,13 @@ DownloadProcess() {
                 export ALBUMARTIST=""
                 export ARTIST=""
                 export MUSICBRAINZ_ARTISTID=""
-                log "DEBUG :: Applying mutagen artist corrections tags to: ${file}"
                 export ALBUMARTIST="${lidarrArtistName}"
                 export ARTIST="${lidarrArtistName}"
                 export MUSICBRAINZ_ARTISTID="${lidarrArtistForeignArtistId}"
                 python3 python/MutagenTagger.py "${file}"
                 ;;
             *)
-                log "WARN :: Skipping unsupported format: ${file}"
+                log "WARNING :: Skipping unsupported format: ${file}"
                 ;;
             esac
         done
@@ -1095,11 +1084,19 @@ AddBeetsTags() {
         export XDG_CONFIG_HOME="${BEETS_DIR}/.config"
         export HOME="${BEETS_DIR}"
         mkdir -p "${XDG_CONFIG_HOME}"
+
+        # Determine if output should be suppressed
+        if DebugLogging; then
+            beetOutputTarget="/dev/stderr" # show all output
+        else
+            beetOutputTarget="/dev/null" # suppress output
+        fi
+
         beet -c "${BEETS_DIR}/beets.yaml" \
             -l "${BEETS_DIR}/beets-library.blb" \
             -d "$1" import -qCw \
             -S "${lidarrReleaseForeignId}" \
-            "$1"
+            "$1" >"$beetOutputTarget" 2>&1
 
         returnCode=$? # <- captures exit code of subshell
         if [ $returnCode -ne 0 ]; then

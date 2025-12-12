@@ -119,7 +119,7 @@ CallMusicBrainzAPI() {
     while ((attempts < maxAttempts)); do
         ((attempts++))
 
-        log "DEBUG :: MB API attempt ${attempts}/${maxAttempts}: ${url}"
+        log "DEBUG :: Calling MusicBrainz API (${attempts}/${maxAttempts}): ${url}"
 
         # Run curl with:
         #   -S : show errors
@@ -136,7 +136,7 @@ CallMusicBrainzAPI() {
         )"
 
         curlExit=$?
-        log "DEBUG :: curl exit code: ${curlExit}"
+        log "TRACE :: curl exit code: ${curlExit}"
 
         # On total failure, retry
         if ((curlExit != 0)); then
@@ -227,6 +227,7 @@ EvaluateDeezerAlbumCandidate() {
     local searchReleaseTitleClean="$(get_state "searchReleaseTitleClean")"
     local lidarrReleaseTrackCount="$(get_state "lidarrReleaseTrackCount")"
     local lidarrReleaseFormatPriority="$(get_state "lidarrReleaseFormatPriority")"
+    local lidarrReleaseForeignId="$(get_state "lidarrReleaseForeignId")"
     local lidarrReleaseCountryPriority="$(get_state "lidarrReleaseCountryPriority")"
     local lidarrReleaseContainsCommentary="$(get_state "lidarrReleaseContainsCommentary")"
     local lidarrReleaseInfo="$(get_state "lidarrReleaseInfo")"
@@ -272,7 +273,7 @@ EvaluateDeezerAlbumCandidate() {
     local deezerCandidateTitleClean="$(get_state "deezerCandidateTitleClean")"
     local deezerCandidateTitleEditionless="$(get_state "deezerCandidateTitleEditionless")"
 
-    log "DEBUG :: Comparing lidarr release \"${searchReleaseTitleClean}\" to Deezer album ID ${deezerCandidateAlbumID} with title \"${deezerCandidateTitleClean}\" (editionless: \"${deezerCandidateTitleEditionless}\" and explicit=${deezerCandidateIsExplicit})"
+    log "DEBUG :: Comparing lidarr release \"${searchReleaseTitleClean}\" (${lidarrReleaseForeignId}) to Deezer album \"${deezerCandidateTitleClean}\" (${deezerCandidateAlbumID})"
 
     # Check both with and without edition info
     local titlesToCheck=()
@@ -312,7 +313,9 @@ EvaluateTitleVariant() {
     fi
 
     local lidarrReleaseYear=$(get_state "lidarrReleaseYear")
-    log "INFO :: Potential match found :: \"${deezerCandidateTitleVariant,,}\" :: NameDiff=${candidateNameDiff} TrackDiff=${candidateTrackDiff} YearDiff=${candidateYearDiff}"
+    local deezerCandidateAlbumID="$(get_state "deezerCandidateAlbumID")"
+    log "INFO :: Potential match found: \"${deezerCandidateTitleVariant,,}\" (${deezerCandidateAlbumID})"
+    log "DEBUG :: Match details: NameDiff=${candidateNameDiff} TrackDiff=${candidateTrackDiff} YearDiff=${candidateYearDiff}"
 
     # Check if this is a better match
     if IsBetterMatch; then
@@ -449,8 +452,8 @@ ExtractReleaseInfo() {
     ' <<<"$mbJson"
         )
     fi
-    set_state "lidarrReleaseContainsCommentary" "${lidarrReleaseContainsCommentary}"
 
+    set_state "lidarrReleaseContainsCommentary" "${lidarrReleaseContainsCommentary}"
     set_state "lidarrReleaseInfo" "${release_json}"
     set_state "lidarrReleaseTitle" "${lidarrReleaseTitle}"
     set_state "lidarrReleaseDisambiguation" "${lidarrReleaseDisambiguation}"
@@ -819,10 +822,7 @@ SkipReleaseCandidate() {
     # Optionally de-prioritize releases that contain commentary tracks
     bestMatchContainsCommentary=$(get_state "bestMatchContainsCommentary")
     lidarrReleaseContainsCommentary=$(get_state "lidarrReleaseContainsCommentary")
-    log "TRACE :: bestMatchContainsCommentary: ${bestMatchContainsCommentary}..."
-    log "TRACE :: lidarrReleaseContainsCommentary: ${lidarrReleaseContainsCommentary}..."
     if [[ "${AUDIO_DEPRIORITIZE_COMMENTARY_RELEASES}" == "true" ]]; then
-        log "TRACE :: Checking current candidate commentary..."
         if [[ "${lidarrReleaseContainsCommentary}" == "true" && "${bestMatchContainsCommentary}" == "false" ]]; then
             log "DEBUG :: Current candidate has commentary while best match does not. Skipping..."
             return 0
@@ -916,13 +916,13 @@ UpdateBestMatchState() {
     set_state "bestMatchContainsCommentary" "${lidarrReleaseContainsCommentary}"
     set_state "bestMatchLidarrReleaseInfo" "${lidarrReleaseInfo}"
 
-    log "INFO :: New best match :: ${deezerCandidateTitleVariant} (${deezerCandidateReleaseYear}) :: NameDiff=${candidateNameDiff} TrackDiff=${candidateTrackDiff} YearDiff=${candidateYearDiff} NumTracks=${deezerCandidateTrackCount} LyricPreferred=${deezerCandidatelyricTypePreferred} FormatPriority=${lidarrReleaseFormatPriority} CountryPriority=${lidarrReleaseCountryPriority} ContainsCommentary=${lidarrReleaseContainsCommentary}"
-
     # Check for exact match
     if is_numeric "$candidateNameDiff" && is_numeric "$candidateTrackDiff" && is_numeric "$candidateYearDiff"; then
         if ((candidateNameDiff == 0 && candidateTrackDiff == 0 && candidateYearDiff == 0)); then
-            log "INFO :: Exact match found :: ${deezerCandidateTitleVariant} (${deezerCandidateReleaseYear}) with ${deezerCandidateTrackCount} tracks"
+            log "INFO :: Exact match found: ${deezerCandidateTitleVariant} (${deezerCandidateAlbumID})"
             set_state "exactMatchFound" "true"
         fi
+    else
+        log "INFO :: New best match: ${deezerCandidateTitleVariant} (${deezerCandidateAlbumID})"
     fi
 }

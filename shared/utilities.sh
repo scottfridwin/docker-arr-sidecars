@@ -22,6 +22,18 @@ log() {
     fi
 }
 
+# Returns true if DEBUG messages should be logged
+DebugLogging() {
+    # Compare the priority of DEBUG vs current LOG_LEVEL
+    ((LOG_PRIORITY["DEBUG"] >= LOG_PRIORITY["${LOG_LEVEL:-INFO}"]))
+}
+
+# Returns true if TRACE messages should be logged
+TraceLogging() {
+    # Compare the priority of DEBUG vs current LOG_LEVEL
+    ((LOG_PRIORITY["TRACE"] >= LOG_PRIORITY["${LOG_LEVEL:-INFO}"]))
+}
+
 # Marks the container as healthy
 setHealthy() {
     echo "healthy" >/tmp/health
@@ -384,9 +396,9 @@ responseMatchesPayload() {
 
     # --- Process results ---
     if [[ -n "$mismatches" && "$mismatches" != "[]" ]]; then
-        log "DEBUG :: Found differences between payload and response:"
+        log "TRACE :: Found differences between payload and response:"
         while IFS= read -r line; do
-            log "DEBUG :: $line"
+            log "TRACE :: $line"
         done <<<"$mismatches"
         return 1
     fi
