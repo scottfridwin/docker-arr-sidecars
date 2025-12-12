@@ -61,9 +61,9 @@ import:
   write: yes
   copy: no
   move: no
-  resume: ask
+  resume: no
   incremental: no
-  quiet_fallback: skip
+  quiet_fallback: apply
   timid: no
   duplicate_action: skip
   log: /tmp/beets.log
