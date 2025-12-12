@@ -1115,7 +1115,7 @@ AddBeetsTags() {
                 returnCode=1
             fi
 
-            exit $returnCode
+            return $returnCode
         )
 
         finalReturn=$?
