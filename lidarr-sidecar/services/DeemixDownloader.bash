@@ -1078,37 +1078,65 @@ AddBeetsTags() {
     local downloadedLidarrReleaseInfo="$(get_state "downloadedLidarrReleaseInfo")"
     local lidarrReleaseForeignId="$(jq -r ".foreignReleaseId" <<<"${downloadedLidarrReleaseInfo}")"
 
-    local returnCode=0
-    # Process with Beets
-    (
-        set +e # disable -e temporarily in subshell
-        export XDG_CONFIG_HOME="${BEETS_DIR}/.config"
-        export HOME="${BEETS_DIR}"
-        mkdir -p "${XDG_CONFIG_HOME}"
+    # Retry settings
+    local max_retries=3
+    local delay=5
+    local attempt=0
 
-        # Determine if output should be suppressed
-        if DebugLogging; then
-            beetOutputTarget="/dev/stderr" # show all output
-        else
-            beetOutputTarget="/dev/null" # suppress output
+    while :; do
+        local returnCode=0
+        # Process with Beets
+        (
+            set +e # disable -e temporarily in subshell
+            export XDG_CONFIG_HOME="${BEETS_DIR}/.config"
+            export HOME="${BEETS_DIR}"
+            mkdir -p "${XDG_CONFIG_HOME}"
+
+            # Determine if output should be suppressed
+            if DebugLogging; then
+                beetOutputTarget="/dev/stderr" # show all output
+            else
+                beetOutputTarget="/dev/null" # suppress output
+            fi
+
+            beet -c "${BEETS_DIR}/beets.yaml" \
+                -l "${BEETS_DIR}/beets-library.blb" \
+                -d "$1" import -qCw \
+                -S "${lidarrReleaseForeignId}" \
+                "$1" >"$beetOutputTarget" 2>&1
+
+            returnCode=$? # <- captures exit code of subshell
+            if [ $returnCode -ne 0 ]; then
+                log "WARNING :: Beets returned error code ${returnCode}"
+            elif [ $(find "${importPath}" -type f -regex ".*/.*\.\(flac\|opus\|m4a\|mp3\)" -newer "${BEETS_DIR}/beets.timer" | wc -l) -gt 0 ]; then
+                log "INFO :: Successfully added Beets tags"
+            else
+                log "WARNING :: Unable to match using beets to a musicbrainz release"
+                returnCode=1
+            fi
+
+            exit $returnCode
+        )
+
+        finalReturn=$?
+
+        # Success?
+        if [ $finalReturn -eq 0 ]; then
+            break
         fi
 
-        beet -c "${BEETS_DIR}/beets.yaml" \
-            -l "${BEETS_DIR}/beets-library.blb" \
-            -d "$1" import -qCw \
-            -S "${lidarrReleaseForeignId}" \
-            "$1" >"$beetOutputTarget" 2>&1
-
-        returnCode=$? # <- captures exit code of subshell
-        if [ $returnCode -ne 0 ]; then
-            log "WARNING :: Beets returned error code ${returnCode}"
-        elif [ $(find "${importPath}" -type f -regex ".*/.*\.\(flac\|opus\|m4a\|mp3\)" -newer "${BEETS_DIR}/beets.timer" | wc -l) -gt 0 ]; then
-            log "INFO :: Successfully added Beets tags"
-        else
-            log "WARNING :: Unable to match using beets to a musicbrainz release"
-            returnCode=1
+        # Retry only on soft error code 1
+        if [ $finalReturn -eq 1 ] && [ $attempt -lt $max_retries ]; then
+            attempt=$((attempt + 1))
+            log "WARNING :: Beets failed with rc=1 — retrying in ${delay}s (attempt ${attempt}/${max_retries})..."
+            sleep $delay
+            delay=$((delay * 2))
+            continue
         fi
-    )
+
+        # Hard failure or retries exhausted
+        break
+    done
 
     log "TRACE :: Exiting AddBeetsTags..."
     return ${returnCode}
