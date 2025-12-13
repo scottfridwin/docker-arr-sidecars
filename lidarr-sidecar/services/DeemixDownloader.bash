@@ -1114,11 +1114,8 @@ AddBeetsTags() {
             returnCode=$? # <- captures exit code of subshell
             if [ $returnCode -ne 0 ]; then
                 log "WARNING :: Beets returned error code ${returnCode}"
-            elif [ $(find "${importPath}" -type f -regex ".*/.*\.\(flac\|opus\|m4a\|mp3\)" -newer "${BEETS_DIR}/beets.timer" | wc -l) -gt 0 ]; then
-                log "INFO :: Successfully added Beets tags"
             else
-                log "WARNING :: Unable to match using beets to a musicbrainz release"
-                returnCode=1
+                log "INFO :: Successfully added Beets tags"
             fi
 
             exit $returnCode
@@ -1128,18 +1125,15 @@ AddBeetsTags() {
         # Success?
         if [ $returnCode -eq 0 ]; then
             break
-        fi
-
-        # Retry only on soft error code 1
-        if [ $returnCode -eq 1 ] && [ $attempt -lt $max_retries ]; then
+        elif [ $attempt -lt $max_retries ]; then
             attempt=$((attempt + 1))
-            log "WARNING :: Beets failed with rc=1 — retrying in ${delay}s (attempt ${attempt}/${max_retries})..."
+            log "WARNING :: Beets failed with rc=${returnCode} — retrying in ${delay}s (attempt ${attempt}/${max_retries})..."
             sleep $delay
             delay=$((delay * 2))
             continue
         fi
 
-        # Hard failure or retries exhausted
+        # Retries exhausted
         break
     done
 
