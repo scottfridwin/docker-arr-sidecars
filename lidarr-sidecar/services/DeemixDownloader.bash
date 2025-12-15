@@ -1109,6 +1109,7 @@ AddBeetsTags() {
             beet -c "${BEETS_DIR}/beets.yaml" \
                 -l "${BEETS_DIR}/beets-library.blb" \
                 -d "${importPath}" ${beetVerbosityFlag} import -qCw \
+                --no-lyrics \
                 -S "${lidarrReleaseForeignId}" \
                 "${importPath}" >"$beetOutputTarget" 2>&1
 
