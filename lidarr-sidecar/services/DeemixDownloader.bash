@@ -1069,11 +1069,11 @@ AddBeetsTags() {
     log "INFO :: Adding Beets tags"
 
     # Setup
-    rm -f ${BEETS_DIR}/beets-library.blb
-    rm -f ${BEETS_DIR}/beets.log
-    rm -f ${BEETS_DIR}/beets.timer
-    touch ${BEETS_DIR}/beets-library.blb
-    touch ${BEETS_DIR}/beets.timer
+    rm -f "${BEETS_DIR}/beets-library.blb"
+    rm -f "${BEETS_DIR}/beets.log"
+    rm -f "${BEETS_DIR}/beets.timer"
+    touch "${BEETS_DIR}/beets-library.blb"
+    touch "${BEETS_DIR}/beets.timer"
 
     local downloadedLidarrReleaseInfo="$(get_state "downloadedLidarrReleaseInfo")"
     local lidarrReleaseForeignId="$(jq -r ".foreignReleaseId" <<<"${downloadedLidarrReleaseInfo}")"
@@ -1105,11 +1105,12 @@ AddBeetsTags() {
                 beetVerbosityFlag=""
             fi
 
+            : >"${BEETS_DIR}/beets.log"
             beet -c "${BEETS_DIR}/beets.yaml" \
                 -l "${BEETS_DIR}/beets-library.blb" \
-                -d "$1" ${beetVerbosityFlag} import -qCw \
+                -d "${importPath}" ${beetVerbosityFlag} import -qCw \
                 -S "${lidarrReleaseForeignId}" \
-                "$1" >"$beetOutputTarget" 2>&1
+                "${importPath}" >"$beetOutputTarget" 2>&1
 
             returnCode=$? # <- captures exit code of subshell
             if [ $returnCode -ne 0 ]; then
@@ -1124,10 +1125,19 @@ AddBeetsTags() {
 
         # Success?
         if [ $returnCode -eq 0 ]; then
-            break
-        elif [ $attempt -lt $max_retries ]; then
+            if grep -Eq "MusicBrainz not reachable|NetworkError|UNEXPECTED_EOF_WHILE_READING" \
+                "${BEETS_DIR}/beets.log" 2>/dev/null; then
+                returnCode=75 # semantic retry signal
+                log "WARNING :: MusicBrainz network failure detected in beets.log"
+            else
+                break
+            fi
+        fi
+
+        # Retry?
+        if [ $attempt -lt $max_retries ]; then
             attempt=$((attempt + 1))
-            log "WARNING :: Beets failed with rc=${returnCode} — retrying in ${delay}s (attempt ${attempt}/${max_retries})..."
+            log "WARNING :: Beets failed (rc=${returnCode}) — retrying in ${delay}s (attempt ${attempt}/${max_retries})..."
             sleep $delay
             delay=$((delay * 2))
             continue
