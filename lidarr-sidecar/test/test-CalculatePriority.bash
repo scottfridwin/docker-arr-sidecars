@@ -74,6 +74,12 @@ declare -A TESTS=(
     ["CD:CD,CD,CD"]="0"
     ["Digital Media:Vinyl,Digital Media,Digital Media"]="1"
 
+    # --- [blank] PREFERENCE ---
+    [":[blank],CD"]="0"
+    [" :CD,[blank]"]="1"
+    [" :CD,[BLANK]"]="1"
+    ["CD:[blank],CD"]="1"
+
     # --- EDGE CASES ---
     [" :CD"]="999"
     ["CD: "]="999"

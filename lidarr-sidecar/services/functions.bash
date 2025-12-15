@@ -38,7 +38,6 @@ ApplyTitleReplacements() {
         echo "${title}"
     fi
 }
-
 # Determine priority for a string based on preferences
 CalculatePriority() {
     local input="$1"
@@ -50,14 +49,18 @@ CalculatePriority() {
 
         my ($input, $prefs) = @ARGV;
 
+        # Sentinel for blank values
+        my $BLANK = "__BLANK__";
+
         # --- Split input tokens (always comma-separated) and normalize ---
         my @input_tokens = map {
             my $t = $_;
             $t =~ s/^"+|"+$//g;      # remove quotes
             $t =~ s/^\s+|\s+$//g;    # trim spaces
-            lc($t)
+            length($t) ? lc($t) : $BLANK
         } split /,/, $input // "";
-        @input_tokens = ("") unless @input_tokens;
+
+        @input_tokens = ($BLANK) unless @input_tokens;
 
         # --- Split prefs into groups by comma ---
         my @groups = split /,/, $prefs // "";
@@ -66,12 +69,13 @@ CalculatePriority() {
         my $prio = 0;
         for my $grp (@groups) {
             next unless length $grp;
+
             # split group by | and normalize each token
             my @tokens = map {
                 my $t = $_;
                 $t =~ s/^"+|"+$//g;
                 $t =~ s/^\s+|\s+$//g;
-                lc($t)
+                lc($t) eq "[blank]" ? $BLANK : lc($t)
             } split /\|/, $grp;
 
             for my $tok (@tokens) {
@@ -84,7 +88,9 @@ CalculatePriority() {
         # --- Find lowest priority matching input token ---
         my $best = 999;
         for my $tok (@input_tokens) {
-            $best = $priority{$tok} if exists $priority{$tok} && $priority{$tok} < $best;
+            if (exists $priority{$tok} && $priority{$tok} < $best) {
+                $best = $priority{$tok};
+            }
         }
 
         print $best;
@@ -468,6 +474,7 @@ ExtractReleaseInfo() {
     set_state "lidarrReleaseCountryPriority" "${lidarrReleaseCountryPriority}"
     set_state "lidarrReleaseYear" "${lidarrReleaseYear}"
     set_state "lidarrReleaseMBJson" "${mbJson}"
+    set_state "lidarrReleaseCountries" "${lidarrReleaseCountries}"
 
     log "TRACE :: Exiting ExtractReleaseInfo..."
 }

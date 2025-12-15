@@ -316,6 +316,23 @@ else
     ((fail++))
 fi
 
+# tmp
+reset_state
+set_state "musicbrainzReleaseJson" "{\"media\":[{\"tracks\": [{\"title\": \"Overture\"},{\"title\": \"Overture (Commentary)\"}]}]}"
+release_json='{
+  "title": "2048",
+  "disambiguation": "Deluxe Edition",
+  "trackCount": 13,
+  "foreignReleaseId": "abc123-def456",
+  "format": "CD",
+  "country": null,
+  "releaseDate": "2014-10-27T00:00:00Z"
+}'
+
+ExtractReleaseInfo "$release_json"
+
+echo "  lidarrReleaseCountries: '$(get_state "lidarrReleaseCountries")'"
+
 echo "----------------------------------------------"
 echo "Passed: $pass, Failed: $fail"
 
