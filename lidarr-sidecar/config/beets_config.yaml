@@ -6,7 +6,7 @@ id3v23: no
 asciify_paths: true
 
 lyrics:
-  auto: yes
+  auto: no
   sources: lrclib genius tekstowo
   synced: yes
 
