@@ -85,8 +85,10 @@ Services:
 | AUDIO_INSTRUMENTAL_KEYWORDS | Instrumental,Score | Instrumental keywords list |
 | AUDIO_INTERVAL | 15m | Main loop sleep interval for downloader |
 | AUDIO_LYRIC_TYPE | prefer-explicit | Lyric preference: prefer-explicit, prefer-clean, both |
-| AUDIO_MATCH_THRESHOLD_TITLE | 0 | Maximum Levenshtein distance for title matching |
-| AUDIO_MATCH_THRESHOLD_TRACKS | 0 | Maximum track number distance |
+| AUDIO_MATCH_THRESHOLD_TITLE | 0 | Maximum album title difference for matching |
+| AUDIO_MATCH_THRESHOLD_TRACKS | 0 | Maximum track count difference for matching |
+| AUDIO_MATCH_THRESHOLD_TRACK_DIFF_AVG | 1.00 | Maximum track name difference (averaged per track) for matching |
+| AUDIO_MATCH_THRESHOLD_TRACK_DIFF_MAX | 10 | Maximum single-track name difference for matching |
 | AUDIO_PREFER_SPECIAL_EDITIONS | true | Prefer deluxe/special editions when tied |
 | AUDIO_REQUIRE_QUALITY | true | Require target quality (vs. accept best-effort) |
 | AUDIO_RETRY_NOTFOUND_DAYS | 90 | Give up-not-found entries a retry after this many days |

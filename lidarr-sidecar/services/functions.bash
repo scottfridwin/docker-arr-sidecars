@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+declare -A TRACK_SEP=$'\x1f'
+
 # Get release title with disambiguation if available
 AddDisambiguationToTitle() {
     # $1 -> The title
@@ -38,6 +40,7 @@ ApplyTitleReplacements() {
         echo "${title}"
     fi
 }
+
 # Determine priority for a string based on preferences
 CalculatePriority() {
     local input="$1"
@@ -202,6 +205,75 @@ CallMusicBrainzAPI() {
     exit 1
 }
 
+# Compares the track lists from a lidarr release and a deezer album
+CompareTrackTitles() {
+    log "TRACE :: Entering CompareTrackTitles..."
+
+    local lidarr_raw deezer_raw
+    lidarr_raw="$(get_state "lidarrReleaseTrackTitles")"
+    deezer_raw="$(get_state "deezerCandidateTrackTitles")"
+
+    local lidarr_tracks=() deezer_tracks=()
+    [[ -n "$lidarr_raw" ]] && IFS="$TRACK_SEP" read -r -a lidarr_tracks <<<"$lidarr_raw"
+    [[ -n "$deezer_raw" ]] && IFS="$TRACK_SEP" read -r -a deezer_tracks <<<"$deezer_raw"
+
+    local lidarr_len=${#lidarr_tracks[@]}
+    local deezer_len=${#deezer_tracks[@]}
+    local max_len=$(($lidarr_len > $deezer_len ? $lidarr_len : $deezer_len))
+    if (($lidarr_len == 0 || $deezer_len == 0)); then
+        set_state "candidateTrackNameDiffAvg" "0.00"
+        set_state "candidateTrackNameDiffTotal" "0"
+        set_state "candidateTrackNameDiffMax" "0"
+        return 0
+    fi
+    local total_diff=0
+    local max_diff=0
+    local compared_tracks=0
+    if (($lidarr_len != $deezer_len)); then
+        total_diff=999
+        max_diff=999
+        compared_tracks=1
+    else
+        local lidarr_norm=() deezer_norm=()
+        for t in "${lidarr_tracks[@]}"; do
+            lidarr_norm+=("$(normalize_string "$t")")
+        done
+        for t in "${deezer_tracks[@]}"; do
+            deezer_norm+=("$(normalize_string "$t")")
+        done
+
+        local total_diff=0
+        local max_diff=0
+        local compared_tracks=0
+
+        for ((i = 0; i < max_len; i++)); do
+            local a="${lidarr_norm[i]:-}"
+            local b="${deezer_norm[i]:-}"
+
+            [[ -z "$a" || -z "$b" ]] && continue
+
+            local d
+            d="$(LevenshteinDistance "$a" "$b")"
+
+            ((total_diff += d))
+            ((compared_tracks++))
+            ((d > max_diff)) && max_diff="$d"
+        done
+    fi
+
+    local diff_avg
+    diff_avg="$(awk -v d="$total_diff" -v n="$compared_tracks" \
+        'BEGIN { printf "%.2f", (n > 0 ? d / n : 0) }')"
+
+    log "DEBUG :: Track diffs: avg=${diff_avg}, total=${total_diff}, max=${max_diff}"
+
+    set_state "candidateTrackNameDiffAvg" "$diff_avg"
+    set_state "candidateTrackNameDiffTotal" "$total_diff"
+    set_state "candidateTrackNameDiffMax" "$max_diff"
+
+    log "TRACE :: Exiting CompareTrackTitles..."
+}
+
 # Compute match metrics for a candidate album
 ComputeMatchMetrics() {
     # Calculate name difference
@@ -263,6 +335,25 @@ EvaluateDeezerAlbumCandidate() {
     set_state "deezerCandidateIsExplicit" "${deezerCandidateIsExplicit}"
     set_state "deezerCandidateTitle" "${deezerCandidateTitle}"
 
+    # Extract track titles
+    local track_titles=()
+    local deezerCandidateTrackTitles=""
+
+    while IFS= read -r track_title; do
+        [[ -z "$track_title" ]] && continue
+        track_titles+=("$track_title")
+    done < <(
+        safe_jq --optional -r '
+            .tracks?.data[]?.title // empty
+        ' <<<"$deezerAlbumData"
+    )
+
+    if ((${#track_titles[@]} > 0)); then
+        deezerCandidateTrackTitles="$(printf "%s${TRACK_SEP}" "${track_titles[@]}")"
+        deezerCandidateTrackTitles="${deezerCandidateTrackTitles%${TRACK_SEP}}"
+    fi
+    set_state "deezerCandidateTrackTitles" "${deezerCandidateTrackTitles}"
+
     local lyricTypeSetting="${AUDIO_LYRIC_TYPE:-}"
     local deezerCandidatelyricTypePreferred=$(IsLyricTypePreferred "${deezerCandidateIsExplicit}" "${lyricTypeSetting}")
     set_state "deezerCandidatelyricTypePreferred" "${deezerCandidatelyricTypePreferred}"
@@ -273,6 +364,9 @@ EvaluateDeezerAlbumCandidate() {
         log "DEBUG :: Skipping Deezer album ID ${deezerCandidateAlbumID} (${deezerCandidateTitle}) due to lyric type filter"
         return
     fi
+
+    # Calculate track title score
+    CompareTrackTitles
 
     # Calculate year difference
     local lidarrReleaseYear=$(get_state "lidarrReleaseYear")
@@ -311,15 +405,25 @@ EvaluateTitleVariant() {
     local candidateNameDiff=$(get_state "candidateNameDiff")
     local candidateTrackDiff=$(get_state "candidateTrackDiff")
     local candidateYearDiff=$(get_state "candidateYearDiff")
+    local candidateTrackNameDiffAvg=$(get_state "candidateTrackNameDiffAvg")
+    local candidateTrackNameDiffMax=$(get_state "candidateTrackNameDiffMax")
 
     # Check if meets thresholds
     local deezerCandidateTitleVariant="$(get_state "deezerCandidateTitleVariant")"
     if ((candidateNameDiff > AUDIO_MATCH_THRESHOLD_TITLE)); then
-        log "DEBUG :: Album \"${deezerCandidateTitleVariant,,}\" does not meet matching threshold (NameDiff=${candidateNameDiff}), skipping..."
+        log "DEBUG :: Album \"${deezerCandidateTitleVariant,,}\" does not meet matching threshold (Name difference=${candidateNameDiff}), skipping..."
         return 0
     fi
     if ((candidateTrackDiff > AUDIO_MATCH_THRESHOLD_TRACKS)); then
-        log "DEBUG :: Album \"${deezerCandidateTitleVariant,,}\" does not meet matching threshold (Track Difference=${candidateTrackDiff}), skipping..."
+        log "DEBUG :: Album \"${deezerCandidateTitleVariant,,}\" does not meet matching threshold (Track count difference=${candidateTrackDiff}), skipping..."
+        return 0
+    fi
+    if awk "BEGIN { exit !($candidateTrackNameDiffAvg > $AUDIO_MATCH_THRESHOLD_TRACK_DIFF_AVG) }"; then
+        log "DEBUG :: Album \"${deezerCandidateTitleVariant,,}\" does not meet matching threshold (Track name difference average=${candidateTrackNameDiffAvg}), skipping..."
+        return 0
+    fi
+    if ((candidateTrackNameDiffMax > AUDIO_MATCH_THRESHOLD_TRACK_DIFF_MAX)); then
+        log "DEBUG :: Album \"${deezerCandidateTitleVariant,,}\" does not meet matching threshold (Track name difference maximum=${candidateTrackNameDiffMax}), skipping..."
         return 0
     fi
 
@@ -429,6 +533,24 @@ ExtractReleaseInfo() {
         fi
     fi
 
+    # Extract track titles
+    local track_titles=()
+    local lidarrReleaseTrackTitles=""
+
+    while IFS= read -r track_title; do
+        [[ -z "$track_title" ]] && continue
+        track_titles+=("$track_title")
+    done < <(
+        safe_jq --optional -r '
+            .media[]?.tracks[]?.title // empty
+        ' <<<"$mbJson"
+    )
+
+    if ((${#track_titles[@]} > 0)); then
+        lidarrReleaseTrackTitles="$(printf "%s${TRACK_SEP}" "${track_titles[@]}")"
+        lidarrReleaseTrackTitles="${lidarrReleaseTrackTitles%${TRACK_SEP}}"
+    fi
+
     # Check for commentary keywords
     IFS=',' read -r -a commentaryArray <<<"${AUDIO_COMMENTARY_KEYWORDS}"
     lowercaseKeywords=()
@@ -475,6 +597,7 @@ ExtractReleaseInfo() {
     set_state "lidarrReleaseYear" "${lidarrReleaseYear}"
     set_state "lidarrReleaseMBJson" "${mbJson}"
     set_state "lidarrReleaseCountries" "${lidarrReleaseCountries}"
+    set_state "lidarrReleaseTrackTitles" "${lidarrReleaseTrackTitles}"
 
     log "TRACE :: Exiting ExtractReleaseInfo..."
 }

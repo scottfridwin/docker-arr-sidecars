@@ -316,22 +316,53 @@ else
     ((fail++))
 fi
 
-# tmp
+# Test 12: Track list
 reset_state
-set_state "musicbrainzReleaseJson" "{\"media\":[{\"tracks\": [{\"title\": \"Overture\"},{\"title\": \"Overture (Commentary)\"}]}]}"
+set_state "musicbrainzReleaseJson" "{\"media\":[{\"tracks\": [{\"title\": \"Overture\"},{\"title\": \"Movement I\"},{\"title\": \"Movement II\"},{\"title\": \"Movement III\"}]}]}"
 release_json='{
   "title": "2048",
   "disambiguation": "Deluxe Edition",
   "trackCount": 13,
   "foreignReleaseId": "abc123-def456",
   "format": "CD",
-  "country": null,
+  "country": ["US"],
   "releaseDate": "2014-10-27T00:00:00Z"
 }'
+expected_track_titles=(
+    "Overture"
+    "Movement I"
+    "Movement II"
+    "Movement III"
+)
 
 ExtractReleaseInfo "$release_json"
-
-echo "  lidarrReleaseCountries: '$(get_state "lidarrReleaseCountries")'"
+lidarrReleaseTrackTitles="$(get_state "lidarrReleaseTrackTitles")"
+track_titles=()
+if [[ -n "$lidarrReleaseTrackTitles" ]]; then
+    IFS="$TRACK_SEP" read -r -a track_titles <<<"$lidarrReleaseTrackTitles"
+fi
+passed=1
+if [[ ${#track_titles[@]} -ne ${#expected_track_titles[@]} ]]; then
+    echo "Expected ${#expected_track_titles[@]} tracks"
+    echo "Got ${#track_titles[@]} tracks"
+    passed=0
+else
+    for i in "${!expected_track_titles[@]}"; do
+        if [[ "${track_titles[$i]}" != "${expected_track_titles[$i]}" ]]; then
+            echo "Expected: ${expected_track_titles[$i]}"
+            echo "Got:      ${track_titles[$i]}"
+            passed=0
+            break
+        fi
+    done
+fi
+if [[ $passed == 1 ]]; then
+    echo "✅ PASS: Track list"
+    ((pass++))
+else
+    echo "❌ FAIL: Track list"
+    ((fail++))
+fi
 
 echo "----------------------------------------------"
 echo "Passed: $pass, Failed: $fail"

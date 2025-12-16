@@ -9,6 +9,8 @@ source "${SCRIPT_DIR}/../services/functions.bash"
 
 AUDIO_MATCH_THRESHOLD_TITLE=5
 AUDIO_MATCH_THRESHOLD_TRACKS=3
+AUDIO_MATCH_THRESHOLD_TRACK_DIFF_AVG=1.00
+AUDIO_MATCH_THRESHOLD_TRACK_DIFF_MAX=7
 
 #### Mocks ####
 log() {
@@ -44,11 +46,13 @@ setup_state() {
     set_state "candidateNameDiff" "${1}"
     set_state "candidateTrackDiff" "${2}"
     set_state "candidateYearDiff" "${3}"
-    set_state "deezerCandidateTitleVariant" "${4}"
-    set_state "lidarrReleaseYear" "${5}"
-    set_state "deezerCandidateAlbumID" "${6}"
-    set_state "MOCK_IsBetterMatch_Ret" "${7}"
-    set_state "MOCK_AlbumPreviouslyFailed_Ret" "${8}"
+    set_state "candidateTrackNameDiffAvg" "${4}"
+    set_state "candidateTrackNameDiffMax" "${5}"
+    set_state "deezerCandidateTitleVariant" "${6}"
+    set_state "lidarrReleaseYear" "${7}"
+    set_state "deezerCandidateAlbumID" "${8}"
+    set_state "MOCK_IsBetterMatch_Ret" "${9}"
+    set_state "MOCK_AlbumPreviouslyFailed_Ret" "${10}"
 }
 
 # Helper to execute a test
@@ -92,28 +96,38 @@ reset_state
 
 echo "----------------------------------------------"
 
-# Test 01: Skipped due to name diff
+# Test 01: Skipped due to album name diff
 reset_state
 testName="NameDiff"
-setup_state 6 0 0 "title" "2001" "12345" "0" "1"
+setup_state 6 0 0 "1.00" 7 "title" "2001" "12345" "0" "1"
 run_test "NameDiff" "true" "false" "false" "unset" "false"
 
-# Test 02: Skipped due to track diff
+# Test 02: Skipped due to track count diff
 reset_state
-setup_state 5 4 0 "title" "2001" "12345" "0" "1"
-run_test "TrackDiff" "true" "false" "false" "unset" "false"
+setup_state 5 4 0 "1.00" 7 "title" "2001" "12345" "0" "1"
+run_test "TrackCountDiff" "true" "false" "false" "unset" "false"
 
 # Test 03: Not better match
 reset_state
-setup_state 5 3 1 "title" "2001" "12345" "1" "1"
+setup_state 5 3 1 "1.00" 7 "title" "2001" "12345" "1" "1"
 run_test "WorseMatch" "true" "true" "false" "unset" "false"
 
 # Test 04: Better match, previously failed
 reset_state
-setup_state 5 3 1 "title" "2001" "12345" "0" "0"
+setup_state 5 3 1 "1.00" 7 "title" "2001" "12345" "0" "0"
 run_test "PreviouslyFailed" "true" "true" "true" "12345" "false"
 
 # Test 05: Better match, not previously failed
 reset_state
-setup_state 5 3 1 "title" "2001" "12345" "0" "1"
+setup_state 5 3 1 "1.00" 7 "title" "2001" "12345" "0" "1"
 run_test "PreviouslyFailed" "true" "true" "true" "12345" "true"
+
+# Test 06: Skipped due to track name average diff
+reset_state
+setup_state 5 3 0 "1.01" 7 "title" "2001" "12345" "0" "1"
+run_test "TrackNameDiff" "true" "false" "false" "unset" "false"
+
+# Test 07: Skipped due to track name maximum diff
+reset_state
+setup_state 5 3 0 "1.00" 8 "title" "2001" "12345" "0" "1"
+run_test "TrackNameDiff" "true" "false" "false" "unset" "false"
