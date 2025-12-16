@@ -336,22 +336,26 @@ EvaluateDeezerAlbumCandidate() {
     set_state "deezerCandidateTitle" "${deezerCandidateTitle}"
 
     # Extract track titles
+    log "DEBUG :: Extracting Deezer track titles"
     local track_titles=()
     local deezerCandidateTrackTitles=""
 
     while IFS= read -r track_title; do
         [[ -z "$track_title" ]] && continue
         track_titles+=("$track_title")
+        log "DEBUG :: tmp-in loop"
     done < <(
         safe_jq --optional -r '
             .tracks?.data[]?.title // empty
         ' <<<"$deezerAlbumData"
     )
+    log "DEBUG :: tmp-after loop"
 
     if ((${#track_titles[@]} > 0)); then
         deezerCandidateTrackTitles="$(printf "%s${TRACK_SEP}" "${track_titles[@]}")"
         deezerCandidateTrackTitles="${deezerCandidateTrackTitles%${TRACK_SEP}}"
     fi
+    log "DEBUG :: tmp-setting state"
     set_state "deezerCandidateTrackTitles" "${deezerCandidateTrackTitles}"
 
     local lyricTypeSetting="${AUDIO_LYRIC_TYPE:-}"
