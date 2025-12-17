@@ -263,7 +263,7 @@ CompareTrackTitles() {
 
             ((total_diff += d))
             log "DEBUG :: tmp-5.4"
-            ((compared_tracks++))
+            ((compared_tracks += 1))
             log "DEBUG :: tmp-5.5"
             ((d > max_diff)) && max_diff="$d"
             log "DEBUG :: tmp-5.6"
