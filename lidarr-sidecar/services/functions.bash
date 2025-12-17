@@ -421,8 +421,6 @@ EvaluateTitleVariant() {
     local candidateNameDiff=$(get_state "candidateNameDiff")
     local candidateTrackDiff=$(get_state "candidateTrackDiff")
     local candidateYearDiff=$(get_state "candidateYearDiff")
-    local candidateTrackNameDiffAvg=$(get_state "candidateTrackNameDiffAvg")
-    local candidateTrackNameDiffMax=$(get_state "candidateTrackNameDiffMax")
 
     # Check if meets thresholds
     local deezerCandidateTitleVariant="$(get_state "deezerCandidateTitleVariant")"
@@ -438,6 +436,8 @@ EvaluateTitleVariant() {
     # Calculate track title score
     CompareTrackTitles
 
+    local candidateTrackNameDiffAvg=$(get_state "candidateTrackNameDiffAvg")
+    local candidateTrackNameDiffMax=$(get_state "candidateTrackNameDiffMax")
     if awk "BEGIN { exit !($candidateTrackNameDiffAvg > $AUDIO_MATCH_THRESHOLD_TRACK_DIFF_AVG) }"; then
         log "DEBUG :: Album \"${deezerCandidateTitleVariant,,}\" does not meet matching threshold (Track name difference average=${candidateTrackNameDiffAvg}), skipping..."
         return 0
