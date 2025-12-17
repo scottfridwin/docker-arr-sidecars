@@ -1230,6 +1230,8 @@ sleep 1
 while true; do
     # Cleanup old markers for albums previously marked as not found or downloaded
     FolderCleaner
+    # Clear cache data from previous runs
+    ClearTrackComparisonCache
 
     ProcessLidarrWantedList "missing"
     ProcessLidarrWantedList "cutoff"

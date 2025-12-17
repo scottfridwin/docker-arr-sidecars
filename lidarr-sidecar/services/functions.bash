@@ -205,23 +205,44 @@ CallMusicBrainzAPI() {
     exit 1
 }
 
+# Clears the state values for track name comparisons
+ClearTrackComparisonCache() {
+    local name=$(_get_state_name)
+
+    # Ensure the state object exists
+    if ! declare -p "$name" &>/dev/null; then
+        log "ERROR :: State object '$name' not found for track cache clear."
+        setUnhealthy
+        exit 1
+    fi
+
+    # Name reference to the associative array
+    local -n obj="$name"
+
+    for k in "${!obj[@]}"; do
+        [[ "$k" == trackcache.* ]] && unset "obj[$k]"
+    done
+}
+
 # Compares the track lists from a lidarr release and a deezer album
 CompareTrackTitles() {
     log "TRACE :: Entering CompareTrackTitles..."
 
-    # Check if the current comparison still applies
+    # Check if a cached comparison exists
     local deezerCandidateAlbumID="$(get_state "deezerCandidateAlbumID")"
     local lidarrReleaseForeignId="$(get_state "lidarrReleaseForeignId")"
-    local trackCompareDeezerID="$(get_state "trackCompareDeezerID")"
-    local trackCompareLidarrID="$(get_state "trackCompareLidarrID")"
-    if [[ "$deezerCandidateAlbumID" == "$trackCompareDeezerID" ]] &&
-        [[ "$lidarrReleaseForeignId" == "$trackCompareLidarrID" ]]; then
-        # Current comparison still applies
-        log "DEBUG :: Existing track list comparison still applies"
+    local cache_key="${lidarrReleaseForeignId}|${deezerCandidateAlbumID}"
+    local cached_avg
+    cached_avg="$(get_state "trackcache.${cache_key}.avg")"
+
+    if [[ -n "$cached_avg" ]]; then
+        log "DEBUG :: Using cached track comparison for $cache_key"
+
+        set_state "candidateTrackNameDiffAvg" "$cached_avg"
+        set_state "candidateTrackNameDiffTotal" "$(get_state "trackcache.${cache_key}.tot")"
+        set_state "candidateTrackNameDiffMax" "$(get_state "trackcache.${cache_key}.max")"
         return 0
     fi
-    set_state "trackCompareDeezerID" "$deezerCandidateAlbumID"
-    set_state "trackCompareLidarrID" "$lidarrReleaseForeignId"
 
     local lidarr_raw deezer_raw
     lidarr_raw="$(get_state "lidarrReleaseTrackTitles")"
@@ -239,6 +260,11 @@ CompareTrackTitles() {
         set_state "candidateTrackNameDiffAvg" "0.00"
         set_state "candidateTrackNameDiffTotal" "0"
         set_state "candidateTrackNameDiffMax" "0"
+
+        # Cache results
+        set_state "trackcache.${cache_key}.avg" "0.00"
+        set_state "trackcache.${cache_key}.tot" "0"
+        set_state "trackcache.${cache_key}.max" "0"
         return 0
     fi
 
@@ -289,6 +315,11 @@ CompareTrackTitles() {
     set_state "candidateTrackNameDiffAvg" "$diff_avg"
     set_state "candidateTrackNameDiffTotal" "$total_diff"
     set_state "candidateTrackNameDiffMax" "$max_diff"
+
+    # Cache results
+    set_state "trackcache.${cache_key}.avg" "$diff_avg"
+    set_state "trackcache.${cache_key}.tot" "$total_diff"
+    set_state "trackcache.${cache_key}.max" "$max_diff"
 
     log "TRACE :: Exiting CompareTrackTitles..."
 }
