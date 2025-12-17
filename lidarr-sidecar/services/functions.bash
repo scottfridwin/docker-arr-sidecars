@@ -212,7 +212,7 @@ CompareTrackTitles() {
     local lidarr_raw deezer_raw
     lidarr_raw="$(get_state "lidarrReleaseTrackTitles")"
     deezer_raw="$(get_state "deezerCandidateTrackTitles")"
-    log "DEBUG :: Comparing \"$lidarr_raw\" to \"deezer_raw\"..."
+    log "DEBUG :: Comparing \"$lidarr_raw\" to \"$deezer_raw\"..."
 
     local lidarr_tracks=() deezer_tracks=()
     [[ -n "$lidarr_raw" ]] && IFS="$TRACK_SEP" read -r -a lidarr_tracks <<<"$lidarr_raw"
