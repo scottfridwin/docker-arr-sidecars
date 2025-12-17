@@ -216,10 +216,12 @@ ClearTrackComparisonCache() {
         exit 1
     fi
 
+    log "DEBUG :: Clearing cached track values from state"
     # Name reference to the associative array
     local -n obj="$name"
 
     for k in "${!obj[@]}"; do
+        log "TRACE :: key: $k"
         [[ "$k" == trackcache.* ]] && unset "obj[$k]"
     done
 }
