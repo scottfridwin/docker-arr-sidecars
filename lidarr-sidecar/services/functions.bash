@@ -248,23 +248,25 @@ CompareTrackTitles() {
         done
         log "DEBUG :: tmp-4"
 
-        local total_diff=0
-        local max_diff=0
-        local compared_tracks=0
-
         for ((i = 0; i < max_len; i++)); do
             log "DEBUG :: tmp-5"
             local a="${lidarr_norm[i]:-}"
             local b="${deezer_norm[i]:-}"
+            log "DEBUG :: tmp-5.1"
 
             [[ -z "$a" || -z "$b" ]] && continue
+            log "DEBUG :: tmp-5.2"
 
             local d
             d="$(LevenshteinDistance "$a" "$b")"
+            log "DEBUG :: tmp-5.3"
 
             ((total_diff += d))
+            log "DEBUG :: tmp-5.4"
             ((compared_tracks++))
+            log "DEBUG :: tmp-5.5"
             ((d > max_diff)) && max_diff="$d"
+            log "DEBUG :: tmp-5.6"
         done
         log "DEBUG :: tmp-6"
     fi
