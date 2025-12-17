@@ -209,6 +209,19 @@ CallMusicBrainzAPI() {
 CompareTrackTitles() {
     log "TRACE :: Entering CompareTrackTitles..."
 
+    # Check if the current comparison still applies
+    local deezerCandidateAlbumID="$(get_state "deezerCandidateAlbumID")"
+    local lidarrReleaseForeignId="$(get_state "lidarrReleaseForeignId")"
+    local trackCompareDeezerID="$(get_state "trackCompareDeezerID")"
+    local trackCompareLidarrID="$(get_state "trackCompareLidarrID")"
+    if [[ "$deezerCandidateAlbumID" == "$trackCompareDeezerID" ]] &&
+        [[ "$lidarrReleaseForeignId" == "$trackCompareLidarrID" ]]; then
+        # Current comparison still applies
+        return 0
+    fi
+    set_state "trackCompareDeezerID" "$deezerCandidateAlbumID"
+    set_state "trackCompareLidarrID" "$lidarrReleaseForeignId"
+
     local lidarr_raw deezer_raw
     lidarr_raw="$(get_state "lidarrReleaseTrackTitles")"
     deezer_raw="$(get_state "deezerCandidateTrackTitles")"
@@ -371,9 +384,6 @@ EvaluateDeezerAlbumCandidate() {
         return
     fi
 
-    # Calculate track title score
-    CompareTrackTitles
-
     # Calculate year difference
     local lidarrReleaseYear=$(get_state "lidarrReleaseYear")
     local yearDiff=$(CalculateYearDifference "${deezerCandidateReleaseYear}" "${lidarrReleaseYear}")
@@ -424,6 +434,10 @@ EvaluateTitleVariant() {
         log "DEBUG :: Album \"${deezerCandidateTitleVariant,,}\" does not meet matching threshold (Track count difference=${candidateTrackDiff}), skipping..."
         return 0
     fi
+
+    # Calculate track title score
+    CompareTrackTitles
+
     if awk "BEGIN { exit !($candidateTrackNameDiffAvg > $AUDIO_MATCH_THRESHOLD_TRACK_DIFF_AVG) }"; then
         log "DEBUG :: Album \"${deezerCandidateTitleVariant,,}\" does not meet matching threshold (Track name difference average=${candidateTrackNameDiffAvg}), skipping..."
         return 0
