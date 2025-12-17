@@ -264,7 +264,7 @@ CompareTrackTitles() {
 
             if [[ "$d" =~ ^[0-9]+$ ]]; then
                 log "DEBUG :: tmp3.3.1"
-                ((total_diff += d))
+                total_diff=$((total_diff + d))
                 log "DEBUG :: tmp3.3.2"
             else
                 log "ERROR :: Invalid Levenshtein distance '$d' for '$a' vs '$b'"
@@ -272,7 +272,7 @@ CompareTrackTitles() {
                 exit 1
             fi
             log "DEBUG :: tmp3.4"
-            ((compared_tracks += 1))
+            compared_tracks=$((compared_tracks + 1))
             log "DEBUG :: tmp3.5"
             ((d > max_diff)) && max_diff="$d"
             log "DEBUG :: tmp3.6"
