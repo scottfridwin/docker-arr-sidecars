@@ -1050,6 +1050,9 @@ SkipReleaseCandidate() {
             log "DEBUG :: Current candidate has worse format priority than best match; Skipping..."
             return 0
         fi
+
+        log "DEBUG :: Current candidate is not better in any measured attribute; Skipping..."
+        return 0
     fi
 
     return 1

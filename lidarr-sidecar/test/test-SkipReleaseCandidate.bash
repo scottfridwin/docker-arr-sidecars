@@ -80,15 +80,15 @@ else
     ((fail++))
 fi
 
-# Test 05: Equal country priority -> No skip
+# Test 05: Equal country priority -> Fallback skip
 testName="Equal country priority"
 reset_state
 setup_state "true" "3" "3" "0" "0" "0" "0" "false" "false"
-if ! SkipReleaseCandidate; then
-    echo "✅ PASS: $testName -> No skip"
+if SkipReleaseCandidate; then
+    echo "✅ PASS: $testName -> Skip"
     ((pass++))
 else
-    echo "❌ FAIL: '$testName' should not skip"
+    echo "❌ FAIL: '$testName' should skip"
     ((fail++))
 fi
 
@@ -140,15 +140,15 @@ else
     ((fail++))
 fi
 
-# Test 10: Equal track count -> No skip
+# Test 10: Equal track count -> Fallback skip
 testName="Equal track count"
 reset_state
 setup_state "true" "0" "0" "3" "3" "0" "0" "false" "false"
-if ! SkipReleaseCandidate; then
-    echo "✅ PASS: $testName -> No skip"
+if SkipReleaseCandidate; then
+    echo "✅ PASS: $testName -> Skip"
     ((pass++))
 else
-    echo "❌ FAIL: '$testName' should not skip"
+    echo "❌ FAIL: '$testName' should skip"
     ((fail++))
 fi
 
@@ -200,15 +200,15 @@ else
     ((fail++))
 fi
 
-# Test 15: Equal format priority -> No skip
+# Test 15: Equal format priority -> Fallback skip
 testName="Equal format priority"
 reset_state
 setup_state "true" "0" "0" "0" "0" "3" "3" "false" "false"
-if ! SkipReleaseCandidate; then
-    echo "✅ PASS: $testName -> No skip"
+if SkipReleaseCandidate; then
+    echo "✅ PASS: $testName -> Skip"
     ((pass++))
 else
-    echo "❌ FAIL: '$testName' should not skip"
+    echo "❌ FAIL: '$testName' should skip"
     ((fail++))
 fi
 
