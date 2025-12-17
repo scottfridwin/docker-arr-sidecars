@@ -224,6 +224,7 @@ ClearTrackComparisonCache() {
         log "TRACE :: key: $k"
         [[ "$k" == trackcache.* ]] && unset "obj[$k]"
     done
+    log "DEBUG :: Cleared all cached track values from state"
 }
 
 # Compares the track lists from a lidarr release and a deezer album
