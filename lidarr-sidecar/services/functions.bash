@@ -212,6 +212,7 @@ CompareTrackTitles() {
     local lidarr_raw deezer_raw
     lidarr_raw="$(get_state "lidarrReleaseTrackTitles")"
     deezer_raw="$(get_state "deezerCandidateTrackTitles")"
+    log "DEBUG :: Comparing \"$lidarr_raw\" to \"deezer_raw\"..."
 
     local lidarr_tracks=() deezer_tracks=()
     [[ -n "$lidarr_raw" ]] && IFS="$TRACK_SEP" read -r -a lidarr_tracks <<<"$lidarr_raw"
@@ -346,19 +347,16 @@ EvaluateDeezerAlbumCandidate() {
     while IFS= read -r track_title; do
         [[ -z "$track_title" ]] && continue
         track_titles+=("$track_title")
-        log "DEBUG :: tmp-in loop"
     done < <(
         safe_jq --optional -r '
             .tracks?.data[]?.title // empty
         ' <<<"$deezerAlbumData"
     )
-    log "DEBUG :: tmp-after loop"
 
     if ((${#track_titles[@]} > 0)); then
         deezerCandidateTrackTitles="$(printf "%s${TRACK_SEP}" "${track_titles[@]}")"
         deezerCandidateTrackTitles="${deezerCandidateTrackTitles%${TRACK_SEP}}"
     fi
-    log "DEBUG :: tmp-setting state"
     set_state "deezerCandidateTrackTitles" "${deezerCandidateTrackTitles}"
 
     local lyricTypeSetting="${AUDIO_LYRIC_TYPE:-}"
