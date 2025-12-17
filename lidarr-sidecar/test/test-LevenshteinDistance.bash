@@ -27,6 +27,28 @@ declare -A TESTS=(
     ["the vectors|the vectors (red album)"]="12"
     ["the beetles|beetles"]="4"
     ["lightning brigade vi|lightning brigade 5"]="2"
+    ["|"]="0"
+    [" | "]="0"
+    ["\t|\t"]="0"
+    ["\n|\n"]="0"
+    ["foo |foo"]="1"
+    ["foo| foo"]="1"
+    ["\$HOME|HOME"]="1"
+    ["*|*"]="0"
+    ["?|!"]="1"
+    ["foo;rm -rf /|foo"]="9"
+    ["\"quoted\"|quoted"]="2"
+    ["'single'|single"]="2"
+    ["foo\\bar|foobar"]="1"
+    ["café|cafe"]="1"
+    ["naïve|naive"]="1"
+    ["über|uber"]="1"
+    ["🎵|"]="1"
+    ["🎵|🎵"]="0"
+    ["00123|123"]="2"
+    ["123.45|12345"]="1"
+    ["1e10|10000000000"]="9"
+    ["foo"$'\x7f'"|foo"]="1"
 )
 
 # --- Run tests ---
@@ -48,6 +70,25 @@ for test_case in "${!TESTS[@]}"; do
         ((fail++))
     fi
 done
+
+echo "----------------------------------------------"
+echo "Fuzzy testing..."
+fuzzyFail=0
+for i in {1..100}; do
+    s1="$(tr -dc '[:print:]' </dev/urandom | head -c 20)"
+    s2="$(tr -dc '[:print:]' </dev/urandom | head -c 20)"
+
+    out="$(LevenshteinDistance "$s1" "$s2")"
+
+    if ! [[ "$out" =~ ^[0-9]+$ ]]; then
+        echo "❌ FUZZ FAIL: '$s1' vs '$s2' → '$out'"
+        ((fail++))
+        fuzzyFail=1
+    fi
+done
+if ((fuzzyFail == 0)); then
+    echo "✅ Fuzzy tests PASS"
+fi
 
 echo "----------------------------------------------"
 echo "Passed: $pass, Failed: $fail"

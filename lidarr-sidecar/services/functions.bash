@@ -209,7 +209,6 @@ CallMusicBrainzAPI() {
 CompareTrackTitles() {
     log "TRACE :: Entering CompareTrackTitles..."
 
-    log "DEBUG :: tmp-Calculating track title differences"
     local lidarr_raw deezer_raw
     lidarr_raw="$(get_state "lidarrReleaseTrackTitles")"
     deezer_raw="$(get_state "deezerCandidateTrackTitles")"
@@ -217,7 +216,7 @@ CompareTrackTitles() {
     local lidarr_tracks=() deezer_tracks=()
     [[ -n "$lidarr_raw" ]] && IFS="$TRACK_SEP" read -r -a lidarr_tracks <<<"$lidarr_raw"
     [[ -n "$deezer_raw" ]] && IFS="$TRACK_SEP" read -r -a deezer_tracks <<<"$deezer_raw"
-    log "DEBUG :: tmp-1"
+
     local lidarr_len=${#lidarr_tracks[@]}
     local deezer_len=${#deezer_tracks[@]}
     local max_len=$(($lidarr_len > $deezer_len ? $lidarr_len : $deezer_len))
@@ -225,20 +224,17 @@ CompareTrackTitles() {
         set_state "candidateTrackNameDiffAvg" "0.00"
         set_state "candidateTrackNameDiffTotal" "0"
         set_state "candidateTrackNameDiffMax" "0"
-        log "DEBUG :: tmp-1.5"
         return 0
     fi
-    log "DEBUG :: tmp-2"
+
     local total_diff=0
     local max_diff=0
     local compared_tracks=0
     if (($lidarr_len != $deezer_len)); then
-        log "DEBUG :: tmp-2.5"
         total_diff=999
         max_diff=999
         compared_tracks=1
     else
-        log "DEBUG :: tmp-3"
         local lidarr_norm=() deezer_norm=()
         for t in "${lidarr_tracks[@]}"; do
             lidarr_norm+=("$(normalize_string "$t")")
@@ -246,32 +242,28 @@ CompareTrackTitles() {
         for t in "${deezer_tracks[@]}"; do
             deezer_norm+=("$(normalize_string "$t")")
         done
-        log "DEBUG :: tmp-4"
 
         for ((i = 0; i < max_len; i++)); do
-            log "DEBUG :: tmp-5"
             local a="${lidarr_norm[i]:-}"
             local b="${deezer_norm[i]:-}"
-            log "DEBUG :: tmp-5.1"
 
             [[ -z "$a" || -z "$b" ]] && continue
-            log "DEBUG :: tmp-5.2"
 
             local d
             d="$(LevenshteinDistance "$a" "$b")"
-            log "DEBUG :: tmp-5.3"
 
-            ((total_diff += d))
-            log "DEBUG :: tmp-5.4"
+            if [[ "$d" =~ ^[0-9]+$ ]]; then
+                ((total_diff += d))
+            else
+                log "ERROR :: Invalid Levenshtein distance '$d' for '$a' vs '$b'"
+                setUnhealthy
+                exit 1
+            fi
             ((compared_tracks += 1))
-            log "DEBUG :: tmp-5.5"
             ((d > max_diff)) && max_diff="$d"
-            log "DEBUG :: tmp-5.6"
         done
-        log "DEBUG :: tmp-6"
     fi
 
-    log "DEBUG :: tmp-7"
     local diff_avg
     diff_avg="$(awk -v d="$total_diff" -v n="$compared_tracks" \
         'BEGIN { printf "%.2f", (n > 0 ? d / n : 0) }')"
@@ -729,50 +721,63 @@ IsLyricTypePreferred() {
     esac
 }
 
-# Calculate Levenshtein distance between two strings
+# Calculate Levenshtein distance between two strings (integer-only, hardened)
 LevenshteinDistance() {
-    local s1="${1}"
-    local s2="${2}"
+    local s1="${1:-}"
+    local s2="${2:-}"
+
     local len_s1=${#s1}
     local len_s2=${#s2}
 
-    # If either string is empty, distance is the other's length
+    # Empty string fast-paths (guaranteed integers)
     if ((len_s1 == 0)); then
-        echo "${len_s2}"
-        return
-    elif ((len_s2 == 0)); then
-        echo "${len_s1}"
-        return
+        printf '%d\n' "$len_s2"
+        return 0
+    fi
+    if ((len_s2 == 0)); then
+        printf '%d\n' "$len_s1"
+        return 0
     fi
 
-    # Initialize 2 arrays for the current and previous row
     local -a prev curr
+    local i j
+
+    # Initialize first row
     for ((j = 0; j <= len_s2; j++)); do
-        prev[j]=${j}
+        prev[j]=$j
     done
 
     for ((i = 1; i <= len_s1; i++)); do
-        curr[0]=${i}
+        curr[0]=$i
         local s1_char="${s1:i-1:1}"
+
         for ((j = 1; j <= len_s2; j++)); do
             local s2_char="${s2:j-1:1}"
             local cost=1
             [[ "$s1_char" == "$s2_char" ]] && cost=0
 
+            # All operands guaranteed integers
             local del=$((prev[j] + 1))
             local ins=$((curr[j - 1] + 1))
             local sub=$((prev[j - 1] + cost))
 
-            local min=${del}
-            ((ins < min)) && min=${ins}
-            ((sub < min)) && min=${sub}
+            local min=$del
+            ((ins < min)) && min=$ins
+            ((sub < min)) && min=$sub
 
-            curr[j]=${min}
+            curr[j]=$min
         done
+
+        # Copy row safely
         prev=("${curr[@]}")
     done
 
-    echo "${curr[len_s2]}"
+    # Final guard — should never trigger, but guarantees integer output
+    if [[ "${curr[len_s2]:-}" =~ ^[0-9]+$ ]]; then
+        printf '%d\n' "${curr[len_s2]}"
+    else
+        printf '0\n'
+    fi
 }
 
 # Normalize a Deezer album title (truncate and apply replacements)
