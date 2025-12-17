@@ -217,7 +217,6 @@ CompareTrackTitles() {
     local lidarr_tracks=() deezer_tracks=()
     [[ -n "$lidarr_raw" ]] && IFS="$TRACK_SEP" read -r -a lidarr_tracks <<<"$lidarr_raw"
     [[ -n "$deezer_raw" ]] && IFS="$TRACK_SEP" read -r -a deezer_tracks <<<"$deezer_raw"
-    log "DEBUG :: tmp1"
 
     local lidarr_len=${#lidarr_tracks[@]}
     local deezer_len=${#deezer_tracks[@]}
@@ -228,18 +227,15 @@ CompareTrackTitles() {
         set_state "candidateTrackNameDiffMax" "0"
         return 0
     fi
-    log "DEBUG :: tmp2"
 
     local total_diff=0
     local max_diff=0
     local compared_tracks=0
     if (($lidarr_len != $deezer_len)); then
-        log "DEBUG :: tmp2.1"
         total_diff=999
         max_diff=999
         compared_tracks=1
     else
-        log "DEBUG :: tmp2.2"
         local lidarr_norm=() deezer_norm=()
         for t in "${lidarr_tracks[@]}"; do
             lidarr_norm+=("$(normalize_string "$t")")
@@ -247,37 +243,27 @@ CompareTrackTitles() {
         for t in "${deezer_tracks[@]}"; do
             deezer_norm+=("$(normalize_string "$t")")
         done
-        log "DEBUG :: tmp3"
 
         for ((i = 0; i < max_len; i++)); do
             local a="${lidarr_norm[i]:-}"
             local b="${deezer_norm[i]:-}"
-            log "DEBUG :: tmp3.1"
 
             [[ -z "$a" || -z "$b" ]] && continue
-            log "DEBUG :: tmp3.2"
 
             local d
             log "DEBUG :: Calculating distance \"$a\" to \"$b\"..."
             d="$(LevenshteinDistance "$a" "$b")"
-            log "DEBUG :: tmp3.3"
 
             if [[ "$d" =~ ^[0-9]+$ ]]; then
-                log "DEBUG :: tmp3.3.1"
                 total_diff=$((total_diff + d))
-                log "DEBUG :: tmp3.3.2"
             else
                 log "ERROR :: Invalid Levenshtein distance '$d' for '$a' vs '$b'"
                 setUnhealthy
                 exit 1
             fi
-            log "DEBUG :: tmp3.4"
             compared_tracks=$((compared_tracks + 1))
-            log "DEBUG :: tmp3.5"
             ((d > max_diff)) && max_diff="$d"
-            log "DEBUG :: tmp3.6"
         done
-        log "DEBUG :: tmp4"
     fi
 
     local diff_avg
