@@ -295,7 +295,7 @@ CompareTrackTitles() {
 
             local d
             log "DEBUG :: Calculating distance \"$a\" to \"$b\"..."
-            d="$(LevenshteinDistance "$a" "$b")"
+            d="$(LevenshteinDistance "${a,,}" "${b,,}")"
 
             if [[ "$d" =~ ^[0-9]+$ ]]; then
                 total_diff=$((total_diff + d))

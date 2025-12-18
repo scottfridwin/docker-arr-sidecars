@@ -190,7 +190,7 @@ deezer_tracks=(
     "overture"
     "Movement I."
 )
-run_test "Case and punctuation differences" lidarr_tracks deezer_tracks "2" "1.00" "1"
+run_test "Case and punctuation differences" lidarr_tracks deezer_tracks "1" "0.50" "1"
 
 # Test 12: Longer album with multiple differences
 reset_state
@@ -222,7 +222,7 @@ lidarr_tracks=("Café del Mar" "L'été")
 deezer_tracks=("Cafe del Mar" "Lete")
 run_test "Unicode / accented characters" lidarr_tracks deezer_tracks "4" "2.00" "3"
 
-# Test 15: Longer album with one mix-matched track
+# Test 15: Longer album with one mis-matched track
 reset_state
 lidarr_tracks=(
     "Track 1"
@@ -238,7 +238,7 @@ deezer_tracks=(
     "Track 4"
     "Track 5"
 )
-run_test "Longer album with one mix-matched track" lidarr_tracks deezer_tracks "16" "3.20" "16"
+run_test "Longer album with one mis-matched track" lidarr_tracks deezer_tracks "15" "3.00" "15"
 
 # Test 16: Real Example 1
 reset_state
@@ -291,6 +291,16 @@ set_state "trackcache.lidarrId|deezerId.avg" "2.34"
 set_state "trackcache.lidarrId|deezerId.tot" "18"
 set_state "trackcache.lidarrId|deezerId.max" "6"
 run_test "Cache key exists" lidarr_tracks deezer_tracks "18" "2.34" "6"
+
+# Test 18: Case sensitivity
+reset_state
+lidarr_tracks=(
+    "cAsE seNsItIvItY"
+)
+deezer_tracks=(
+    "Case Sensitivity"
+)
+run_test "Case sensitivity" lidarr_tracks deezer_tracks "0" "0.00" "0"
 
 echo "----------------------------------------------"
 echo "Passed: $pass, Failed: $fail"
