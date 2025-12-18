@@ -250,7 +250,7 @@ CompareTrackTitles() {
     local lidarr_raw deezer_raw
     lidarr_raw="$(get_state "lidarrReleaseTrackTitles")"
     deezer_raw="$(get_state "deezerCandidateTrackTitles")"
-    log "DEBUG :: Comparing track lists of deezer \"$deezerCandidateAlbumID\" to lidarr \"$lidarrReleaseForeignId\""
+    log "DEBUG :: Comparing track lists of lidarr \"$lidarrReleaseForeignId\" to deezer \"$deezerCandidateAlbumID\""
 
     local lidarr_tracks=() deezer_tracks=()
     [[ -n "$lidarr_raw" ]] && IFS="$TRACK_SEP" read -r -a lidarr_tracks <<<"$lidarr_raw"
@@ -398,7 +398,7 @@ EvaluateDeezerAlbumCandidate() {
         track_titles+=("$track_title")
     done < <(
         safe_jq --optional -r '
-            .tracks?.data[]?.title // empty
+            .tracks?.data[]?.title_short // empty
         ' <<<"$deezerAlbumData"
     )
 
