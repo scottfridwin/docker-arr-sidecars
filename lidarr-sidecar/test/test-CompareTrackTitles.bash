@@ -302,6 +302,50 @@ deezer_tracks=(
 )
 run_test "Case sensitivity" lidarr_tracks deezer_tracks "0" "0.00" "0"
 
+# Test 19: Real Example 2
+reset_state
+lidarr_tracks=(
+    "I Forgot That You Existed"
+    "Cruel Summer"
+    "Lover"
+    "The Man"
+    "The Archer"
+    "I Think He Knows"
+    "Miss Americana and the Heartbreak Prince"
+    "Paper Rings"
+    "Cornelia Street"
+    "Death by a Thousand Cuts"
+    "London Boy"
+    "Soon You'll Get Better"
+    "False God"
+    "You Need to Calm Down"
+    "Afterglow"
+    "ME"
+    "It's Nice to Have a Friend"
+    "Daylight"
+)
+deezer_tracks=(
+    "I Forgot That You Existed"
+    "Cruel Summer"
+    "Lover"
+    "The Man"
+    "The Archer"
+    "I Think He Knows"
+    "Miss Americana and the Heartbreak Prince"
+    "Paper Rings"
+    "Cornelia Street"
+    "Death by a Thousand Cuts"
+    "London Boy"
+    "Soon You'll Get Better"
+    "False God"
+    "You Need to Calm Down"
+    "Afterglow"
+    "ME feat. Brendon Urie of Panic At The Disco"
+    "It's Nice To Have A Friend"
+    "Daylight"
+)
+run_test "Real Example 2" lidarr_tracks deezer_tracks "0" "0.00" "0"
+
 echo "----------------------------------------------"
 echo "Passed: $pass, Failed: $fail"
 

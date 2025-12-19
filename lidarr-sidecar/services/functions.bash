@@ -298,12 +298,32 @@ CompareTrackTitles() {
             d="$(LevenshteinDistance "${a,,}" "${b,,}")"
 
             if [[ "$d" =~ ^[0-9]+$ ]]; then
-                total_diff=$((total_diff + d))
+                # Second-pass comparison: strip feature annotations from Deezer title
+                if ((d > 0)); then
+                    local b_stripped
+                    b_stripped="$(StripTrackFeature "$b")"
+
+                    if [[ -n "$b_stripped" && "$b_stripped" != "$b" ]]; then
+                        local d2
+                        log "DEBUG :: Recalculating distance \"$a\" to \"$b_stripped\" (feature stripped)..."
+                        d2="$(LevenshteinDistance "${a,,}" "${b_stripped,,}")"
+
+                        ((d2 < d)) && d="$d2"
+                    fi
+                fi
+                if [[ "$d" =~ ^[0-9]+$ ]]; then
+                    total_diff=$((total_diff + d))
+                else
+                    log "ERROR :: Invalid Levenshtein distance '$d' for '$a' vs '$b'"
+                    setUnhealthy
+                    exit 1
+                fi
             else
                 log "ERROR :: Invalid Levenshtein distance '$d' for '$a' vs '$b'"
                 setUnhealthy
                 exit 1
             fi
+
             compared_tracks=$((compared_tracks + 1))
             ((d > max_diff)) && max_diff="$d"
         done
@@ -1091,6 +1111,23 @@ SkipReleaseCandidate() {
     fi
 
     return 1
+}
+
+# Strips artist feature tags from a track name
+StripTrackFeature() {
+    local s="$1"
+
+    # 1) Remove parenthetical feature annotations
+    s="$(sed -E 's/[[:space:]]*\((feat\.?|ft\.?|featuring)[^)]*\)//Ig' <<<"$s")"
+
+    # 2) Remove non-parenthetical feature annotations, e.g.:
+    #    " - feat. X", " feat X", " ft. X", " featuring X"
+    s="$(sed -E 's/[[:space:]]*[-–—]?[[:space:]]*(feat\.?|ft\.?|featuring)[[:space:]].*$//Ig' <<<"$s")"
+
+    # 3) Normalize whitespace
+    s="$(sed -E 's/[[:space:]]+/ /g; s/^ //; s/ $//' <<<"$s")"
+
+    printf '%s' "$s"
 }
 
 # Update best match state with new candidate
