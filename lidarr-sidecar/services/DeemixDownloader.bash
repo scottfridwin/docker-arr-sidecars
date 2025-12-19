@@ -192,6 +192,7 @@ GetDeezerArtistAlbums() {
 
         local page
         page="$(get_state "deezerApiResponse")"
+        log "DEBUG :: page: $page"
 
         # Validate JSON
         if ! safe_jq '.' <<<"$page" >/dev/null 2>&1; then
@@ -204,6 +205,7 @@ GetDeezerArtistAlbums() {
         # Detect actual Deezer API errors
         local error_type
         error_type="$(safe_jq --optional '.error.type' <<<"$page")"
+        log "DEBUG :: error_type: $error_type"
         if [[ -n "$error_type" ]]; then
             local error_msg
             error_msg="$(safe_jq --optional '.error.message' <<<"$page")"
@@ -213,14 +215,18 @@ GetDeezerArtistAlbums() {
         fi
 
         # Extract albums
+        log "DEBUG :: page: $page"
         mapfile -t page_albums < <(
             safe_jq -c '[.data[]]' <<<"$page"
         )
+        log "DEBUG :: page_albums: $page_albums"
 
         all_albums+=("${page_albums[@]}")
+        log "DEBUG :: all_albums: $all_albums"
 
         # Follow pagination
         nextUrl="$(safe_jq --optional '.paging.next' <<<"$page")"
+        log "DEBUG :: nextUrl: $nextUrl"
 
         [[ -n "$nextUrl" ]] && sleep 0.2
     done
