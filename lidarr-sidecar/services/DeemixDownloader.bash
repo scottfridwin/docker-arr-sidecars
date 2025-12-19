@@ -201,11 +201,13 @@ GetDeezerArtistAlbums() {
             return 1
         fi
 
-        # Detect actual Deezer API errors (not null placeholders)
+        # Detect actual Deezer API errors
         local error_type
-        error_type="$(safe_jq -r '.error.type // empty' <<<"$page")"
+        error_type="$(safe_jq --optional '.error.type' <<<"$page")"
         if [[ -n "$error_type" ]]; then
-            log "ERROR :: Deezer API error (${error_type}): $(safe_jq -r '.error.message // "unknown error"' <<<"$page")"
+            local error_msg
+            error_msg="$(safe_jq --optional '.error.message' <<<"$page")"
+            log "ERROR :: Deezer API error (${error_type}): ${error_msg}"
             setUnhealthy
             return 1
         fi
@@ -218,7 +220,7 @@ GetDeezerArtistAlbums() {
         all_albums+=("${page_albums[@]}")
 
         # Follow pagination
-        nextUrl="$(safe_jq -r '.paging.next // empty' <<<"$page")"
+        nextUrl="$(safe_jq --optional '.paging.next' <<<"$page")"
 
         [[ -n "$nextUrl" ]] && sleep 0.2
     done
