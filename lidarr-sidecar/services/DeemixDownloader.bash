@@ -193,7 +193,7 @@ GetDeezerArtistAlbums() {
         local page
         page="$(get_state "deezerApiResponse")"
 
-        # Validate JSON before parsing
+        # Validate JSON
         if ! safe_jq '.' <<<"$page" >/dev/null 2>&1; then
             log "ERROR :: Deezer returned invalid JSON for artist ${artistId}"
             log "ERROR :: Raw response (first 200 chars): ${page:0:200}"
@@ -201,14 +201,16 @@ GetDeezerArtistAlbums() {
             return 1
         fi
 
-        # Handle Deezer error payloads
-        if safe_jq --optional '.error' <<<"$page" >/dev/null; then
-            log "ERROR :: Deezer API error: $(safe_jq '.error.message' <<<"$page")"
+        # Detect actual Deezer API errors (not null placeholders)
+        local error_type
+        error_type="$(safe_jq -r '.error.type // empty' <<<"$page")"
+        if [[ -n "$error_type" ]]; then
+            log "ERROR :: Deezer API error (${error_type}): $(safe_jq -r '.error.message // "unknown error"' <<<"$page")"
             setUnhealthy
             return 1
         fi
 
-        # Extract album objects
+        # Extract albums
         mapfile -t page_albums < <(
             safe_jq -c '.data[]' <<<"$page"
         )
@@ -216,13 +218,11 @@ GetDeezerArtistAlbums() {
         all_albums+=("${page_albums[@]}")
 
         # Follow pagination
-        nextUrl="$(safe_jq --optional -r '.paging.next // empty' <<<"$page")"
+        nextUrl="$(safe_jq -r '.paging.next // empty' <<<"$page")"
 
-        # Be polite to Deezer
         [[ -n "$nextUrl" ]] && sleep 0.2
     done
 
-    # Assemble final JSON payload
     artistJson="$(
         safe_jq \
             --argjson albums "$(printf '%s\n' "${all_albums[@]}" | safe_jq -s '.')" \
