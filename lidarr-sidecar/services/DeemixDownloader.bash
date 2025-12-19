@@ -223,9 +223,18 @@ GetDeezerArtistAlbums() {
     done
 
     # Assemble final JSON payload
-    artistJson="$(safe_jq \
-        --argjson albums "$(printf '%s\n' "${all_albums[@]}" |_
+    artistJson="$(
+        safe_jq \
+            --argjson albums "$(printf '%s\n' "${all_albums[@]}" | safe_jq -s '.')" \
+            '{ data: $albums }'
+    )"
 
+    echo "${artistJson}" >"${artistCacheFile}"
+    set_state "deezerArtistInfo" "${artistJson}"
+
+    log "TRACE :: Exiting GetDeezerArtistAlbums..."
+    return 0
+}
 
 # Add custom download client if it doesn't already exist
 AddDownloadClient() {
