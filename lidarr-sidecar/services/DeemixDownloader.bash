@@ -90,35 +90,71 @@ GetDeezerAlbumInfo() {
 
     mkdir -p "${AUDIO_WORK_PATH}/cache"
 
-    # Use cache if exists and valid
+    # Load from cache if valid
     if [[ -f "${albumCacheFile}" ]]; then
         if safe_jq --optional '.' <"${albumCacheFile}" >/dev/null 2>&1; then
             log "DEBUG :: Using cached Deezer album data for ${albumId}"
             albumJson="$(<"${albumCacheFile}")"
-            set_state "deezerAlbumInfo" "${albumJson}"
-            return 0
         else
             log "WARNING :: Cached album JSON invalid, will refetch: ${albumCacheFile}"
         fi
     fi
 
-    # Fetch new data using generic API helper
-    local apiUrl="https://api.deezer.com/album/${albumId}"
-    if CallDeezerAPI "${apiUrl}"; then
-        albumJson="$(get_state "deezerApiResponse")"
-        if [[ -n "${albumJson}" ]]; then
-            echo "${albumJson}" >"${albumCacheFile}"
-            set_state "deezerAlbumInfo" "${albumJson}"
-            returnCode=0
+    # Fetch album if not loaded
+    if [[ -z "$albumJson" ]]; then
+        local apiUrl="https://api.deezer.com/album/${albumId}"
+        if ! CallDeezerAPI "${apiUrl}"; then
+            log "WARNING :: Failed to get album info for ${albumId}"
+            return 1
         fi
+        albumJson="$(get_state "deezerApiResponse")"
     fi
 
-    if ((returnCode != 0)); then
-        log "WARNING :: Failed to get album info for ${albumId}"
+    # Determine if track pagination is needed
+    local nb_tracks embedded_tracks
+    nb_tracks="$(safe_jq '.nb_tracks' <<<"$albumJson")"
+    embedded_tracks="$(safe_jq '.tracks.data | length' <<<"$albumJson")"
+
+    if ((embedded_tracks < nb_tracks)); then
+        log "DEBUG :: Album ${albumId} has ${nb_tracks} tracks, fetching remaining pages"
+
+        local all_tracks=()
+        local nextUrl="https://api.deezer.com/album/${albumId}/tracks"
+
+        while [[ -n "$nextUrl" ]]; do
+            if ! CallDeezerAPI "$nextUrl"; then
+                log "ERROR :: Failed fetching Deezer album tracks"
+                setUnhealthy
+                return 1
+            fi
+
+            local page
+            page="$(get_state "deezerApiResponse")"
+
+            mapfile -t page_tracks < <(
+                safe_jq -c '.data[]' <<<"$page"
+            )
+
+            all_tracks+=("${page_tracks[@]}")
+
+            nextUrl="$(safe_jq --optional -r '.paging.next // empty' <<<"$page")"
+        done
+
+        # Replace tracks.data with full list
+        albumJson="$(
+            safe_jq \
+                --argjson tracks "$(printf '%s\n' "${all_tracks[@]}" | safe_jq -s '.')" \
+                '.tracks.data = $tracks | del(.tracks.paging)' \
+                <<<"$albumJson"
+        )"
     fi
+
+    # Cache + state
+    echo "${albumJson}" >"${albumCacheFile}"
+    set_state "deezerAlbumInfo" "${albumJson}"
 
     log "TRACE :: Exiting GetDeezerAlbumInfo..."
-    return "${returnCode}"
+    return 0
 }
 
 # Fetch Deezer artist albums with caching (uses CallDeezerAPI)
@@ -131,7 +167,7 @@ GetDeezerArtistAlbums() {
 
     mkdir -p "${AUDIO_WORK_PATH}/cache"
 
-    # Use cache if exists and valid
+    # Load from cache if valid
     if [[ -f "${artistCacheFile}" ]]; then
         if safe_jq --optional '.' <"${artistCacheFile}" >/dev/null 2>&1; then
             log "DEBUG :: Using cached Deezer artist album list for ${artistId}"
@@ -143,23 +179,38 @@ GetDeezerArtistAlbums() {
         fi
     fi
 
-    # Fetch new data using generic API helper
-    local apiUrl="https://api.deezer.com/artist/${artistId}/albums?limit=1000"
-    if CallDeezerAPI "${apiUrl}"; then
-        artistJson="$(get_state "deezerApiResponse")"
-        if [[ -n "${artistJson}" ]]; then
-            echo "${artistJson}" >"${artistCacheFile}"
-            set_state "deezerArtistInfo" "${artistJson}"
-            returnCode=0
-        fi
-    fi
+    local all_albums=()
+    local nextUrl="https://api.deezer.com/artist/${artistId}/albums?limit=100"
 
-    if ((returnCode != 0)); then
-        log "WARNING :: Failed to get artist albums for ${artistId}"
-    fi
+    while [[ -n "$nextUrl" ]]; do
+        if ! CallDeezerAPI "$nextUrl"; then
+            log "WARNING :: Failed to get artist albums for ${artistId}"
+            return 1
+        fi
+
+        local page
+        page="$(get_state "deezerApiResponse")"
+
+        mapfile -t page_albums < <(
+            safe_jq -c '.data[]' <<<"$page"
+        )
+
+        all_albums+=("${page_albums[@]}")
+
+        nextUrl="$(safe_jq --optional -r '.paging.next // empty' <<<"$page")"
+    done
+
+    artistJson="$(
+        safe_jq \
+            --argjson albums "$(printf '%s\n' "${all_albums[@]}" | safe_jq -s '.')" \
+            '{ data: $albums }'
+    )"
+
+    echo "${artistJson}" >"${artistCacheFile}"
+    set_state "deezerArtistInfo" "${artistJson}"
 
     log "TRACE :: Exiting GetDeezerArtistAlbums..."
-    return "${returnCode}"
+    return 0
 }
 
 # Add custom download client if it doesn't already exist
