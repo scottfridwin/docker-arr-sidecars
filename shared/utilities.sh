@@ -601,6 +601,7 @@ safe_jq() {
     # Validate minimal JSON structure
     if [[ -z "$input" || ("$input" != *"{"* && "$input" != *"["*) ]]; then
         log "ERROR :: safe_jq received invalid JSON input"
+        log "ERROR :: JSON input: $input"
         setUnhealthy
         exit 1
     fi

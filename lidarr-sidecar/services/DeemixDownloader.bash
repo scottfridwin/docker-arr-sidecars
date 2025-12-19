@@ -214,7 +214,7 @@ GetDeezerArtistAlbums() {
 
         # Extract albums
         mapfile -t page_albums < <(
-            safe_jq -c '.data[]' <<<"$page"
+            safe_jq -c '[.data[]]' <<<"$page"
         )
 
         all_albums+=("${page_albums[@]}")
