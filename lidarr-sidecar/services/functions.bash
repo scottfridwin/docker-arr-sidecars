@@ -276,6 +276,12 @@ CompareTrackTitles() {
     local compared_tracks=0
     if (($lidarr_len != $deezer_len)); then
         log "DEBUG :: Lidarr release has a different number of tracks that the deezer release (lidarr $lidarr_len; deezer $deezer_len)"
+        for t in "${lidarr_tracks[@]}"; do
+            log "DEBUG :: tmp - lidarr track: \"$t\""
+        done
+        for t in "${deezer_tracks[@]}"; do
+            log "DEBUG :: tmp - deezer track: \"$t\""
+        done
         total_diff=999
         max_diff=999
         compared_tracks=1
