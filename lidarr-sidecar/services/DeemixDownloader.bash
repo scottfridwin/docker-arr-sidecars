@@ -163,11 +163,10 @@ GetDeezerArtistAlbums() {
     local artistId="$1"
     local artistCacheFile="${AUDIO_WORK_PATH}/cache/artist-${artistId}-albums.json"
     local artistJson=""
-    local returnCode=1
 
     mkdir -p "${AUDIO_WORK_PATH}/cache"
 
-    # Load from cache if valid
+    # Use cache if exists and valid
     if [[ -f "${artistCacheFile}" ]]; then
         if safe_jq --optional '.' <"${artistCacheFile}" >/dev/null 2>&1; then
             log "DEBUG :: Using cached Deezer artist album list for ${artistId}"
@@ -183,35 +182,50 @@ GetDeezerArtistAlbums() {
     local nextUrl="https://api.deezer.com/artist/${artistId}/albums?limit=100"
 
     while [[ -n "$nextUrl" ]]; do
+        log "DEBUG :: Calling Deezer api: ${nextUrl}"
+
         if ! CallDeezerAPI "$nextUrl"; then
-            log "WARNING :: Failed to get artist albums for ${artistId}"
+            log "ERROR :: Failed calling Deezer artist albums endpoint"
+            setUnhealthy
             return 1
         fi
 
         local page
         page="$(get_state "deezerApiResponse")"
 
+        # Validate JSON before parsing
+        if ! safe_jq '.' <<<"$page" >/dev/null 2>&1; then
+            log "ERROR :: Deezer returned invalid JSON for artist ${artistId}"
+            log "ERROR :: Raw response (first 200 chars): ${page:0:200}"
+            setUnhealthy
+            return 1
+        fi
+
+        # Handle Deezer error payloads
+        if safe_jq --optional '.error' <<<"$page" >/dev/null; then
+            log "ERROR :: Deezer API error: $(safe_jq '.error.message' <<<"$page")"
+            setUnhealthy
+            return 1
+        fi
+
+        # Extract album objects
         mapfile -t page_albums < <(
             safe_jq -c '.data[]' <<<"$page"
         )
 
         all_albums+=("${page_albums[@]}")
 
+        # Follow pagination
         nextUrl="$(safe_jq --optional -r '.paging.next // empty' <<<"$page")"
+
+        # Be polite to Deezer
+        [[ -n "$nextUrl" ]] && sleep 0.2
     done
 
-    artistJson="$(
-        safe_jq \
-            --argjson albums "$(printf '%s\n' "${all_albums[@]}" | safe_jq -s '.')" \
-            '{ data: $albums }'
-    )"
+    # Assemble final JSON payload
+    artistJson="$(safe_jq \
+        --argjson albums "$(printf '%s\n' "${all_albums[@]}" |_
 
-    echo "${artistJson}" >"${artistCacheFile}"
-    set_state "deezerArtistInfo" "${artistJson}"
-
-    log "TRACE :: Exiting GetDeezerArtistAlbums..."
-    return 0
-}
 
 # Add custom download client if it doesn't already exist
 AddDownloadClient() {
