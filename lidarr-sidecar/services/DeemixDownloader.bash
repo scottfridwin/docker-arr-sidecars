@@ -203,7 +203,6 @@ GetDeezerArtistAlbums() {
 
             local page
             page="$(get_state "deezerApiResponse")"
-            log "DEBUG :: page: $page"
 
             # Validate JSON
             if ! safe_jq '.' <<<"$page" >/dev/null 2>&1; then
