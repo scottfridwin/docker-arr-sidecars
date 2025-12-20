@@ -235,6 +235,7 @@ GetDeezerArtistAlbums() {
         printf '%s\n' "${all_albums[@]}" | safe_jq -s 'add | { data: . }'
     )"
 
+    log "DEBUG :: artistJson: $artistJson"
     echo "${artistJson}" >"${artistCacheFile}"
     set_state "deezerArtistInfo" "${artistJson}"
 
