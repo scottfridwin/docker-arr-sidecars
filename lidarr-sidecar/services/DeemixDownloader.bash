@@ -155,14 +155,14 @@ GetDeezerAlbumInfo() {
             # Replace the json track data in the original result with the new full track list
             albumJson="$(
                 printf '%s\n' "${all_tracks[@]}" |
-                    safe_jq -s '
-                    add as $tracks
-                    | ($tracks | length) as $total
-                    | . as $orig
-                    | $orig
-                    | .tracks.data = $tracks
-                    | .tracks.total = $total
-                ' <<<"$albumJson"
+                    safe_jq -s \
+                        --argjson album "$albumJson" '
+                            add as $tracks
+                            | ($tracks | length) as $total
+                            | $album
+                            | .tracks.data = $tracks
+                            | .tracks.total = $total
+                        '
             )"
         fi
     fi
