@@ -146,7 +146,7 @@ GetDeezerAlbumInfo() {
                 log "DEBUG :: all_tracks: $all_tracks"
 
                 # Follow pagination
-                nextUrl="$(safe_jq --optional '.paging.next' <<<"$page")"
+                nextUrl="$(safe_jq --optional '.next' <<<"$page")"
                 log "DEBUG :: nextUrl: $nextUrl"
 
                 [[ -n "$nextUrl" ]] && sleep 0.2
@@ -229,7 +229,7 @@ GetDeezerArtistAlbums() {
             log "DEBUG :: all_albums: $all_albums"
 
             # Follow pagination
-            nextUrl="$(safe_jq --optional '.paging.next' <<<"$page")"
+            nextUrl="$(safe_jq --optional '.next' <<<"$page")"
             log "DEBUG :: nextUrl: $nextUrl"
 
             [[ -n "$nextUrl" ]] && sleep 0.2
