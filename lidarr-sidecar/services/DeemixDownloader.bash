@@ -86,6 +86,99 @@ GetDeezerAlbumInfo() {
     local albumId="$1"
     local albumCacheFile="${AUDIO_WORK_PATH}/cache/album-${albumId}.json"
     local albumJson=""
+
+    mkdir -p "${AUDIO_WORK_PATH}/cache"
+
+    # Load from cache if valid
+    if [[ -f "${albumCacheFile}" ]]; then
+        if safe_jq --optional '.' <"${albumCacheFile}" >/dev/null 2>&1; then
+            log "DEBUG :: Using cached Deezer album data for ${albumId}"
+            albumJson="$(<"${albumCacheFile}")"
+        else
+            log "WARNING :: Cached album JSON invalid, will refetch: ${albumCacheFile}"
+        fi
+    fi
+
+    if [[ -z "$albumJson" ]]; then
+        local apiUrl="https://api.deezer.com/album/${albumId}"
+        if ! CallDeezerAPI "${apiUrl}"; then
+            log "ERROR :: Failed to get album info for ${albumId}"
+            setUnhealthy
+            exit 1
+        fi
+        albumJson="$(get_state "deezerApiResponse")"
+
+        # Determine if track pagination is needed
+        local nb_tracks embedded_tracks
+        nb_tracks="$(safe_jq '.nb_tracks' <<<"$albumJson")"
+        embedded_tracks="$(safe_jq '.tracks.data | length' <<<"$albumJson")"
+
+        if ((embedded_tracks < nb_tracks)); then
+            log "DEBUG :: Album ${albumId} has ${nb_tracks} tracks, fetching remaining pages"
+
+            local all_tracks=()
+            local nextUrl="https://api.deezer.com/album/${albumId}/tracks"
+
+            while [[ -n "$nextUrl" ]]; do
+                if ! CallDeezerAPI "$nextUrl"; then
+                    log "ERROR :: Failed fetching Deezer album tracks"
+                    setUnhealthy
+                    exit 1
+                fi
+
+                local page
+                page="$(get_state "deezerApiResponse")"
+
+                # Validate JSON
+                if ! safe_jq '.' <<<"$page" >/dev/null 2>&1; then
+                    log "ERROR :: Deezer returned invalid JSON for url ${nextUrl}"
+                    log "ERROR :: Raw response (first 200 chars): ${page:0:200}"
+                    setUnhealthy
+                    exit 1
+                fi
+
+                mapfile -t page_tracks < <(
+                    safe_jq -c '[.data[]]' <<<"$page"
+                )
+                log "DEBUG :: page_tracks: $page_tracks"
+
+                all_tracks+=("${page_tracks[@]}")
+                log "DEBUG :: all_tracks: $all_tracks"
+
+                # Follow pagination
+                nextUrl="$(safe_jq --optional '.paging.next' <<<"$page")"
+                log "DEBUG :: nextUrl: $nextUrl"
+
+                [[ -n "$nextUrl" ]] && sleep 0.2
+            done
+
+            # Replace the json track data in the original result with the new full track list
+            albumJson="$(
+                printf '%s\n' "${all_tracks[@]}" |
+                    safe_jq -s '
+                    add as $tracks
+                    | ($tracks | length) as $total
+                    | . as $orig
+                    | $orig
+                    | .tracks.data = $tracks
+                    | .tracks.total = $total
+                ' <<<"$albumJson"
+            )"
+        fi
+    fi
+
+    echo "${albumJson}" >"${albumCacheFile}"
+    set_state "deezerAlbumInfo" "${albumJson}"
+
+    log "TRACE :: Exiting GetDeezerAlbumInfo..."
+    return 0
+}
+
+GetDeezerAlbumInfo() {
+    log "TRACE :: Entering GetDeezerAlbumInfo..."
+    local albumId="$1"
+    local albumCacheFile="${AUDIO_WORK_PATH}/cache/album-${albumId}.json"
+    local albumJson=""
     local returnCode=1
 
     mkdir -p "${AUDIO_WORK_PATH}/cache"
@@ -125,7 +218,7 @@ GetDeezerAlbumInfo() {
             if ! CallDeezerAPI "$nextUrl"; then
                 log "ERROR :: Failed fetching Deezer album tracks"
                 setUnhealthy
-                return 1
+                exit 1
             fi
 
             local page
@@ -171,72 +264,60 @@ GetDeezerArtistAlbums() {
         if safe_jq --optional '.' <"${artistCacheFile}" >/dev/null 2>&1; then
             log "DEBUG :: Using cached Deezer artist album list for ${artistId}"
             artistJson="$(<"${artistCacheFile}")"
-            set_state "deezerArtistInfo" "${artistJson}"
-            return 0
         else
             log "WARNING :: Cached artist album JSON invalid, will refetch: ${artistCacheFile}"
         fi
     fi
 
-    local all_albums=()
-    local nextUrl="https://api.deezer.com/artist/${artistId}/albums?limit=100"
+    if [[ -z "$artistJson" ]]; then
+        local all_albums=()
+        local nextUrl="https://api.deezer.com/artist/${artistId}/albums?limit=100"
 
-    while [[ -n "$nextUrl" ]]; do
-        log "DEBUG :: Calling Deezer api: ${nextUrl}"
+        while [[ -n "$nextUrl" ]]; do
+            log "DEBUG :: Calling Deezer api: ${nextUrl}"
 
-        if ! CallDeezerAPI "$nextUrl"; then
-            log "ERROR :: Failed calling Deezer artist albums endpoint"
-            setUnhealthy
-            return 1
-        fi
+            if ! CallDeezerAPI "$nextUrl"; then
+                log "ERROR :: Failed calling Deezer artist albums endpoint"
+                setUnhealthy
+                exit 1
+            fi
 
-        local page
-        page="$(get_state "deezerApiResponse")"
-        log "DEBUG :: page: $page"
+            local page
+            page="$(get_state "deezerApiResponse")"
+            log "DEBUG :: page: $page"
 
-        # Validate JSON
-        if ! safe_jq '.' <<<"$page" >/dev/null 2>&1; then
-            log "ERROR :: Deezer returned invalid JSON for artist ${artistId}"
-            log "ERROR :: Raw response (first 200 chars): ${page:0:200}"
-            setUnhealthy
-            return 1
-        fi
+            # Validate JSON
+            if ! safe_jq '.' <<<"$page" >/dev/null 2>&1; then
+                log "ERROR :: Deezer returned invalid JSON for url ${nextUrl}"
+                log "ERROR :: Raw response (first 200 chars): ${page:0:200}"
+                setUnhealthy
+                exit 1
+            fi
 
-        # Detect actual Deezer API errors
-        local error_type
-        error_type="$(safe_jq --optional '.error.type' <<<"$page")"
-        log "DEBUG :: error_type: $error_type"
-        if [[ -n "$error_type" ]]; then
-            local error_msg
-            error_msg="$(safe_jq --optional '.error.message' <<<"$page")"
-            log "ERROR :: Deezer API error (${error_type}): ${error_msg}"
-            setUnhealthy
-            return 1
-        fi
+            # Extract albums
+            log "DEBUG :: page: $page"
+            mapfile -t page_albums < <(
+                safe_jq -c '[.data[]]' <<<"$page"
+            )
+            log "DEBUG :: page_albums: $page_albums"
 
-        # Extract albums
-        log "DEBUG :: page: $page"
-        mapfile -t page_albums < <(
-            safe_jq -c '[.data[]]' <<<"$page"
-        )
-        log "DEBUG :: page_albums: $page_albums"
+            all_albums+=("${page_albums[@]}")
+            log "DEBUG :: all_albums: $all_albums"
 
-        all_albums+=("${page_albums[@]}")
-        log "DEBUG :: all_albums: $all_albums"
+            # Follow pagination
+            nextUrl="$(safe_jq --optional '.paging.next' <<<"$page")"
+            log "DEBUG :: nextUrl: $nextUrl"
 
-        # Follow pagination
-        nextUrl="$(safe_jq --optional '.paging.next' <<<"$page")"
-        log "DEBUG :: nextUrl: $nextUrl"
+            [[ -n "$nextUrl" ]] && sleep 0.2
+        done
 
-        [[ -n "$nextUrl" ]] && sleep 0.2
-    done
-
-    artistJson="$(
-        printf '%s\n' "${all_albums[@]}" | safe_jq -s '
+        artistJson="$(
+            printf '%s\n' "${all_albums[@]}" | safe_jq -s '
         add as $arr
         | { total: ($arr | length), data: $arr }
     '
-    )"
+        )"
+    fi
 
     log "DEBUG :: artistJson: $artistJson"
     echo "${artistJson}" >"${artistCacheFile}"
