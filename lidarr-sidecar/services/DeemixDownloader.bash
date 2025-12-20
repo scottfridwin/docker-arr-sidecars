@@ -232,7 +232,10 @@ GetDeezerArtistAlbums() {
     done
 
     artistJson="$(
-        printf '%s\n' "${all_albums[@]}" | safe_jq -s 'add | { data: . }'
+        printf '%s\n' "${all_albums[@]}" | safe_jq -s '
+        add as $arr
+        | { total: ($arr | length), data: $arr }
+    '
     )"
 
     log "DEBUG :: artistJson: $artistJson"
