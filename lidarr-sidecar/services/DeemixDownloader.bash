@@ -140,14 +140,11 @@ GetDeezerAlbumInfo() {
                 mapfile -t page_tracks < <(
                     safe_jq -c '[.data[]]' <<<"$page"
                 )
-                log "DEBUG :: page_tracks: $page_tracks"
 
                 all_tracks+=("${page_tracks[@]}")
-                log "DEBUG :: all_tracks: $all_tracks"
 
                 # Follow pagination
                 nextUrl="$(safe_jq --optional '.next' <<<"$page")"
-                log "DEBUG :: nextUrl: $nextUrl"
 
                 [[ -n "$nextUrl" ]] && sleep 0.2
             done
@@ -198,8 +195,6 @@ GetDeezerArtistAlbums() {
         local nextUrl="https://api.deezer.com/artist/${artistId}/albums?limit=100"
 
         while [[ -n "$nextUrl" ]]; do
-            log "DEBUG :: Calling Deezer api: ${nextUrl}"
-
             if ! CallDeezerAPI "$nextUrl"; then
                 log "ERROR :: Failed calling Deezer artist albums endpoint"
                 setUnhealthy
@@ -219,18 +214,14 @@ GetDeezerArtistAlbums() {
             fi
 
             # Extract albums
-            log "DEBUG :: page: $page"
             mapfile -t page_albums < <(
                 safe_jq -c '[.data[]]' <<<"$page"
             )
-            log "DEBUG :: page_albums: $page_albums"
 
             all_albums+=("${page_albums[@]}")
-            log "DEBUG :: all_albums: $all_albums"
 
             # Follow pagination
             nextUrl="$(safe_jq --optional '.next' <<<"$page")"
-            log "DEBUG :: nextUrl: $nextUrl"
 
             [[ -n "$nextUrl" ]] && sleep 0.2
         done
@@ -243,7 +234,6 @@ GetDeezerArtistAlbums() {
         )"
     fi
 
-    log "DEBUG :: artistJson: $artistJson"
     echo "${artistJson}" >"${artistCacheFile}"
     set_state "deezerArtistInfo" "${artistJson}"
 
