@@ -232,9 +232,7 @@ GetDeezerArtistAlbums() {
     done
 
     artistJson="$(
-        safe_jq \
-            --argjson albums "$(printf '%s\n' "${all_albums[@]}" | safe_jq -s '.')" \
-            '{ data: $albums }'
+        printf '%s\n' "${all_albums[@]}" | safe_jq -s 'add | { data: . }'
     )"
 
     echo "${artistJson}" >"${artistCacheFile}"
