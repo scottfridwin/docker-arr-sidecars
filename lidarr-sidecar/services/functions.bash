@@ -1148,16 +1148,22 @@ SkipReleaseCandidate() {
     return 1
 }
 
-# Strips artist feature tags from a track name
+# Strips artist feature / parody tags from a track name
 StripTrackFeature() {
     local s="$1"
 
-    # 1) Remove parenthetical feature annotations
-    s="$(sed -E 's/[[:space:]]*\((feat\.?|ft\.?|featuring)[^)]*\)//Ig' <<<"$s")"
+    # 1) Remove parenthetical annotations:
+    #    (feat. X), (ft X), (featuring X), (parody of X)
+    s="$(sed -E '
+        s/[[:space:]]*\((feat\.?|ft\.?|featuring|parody[[:space:]]+of)[^)]*\)//Ig
+    ' <<<"$s")"
 
-    # 2) Remove non-parenthetical feature annotations, e.g.:
-    #    " - feat. X", " feat X", " ft. X", " featuring X"
-    s="$(sed -E 's/[[:space:]]*[-–—]?[[:space:]]*(feat\.?|ft\.?|featuring)[[:space:]].*$//Ig' <<<"$s")"
+    # 2) Remove non-parenthetical suffix annotations ONLY when separated
+    #    by dash or explicit spacing
+    s="$(sed -E '
+        s/[[:space:]]+[-–—][[:space:]]*(feat\.?|ft\.?|featuring|parody[[:space:]]+of)[[:space:]].*$//Ig
+        s/[[:space:]]+(feat\.?|ft\.?|featuring)[[:space:]].*$//Ig
+    ' <<<"$s")"
 
     # 3) Normalize whitespace
     s="$(sed -E 's/[[:space:]]+/ /g; s/^ //; s/ $//' <<<"$s")"

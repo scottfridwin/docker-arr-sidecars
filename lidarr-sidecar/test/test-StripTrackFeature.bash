@@ -179,6 +179,87 @@ run_test \
     "  Song Title (feat. Drake)  " \
     "Song Title"
 
+# --- Parody stripping cases ---
+
+run_test \
+    "parody parenthetical lowercase" \
+    "Song Title (parody of Madonna)" \
+    "Song Title"
+
+run_test \
+    "Parody capitalized" \
+    "Song Title (Parody of Madonna)" \
+    "Song Title"
+
+# run_test \
+#     "parody without parentheses" \
+#     "Song Title parody of Madonna" \
+#     "Song Title"
+
+run_test \
+    "parody with dash" \
+    "Song Title - Parody of Madonna" \
+    "Song Title"
+
+run_test \
+    "parody with em dash" \
+    "Song Title — parody of Madonna" \
+    "Song Title"
+
+run_test \
+    "parody mixed case" \
+    "Song Title (PaRoDy Of Madonna)" \
+    "Song Title"
+
+run_test \
+    "parody multiple words artist" \
+    "Song Title (Parody of Taylor Swift)" \
+    "Song Title"
+
+run_test \
+    "parody extra spacing" \
+    "Song Title   (parody   of   Madonna )" \
+    "Song Title"
+
+# --- Parody negative cases ---
+
+run_test \
+    "parody word in title" \
+    "Parody of Love" \
+    "Parody of Love"
+
+run_test \
+    "parody phrase mid-title" \
+    "This Is a Parody of Love Song" \
+    "This Is a Parody of Love Song"
+
+run_test \
+    "parody not suffix" \
+    "Song Title parody version" \
+    "Song Title parody version"
+
+run_test \
+    "parenthetical without parody keyword" \
+    "Song Title (Comedy Version)" \
+    "Song Title (Comedy Version)"
+
+# --- Combined feature + parody cases ---
+
+run_test \
+    "feature then parody" \
+    "Song Title (feat. Drake) (Parody of Madonna)" \
+    "Song Title"
+
+run_test \
+    "parody then live preserved" \
+    "Song Title (Parody of Madonna) (Live)" \
+    "Song Title (Live)"
+
+run_test \
+    "dash parody then feature" \
+    "Song Title - Parody of Madonna feat. Drake" \
+    "Song Title"
+
 echo "----------------------------------------------"
 echo "Passed: $pass, Failed: $fail"
 
