@@ -45,7 +45,7 @@ echo "----------------------------------------------"
 
 for input in "${!TESTS[@]}"; do
     expected="${TESTS[$input]}"
-    output="$(RemovePatternFromAlbumTitle "$input" "PATTERN")"
+    output="$(RemovePatternFromString "$input" "PATTERN")"
 
     if [[ "$output" == "$expected" ]]; then
         printf "✅ PASS: %-45s → %s\n" "$input" "$output"

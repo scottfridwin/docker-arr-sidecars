@@ -329,6 +329,20 @@ CompareTrackTitles() {
                         ((d3 < d)) && d="$d3"
                     fi
                 fi
+                # Fourth-pass comparison: remove album title from track title (niche case)
+                if ((d > 0)); then
+                    local b_stripped
+                    local searchReleaseTitleClean="$(get_state "searchReleaseTitleClean")"
+                    b_stripped="$(RemovePatternFromString "$b" "${searchReleaseTitleClean}")"
+
+                    if [[ -n "$b_stripped" && "$b_stripped" != "$b" ]]; then
+                        local d2
+                        log "DEBUG :: Recalculating distance \"$a\" to \"$b_stripped\" (album title stripped)..."
+                        d2="$(LevenshteinDistance "${a,,}" "${b_stripped,,}")"
+
+                        ((d2 < d)) && d="$d2"
+                    fi
+                fi
                 if [[ "$d" =~ ^[0-9]+$ ]]; then
                     total_diff=$((total_diff + d))
                 else
@@ -936,15 +950,15 @@ RemoveEditionsFromAlbumTitle() {
     for p in "${patterns[@]}"; do
         if [[ "$lower" == *"$p"* ]]; then
             # Call your existing complex logic
-            title=$(RemovePatternFromAlbumTitle "$title" "$p")
+            title=$(RemovePatternFromString "$title" "$p")
         fi
     done
 
     printf '%s\n' "$title"
 }
 
-# Remove a pattern from an album title
-RemovePatternFromAlbumTitle() {
+# Remove a pattern from a string
+RemovePatternFromString() {
     local title="$1"
     local pattern="$2"
 

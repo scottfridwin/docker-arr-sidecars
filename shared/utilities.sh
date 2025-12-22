@@ -675,6 +675,7 @@ init_state() {
     eval "declare -gA ${name}=()"
 }
 
+# Clears the state helper of all values
 reset_state() {
     local name=$(_get_state_name)
 

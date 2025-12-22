@@ -26,6 +26,7 @@ run_test() {
 
     set_state "deezerCandidateAlbumID" "deezerId"
     set_state "lidarrReleaseForeignId" "lidarrId"
+    set_state "searchReleaseTitleClean" "searchTitle"
 
     set_state "lidarrReleaseTrackTitles" "$(
         IFS="$TRACK_SEP"
@@ -345,6 +346,22 @@ deezer_tracks=(
     "Daylight"
 )
 run_test "Real Example 2" lidarr_tracks deezer_tracks "0" "0.00" "0"
+
+# Test 20: Album title stripping
+reset_state
+lidarr_tracks=(
+    "Main Titles"
+    "Overture"
+    "Movement I"
+    "Movement II"
+)
+deezer_tracks=(
+    "Main Titles - searchTitle"
+    "Overture [searchTitle]"
+    "Movement I (searchTitle)"
+    "Movement II searchTitle"
+)
+run_test "Album title stripping" lidarr_tracks deezer_tracks "0" "0.00" "0"
 
 echo "----------------------------------------------"
 echo "Passed: $pass, Failed: $fail"
