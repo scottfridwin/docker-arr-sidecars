@@ -23,7 +23,7 @@ setup_cand_state() {
     set_state "lidarrReleaseCountryPriority" "${9}"
     set_state "deezerCandidatelyricTypePreferred" "${10}"
     set_state "lidarrReleaseContainsCommentary" "${11}"
-    set_state "lidarrReleaseInfo" "${12}"
+    set_state "lidarrReleaseForeignId" "${12}"
     set_state "exactMatchFound" "${13-exactMatch_unset}"
 }
 
@@ -36,7 +36,7 @@ echo "----------------------------------------------"
 
 # Test 1: All states updated
 reset_state
-setup_cand_state "id_set" "title_set" "nameDiff_set" "trackDiff_set" "yearDiff_set" "year_set" "trackCount_set" "formatPriority_set" "countryPriority_set" "lyricTypePreferred_set" "containsCommentary_set" 'releaseInfo_set'
+setup_cand_state "id_set" "title_set" "nameDiff_set" "trackDiff_set" "yearDiff_set" "year_set" "trackCount_set" "formatPriority_set" "countryPriority_set" "lyricTypePreferred_set" "containsCommentary_set" 'releaseForeignId_set'
 UpdateBestMatchState
 
 if [[ "$(get_state "bestMatchID")" == "id_set" ]] &&
@@ -50,7 +50,7 @@ if [[ "$(get_state "bestMatchID")" == "id_set" ]] &&
     [[ "$(get_state "bestMatchCountryPriority")" == "countryPriority_set" ]] &&
     [[ "$(get_state "bestMatchLyricTypePreferred")" == "lyricTypePreferred_set" ]] &&
     [[ "$(get_state "bestMatchContainsCommentary")" == "containsCommentary_set" ]] &&
-    [[ "$(get_state "bestMatchLidarrReleaseInfo")" == "releaseInfo_set" ]] &&
+    [[ "$(get_state "bestMatchLidarrReleaseForeignId")" == "releaseForeignId_set" ]] &&
     [[ "$(get_state "exactMatchFound")" == "exactMatch_unset" ]]; then
     echo "✅ PASS: All states updated"
     ((pass++))
@@ -61,7 +61,7 @@ fi
 
 # Test 2: Exact match detection (NameDiff=0, TrackDiff=0, YearDiff=0)
 reset_state
-setup_cand_state "id_set" "title_set" "0" "0" "0" "year_set" "trackCount_set" "formatPriority_set" "countryPriority_set" "lyricTypePreferred_set" "containsCommentary_set" 'releaseInfo_set'
+setup_cand_state "id_set" "title_set" "0" "0" "0" "year_set" "trackCount_set" "formatPriority_set" "countryPriority_set" "lyricTypePreferred_set" "containsCommentary_set" 'releaseForeignId_set'
 UpdateBestMatchState
 
 if [[ "$(get_state "bestMatchID")" == "id_set" ]] &&
@@ -75,7 +75,7 @@ if [[ "$(get_state "bestMatchID")" == "id_set" ]] &&
     [[ "$(get_state "bestMatchCountryPriority")" == "countryPriority_set" ]] &&
     [[ "$(get_state "bestMatchLyricTypePreferred")" == "lyricTypePreferred_set" ]] &&
     [[ "$(get_state "bestMatchContainsCommentary")" == "containsCommentary_set" ]] &&
-    [[ "$(get_state "bestMatchLidarrReleaseInfo")" == "releaseInfo_set" ]] &&
+    [[ "$(get_state "bestMatchLidarrReleaseForeignId")" == "releaseForeignId_set" ]] &&
     [[ "$(get_state "exactMatchFound")" == "true" ]]; then
     echo "✅ PASS: Non-exact match (NameDiff)"
     ((pass++))
@@ -86,7 +86,7 @@ fi
 
 # Test 3: Non-exact match (NameDiff > 0)
 reset_state
-setup_cand_state "id_set" "title_set" "1" "0" "0" "year_set" "trackCount_set" "formatPriority_set" "countryPriority_set" "lyricTypePreferred_set" "containsCommentary_set" 'releaseInfo_set'
+setup_cand_state "id_set" "title_set" "1" "0" "0" "year_set" "trackCount_set" "formatPriority_set" "countryPriority_set" "lyricTypePreferred_set" "containsCommentary_set" 'releaseForeignId_set'
 UpdateBestMatchState
 
 if [[ "$(get_state "bestMatchID")" == "id_set" ]] &&
@@ -100,7 +100,7 @@ if [[ "$(get_state "bestMatchID")" == "id_set" ]] &&
     [[ "$(get_state "bestMatchCountryPriority")" == "countryPriority_set" ]] &&
     [[ "$(get_state "bestMatchLyricTypePreferred")" == "lyricTypePreferred_set" ]] &&
     [[ "$(get_state "bestMatchContainsCommentary")" == "containsCommentary_set" ]] &&
-    [[ "$(get_state "bestMatchLidarrReleaseInfo")" == "releaseInfo_set" ]] &&
+    [[ "$(get_state "bestMatchLidarrReleaseForeignId")" == "releaseForeignId_set" ]] &&
     [[ "$(get_state "exactMatchFound")" == "exactMatch_unset" ]]; then
     echo "✅ PASS: Non-exact match (YearDiff)"
     ((pass++))
@@ -111,7 +111,7 @@ fi
 
 # Test 3: Non-exact match (TrackDiff > 0)
 reset_state
-setup_cand_state "id_set" "title_set" "0" "1" "0" "year_set" "trackCount_set" "formatPriority_set" "countryPriority_set" "lyricTypePreferred_set" "containsCommentary_set" 'releaseInfo_set'
+setup_cand_state "id_set" "title_set" "0" "1" "0" "year_set" "trackCount_set" "formatPriority_set" "countryPriority_set" "lyricTypePreferred_set" "containsCommentary_set" 'releaseForeignId_set'
 UpdateBestMatchState
 
 if [[ "$(get_state "bestMatchID")" == "id_set" ]] &&
@@ -125,7 +125,7 @@ if [[ "$(get_state "bestMatchID")" == "id_set" ]] &&
     [[ "$(get_state "bestMatchCountryPriority")" == "countryPriority_set" ]] &&
     [[ "$(get_state "bestMatchLyricTypePreferred")" == "lyricTypePreferred_set" ]] &&
     [[ "$(get_state "bestMatchContainsCommentary")" == "containsCommentary_set" ]] &&
-    [[ "$(get_state "bestMatchLidarrReleaseInfo")" == "releaseInfo_set" ]] &&
+    [[ "$(get_state "bestMatchLidarrReleaseForeignId")" == "releaseForeignId_set" ]] &&
     [[ "$(get_state "exactMatchFound")" == "exactMatch_unset" ]]; then
     echo "✅ PASS: Non-exact match (TrackDiff)"
     ((pass++))
@@ -136,7 +136,7 @@ fi
 
 # Test 3: Non-exact match (YearDiff > 0)
 reset_state
-setup_cand_state "id_set" "title_set" "0" "0" "1" "year_set" "trackCount_set" "formatPriority_set" "countryPriority_set" "lyricTypePreferred_set" "containsCommentary_set" 'releaseInfo_set'
+setup_cand_state "id_set" "title_set" "0" "0" "1" "year_set" "trackCount_set" "formatPriority_set" "countryPriority_set" "lyricTypePreferred_set" "containsCommentary_set" 'releaseForeignId_set'
 UpdateBestMatchState
 
 if [[ "$(get_state "bestMatchID")" == "id_set" ]] &&
@@ -150,7 +150,7 @@ if [[ "$(get_state "bestMatchID")" == "id_set" ]] &&
     [[ "$(get_state "bestMatchCountryPriority")" == "countryPriority_set" ]] &&
     [[ "$(get_state "bestMatchLyricTypePreferred")" == "lyricTypePreferred_set" ]] &&
     [[ "$(get_state "bestMatchContainsCommentary")" == "containsCommentary_set" ]] &&
-    [[ "$(get_state "bestMatchLidarrReleaseInfo")" == "releaseInfo_set" ]] &&
+    [[ "$(get_state "bestMatchLidarrReleaseForeignId")" == "releaseForeignId_set" ]] &&
     [[ "$(get_state "exactMatchFound")" == "exactMatch_unset" ]]; then
     echo "✅ PASS: Non-exact match (YearDiff)"
     ((pass++))
@@ -161,7 +161,7 @@ fi
 
 # Test 4: Update overwrites previous values
 reset_state
-setup_cand_state "id_set" "title_set" "nameDiff_set" "trackDiff_set" "yearDiff_set" "year_set" "trackCount_set" "formatPriority_set" "countryPriority_set" "lyricTypePreferred_set" "containsCommentary_set" 'releaseInfo_set'
+setup_cand_state "id_set" "title_set" "nameDiff_set" "trackDiff_set" "yearDiff_set" "year_set" "trackCount_set" "formatPriority_set" "countryPriority_set" "lyricTypePreferred_set" "containsCommentary_set" 'releaseForeignId_set'
 set_state "bestMatchID" "id_unset"
 set_state "bestMatchTitle" "title_unset"
 set_state "bestMatchNameDiff" "nameDiff_unset"
@@ -173,7 +173,7 @@ set_state "bestMatchFormatPriority" "formatPriority_unset"
 set_state "bestMatchCountryPriority" "countryPriority_unset"
 set_state "bestMatchLyricTypePreferred" "lyricTypePreferred_unset"
 set_state "bestMatchContainsCommentary" "containsCommentary_unset"
-set_state "bestMatchLidarrReleaseInfo" "releaseInfo_unset"
+set_state "bestMatchLidarrReleaseForeignId" "releaseForeignId_unset"
 UpdateBestMatchState
 
 if [[ "$(get_state "bestMatchID")" == "id_set" ]] &&
@@ -187,7 +187,7 @@ if [[ "$(get_state "bestMatchID")" == "id_set" ]] &&
     [[ "$(get_state "bestMatchCountryPriority")" == "countryPriority_set" ]] &&
     [[ "$(get_state "bestMatchLyricTypePreferred")" == "lyricTypePreferred_set" ]] &&
     [[ "$(get_state "bestMatchContainsCommentary")" == "containsCommentary_set" ]] &&
-    [[ "$(get_state "bestMatchLidarrReleaseInfo")" == "releaseInfo_set" ]] &&
+    [[ "$(get_state "bestMatchLidarrReleaseForeignId")" == "releaseForeignId_set" ]] &&
     [[ "$(get_state "exactMatchFound")" == "exactMatch_unset" ]]; then
     echo "✅ PASS: Update overwrites previous values"
     ((pass++))
@@ -198,7 +198,7 @@ fi
 
 # Test 5: Non-numeric NameDiff
 reset_state
-setup_cand_state "id_set" "title_set" "abc" "0" "0" "year_set" "trackCount_set" "formatPriority_set" "countryPriority_set" "lyricTypePreferred_set" "containsCommentary_set" 'releaseInfo_set'
+setup_cand_state "id_set" "title_set" "abc" "0" "0" "year_set" "trackCount_set" "formatPriority_set" "countryPriority_set" "lyricTypePreferred_set" "containsCommentary_set" 'releaseForeignId_set'
 UpdateBestMatchState
 
 if [[ "$(get_state "bestMatchID")" == "id_set" ]] &&
@@ -212,7 +212,7 @@ if [[ "$(get_state "bestMatchID")" == "id_set" ]] &&
     [[ "$(get_state "bestMatchCountryPriority")" == "countryPriority_set" ]] &&
     [[ "$(get_state "bestMatchLyricTypePreferred")" == "lyricTypePreferred_set" ]] &&
     [[ "$(get_state "bestMatchContainsCommentary")" == "containsCommentary_set" ]] &&
-    [[ "$(get_state "bestMatchLidarrReleaseInfo")" == "releaseInfo_set" ]] &&
+    [[ "$(get_state "bestMatchLidarrReleaseForeignId")" == "releaseForeignId_set" ]] &&
     [[ "$(get_state "exactMatchFound")" == "exactMatch_unset" ]]; then
     echo "✅ PASS: Non-numeric NameDiff"
     ((pass++))
@@ -223,7 +223,7 @@ fi
 
 # Test 6: Non-numeric TrackDiff
 reset_state
-setup_cand_state "id_set" "title_set" "0" "abc" "0" "year_set" "trackCount_set" "formatPriority_set" "countryPriority_set" "lyricTypePreferred_set" "containsCommentary_set" 'releaseInfo_set'
+setup_cand_state "id_set" "title_set" "0" "abc" "0" "year_set" "trackCount_set" "formatPriority_set" "countryPriority_set" "lyricTypePreferred_set" "containsCommentary_set" 'releaseForeignId_set'
 UpdateBestMatchState
 
 if [[ "$(get_state "bestMatchID")" == "id_set" ]] &&
@@ -237,7 +237,7 @@ if [[ "$(get_state "bestMatchID")" == "id_set" ]] &&
     [[ "$(get_state "bestMatchCountryPriority")" == "countryPriority_set" ]] &&
     [[ "$(get_state "bestMatchLyricTypePreferred")" == "lyricTypePreferred_set" ]] &&
     [[ "$(get_state "bestMatchContainsCommentary")" == "containsCommentary_set" ]] &&
-    [[ "$(get_state "bestMatchLidarrReleaseInfo")" == "releaseInfo_set" ]] &&
+    [[ "$(get_state "bestMatchLidarrReleaseForeignId")" == "releaseForeignId_set" ]] &&
     [[ "$(get_state "exactMatchFound")" == "exactMatch_unset" ]]; then
     echo "✅ PASS: Non-numeric NameDiff"
     ((pass++))
@@ -248,7 +248,7 @@ fi
 
 # Test 7: Non-numeric YearDiff
 reset_state
-setup_cand_state "id_set" "title_set" "0" "0" "abc" "year_set" "trackCount_set" "formatPriority_set" "countryPriority_set" "lyricTypePreferred_set" "containsCommentary_set" 'releaseInfo_set'
+setup_cand_state "id_set" "title_set" "0" "0" "abc" "year_set" "trackCount_set" "formatPriority_set" "countryPriority_set" "lyricTypePreferred_set" "containsCommentary_set" 'releaseForeignId_set'
 UpdateBestMatchState
 
 if [[ "$(get_state "bestMatchID")" == "id_set" ]] &&
@@ -262,7 +262,7 @@ if [[ "$(get_state "bestMatchID")" == "id_set" ]] &&
     [[ "$(get_state "bestMatchCountryPriority")" == "countryPriority_set" ]] &&
     [[ "$(get_state "bestMatchLyricTypePreferred")" == "lyricTypePreferred_set" ]] &&
     [[ "$(get_state "bestMatchContainsCommentary")" == "containsCommentary_set" ]] &&
-    [[ "$(get_state "bestMatchLidarrReleaseInfo")" == "releaseInfo_set" ]] &&
+    [[ "$(get_state "bestMatchLidarrReleaseForeignId")" == "releaseForeignId_set" ]] &&
     [[ "$(get_state "exactMatchFound")" == "exactMatch_unset" ]]; then
     echo "✅ PASS: Non-numeric NameDiff"
     ((pass++))

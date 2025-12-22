@@ -91,10 +91,11 @@ Services:
 | AUDIO_MATCH_THRESHOLD_TRACK_DIFF_MAX | 10 | Maximum single-track name difference for matching |
 | AUDIO_PREFER_SPECIAL_EDITIONS | true | Prefer deluxe/special editions when tied |
 | AUDIO_REQUIRE_QUALITY | true | Require target quality (vs. accept best-effort) |
+| AUDIO_RESULT_FILE_NAME | results.md | Name for the result file from matching process. This file is written to the work directory. Set to empty to disable result file |
 | AUDIO_RETRY_NOTFOUND_DAYS | 90 | Give up-not-found entries a retry after this many days |
 | AUDIO_SHARED_LIDARR_PATH | /sidecar-import | Shared import path watched by Lidarr (Blackhole) |
 | AUDIO_TITLE_REPLACEMENTS_FILE | /app/config/album_title_replacements.json | Title normalization map (JSON) |
-| AUDIO_WORK_PATH | /work | Working directory for staging/complete/cache |
+| AUDIO_WORK_PATH | /work | Working directory for temporary files |
 |---|---|---|
 | AUTOCONFIG_DELAY | 10 | Initial delay before running `AutoConfig` service after container start |
 | AUTOCONFIG_CUSTOMFORMAT | false | Configure settings at the `customformat` api endpoint. |

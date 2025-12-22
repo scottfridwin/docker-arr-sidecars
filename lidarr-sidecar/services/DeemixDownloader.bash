@@ -507,7 +507,7 @@ ProcessLidarrWantedList() {
 # Given a Lidarr album ID, search for and attempt to download the album
 SearchProcess() {
     log "TRACE :: Entering SearchProcess..."
-    # $1 -> Deezer album ID
+    # $1 -> Lidarr album ID
     local lidarrAlbumId="$1"
     if [ -z "$lidarrAlbumId" ]; then
         log "WARNING :: No album ID provided to SearchProcess"
@@ -560,6 +560,7 @@ SearchProcess() {
     elif ((currentDateClean - lidarrAlbumReleaseDateClean < 8)); then
         albumIsNewRelease=true
     fi
+    set_state "lidarrAlbumIsNewRelease" "${albumIsNewRelease}"
 
     log "INFO :: Starting search for album \"${lidarrAlbumTitle}\" by artist \"${lidarrArtistName}\""
 
@@ -679,12 +680,16 @@ SearchProcess() {
 
     log "INFO :: Search process complete..."
 
+    # Write result if configured
+    WriteResultFile
+
     # Download the best match that was found
     local bestMatchID="$(get_state "bestMatchID")"
     if [[ -n "${bestMatchID}" ]]; then
         DownloadBestMatch
     else
         log "INFO :: Album not found"
+        local albumIsNewRelease="$(get_state "lidarrAlbumIsNewRelease")"
         if [ ${albumIsNewRelease} == true ]; then
             log "INFO :: Skip marking album as not found because it's a new release..."
         else
@@ -846,8 +851,7 @@ DownloadBestMatch() {
     local bestMatchDistance="$(get_state "bestMatchDistance")"
     local bestMatchTrackDiff="$(get_state "bestMatchTrackDiff")"
     local bestMatchNumTracks="$(get_state "bestMatchNumTracks")"
-    local downloadedLidarrReleaseInfo="$(get_state "bestMatchLidarrReleaseInfo")"
-    set_state "downloadedLidarrReleaseInfo" "${downloadedLidarrReleaseInfo}"
+    local bestMatchLidarrReleaseForeignId="$(get_state "bestMatchLidarrReleaseForeignId")"
 
     # Download the best match that was found
     log "INFO :: Downloading best match :: [${bestMatchID}] ${bestMatchTitle} (${bestMatchYear}) :: Distance=${bestMatchDistance} TrackDiff=${bestMatchTrackDiff} NumTracks=${bestMatchNumTracks}"
@@ -1010,11 +1014,9 @@ DownloadProcess() {
 
     # Add the MusicBrainz album info to FLAC and MP3 files
     if [ "$returnCode" -eq 0 ]; then
-        local lidarrAlbumInfo="$(get_state "lidarrAlbumInfo")"
-        local lidarrAlbumTitle="$(jq -r ".title" <<<"${lidarrAlbumInfo}")"
-        local lidarrAlbumForeignAlbumId="$(jq -r ".foreignAlbumId" <<<"${lidarrAlbumInfo}")"
-        local downloadedLidarrReleaseInfo="$(get_state "downloadedLidarrReleaseInfo")"
-        local lidarrReleaseForeignId="$(jq -r ".foreignReleaseId" <<<"${downloadedLidarrReleaseInfo}")"
+        local lidarrAlbumTitle=$(get_state "lidarrAlbumTitle")
+        local lidarrAlbumForeignAlbumId="$(get_state "lidarrAlbumForeignAlbumId")"
+        local lidarrReleaseForeignId="$(get_state "bestMatchLidarrReleaseForeignId")"
 
         shopt -s nullglob
         for file in "${AUDIO_WORK_PATH}"/staging/*.{flac,mp3}; do
@@ -1140,6 +1142,7 @@ AddReplaygainTags() {
     return $returnCode
 }
 
+# Add Beets tags to audio files in the specified folder
 AddBeetsTags() {
     log "TRACE :: Entering AddBeetsTags..."
     # $1 -> folder path containing audio files to be tagged
@@ -1153,8 +1156,7 @@ AddBeetsTags() {
     touch "${BEETS_DIR}/beets-library.blb"
     touch "${BEETS_DIR}/beets.timer"
 
-    local downloadedLidarrReleaseInfo="$(get_state "downloadedLidarrReleaseInfo")"
-    local lidarrReleaseForeignId="$(jq -r ".foreignReleaseId" <<<"${downloadedLidarrReleaseInfo}")"
+    local lidarrReleaseForeignId="$(get_state "bestMatchLidarrReleaseForeignId")"
 
     # Retry settings
     local max_retries=3
@@ -1267,6 +1269,7 @@ log "DEBUG :: AUDIO_MATCH_THRESHOLD_TRACK_DIFF_MAX=${AUDIO_MATCH_THRESHOLD_TRACK
 log "DEBUG :: AUDIO_PREFERRED_COUNTRIES=${AUDIO_PREFERRED_COUNTRIES}"
 log "DEBUG :: AUDIO_PREFERRED_FORMATS=${AUDIO_PREFERRED_FORMATS}"
 log "DEBUG :: AUDIO_REQUIRE_QUALITY=${AUDIO_REQUIRE_QUALITY}"
+log "DEBUG :: AUDIO_RESULT_FILE_NAME=${AUDIO_RESULT_FILE_NAME}"
 log "DEBUG :: AUDIO_RETRY_DOWNLOADED_DAYS=${AUDIO_RETRY_DOWNLOADED_DAYS}"
 log "DEBUG :: AUDIO_RETRY_FAILED_DAYS=${AUDIO_RETRY_FAILED_DAYS}"
 log "DEBUG :: AUDIO_RETRY_NOTFOUND_DAYS=${AUDIO_RETRY_NOTFOUND_DAYS}"

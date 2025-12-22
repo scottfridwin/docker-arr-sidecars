@@ -1005,7 +1005,7 @@ ResetBestMatch() {
     set_state "bestMatchTrackDiff" 9999
     set_state "bestMatchNumTracks" 0
     set_state "bestMatchContainsCommentary" "false"
-    set_state "bestMatchLidarrReleaseInfo" ""
+    set_state "bestMatchLidarrReleaseForeignId" ""
     set_state "bestMatchFormatPriority" "999"
     set_state "bestMatchCountryPriority" "999"
     set_state "bestMatchLyricTypePreferred" "false"
@@ -1192,7 +1192,7 @@ UpdateBestMatchState() {
     local lidarrReleaseCountryPriority="$(get_state "lidarrReleaseCountryPriority")"
     local deezerCandidatelyricTypePreferred="$(get_state "deezerCandidatelyricTypePreferred")"
     local lidarrReleaseContainsCommentary="$(get_state "lidarrReleaseContainsCommentary")"
-    local lidarrReleaseInfo="$(get_state "lidarrReleaseInfo")"
+    local lidarrReleaseForeignId="$(get_state "lidarrReleaseForeignId")"
 
     set_state "bestMatchID" "${deezerCandidateAlbumID}"
     set_state "bestMatchTitle" "${deezerCandidateTitleVariant}"
@@ -1206,7 +1206,7 @@ UpdateBestMatchState() {
     set_state "bestMatchCountryPriority" "${lidarrReleaseCountryPriority}"
     set_state "bestMatchLyricTypePreferred" "${deezerCandidatelyricTypePreferred}"
     set_state "bestMatchContainsCommentary" "${lidarrReleaseContainsCommentary}"
-    set_state "bestMatchLidarrReleaseInfo" "${lidarrReleaseInfo}"
+    set_state "bestMatchLidarrReleaseForeignId" "${lidarrReleaseForeignId}"
 
     # Check for exact match
     if is_numeric "$candidateNameDiff" && is_numeric "$candidateTrackDiff" && is_numeric "$candidateYearDiff"; then
@@ -1216,5 +1216,48 @@ UpdateBestMatchState() {
         fi
     else
         log "INFO :: New best match: ${deezerCandidateTitleVariant} (${deezerCandidateAlbumID})"
+    fi
+}
+
+# Write the result of search process to the result file
+WriteResultFile() {
+    if [[ -n "${AUDIO_DEEMIX_ARL_FILE}" ]]; then
+        local outFile="${AUDIO_WORK_PATH}/${AUDIO_RESULT_FILE_NAME}"
+
+        local timestamp="$(date '+%Y-%m-%d %H:%M:%S')"
+        local lidarrArtistName="$(get_state "lidarrArtistName")"
+        local lidarrAlbumTitle="$(get_state "lidarrAlbumTitle")"
+        local lidarrAlbumId="$(get_state "lidarrAlbumId")"
+        local lidarrAlbumForeignAlbumId="$(get_state "lidarrAlbumForeignAlbumId")"
+
+        local result="No match"
+        local bestMatchLidarrReleaseForeignId=""
+        local deezerId="$(get_state "bestMatchID")"
+        if [[ -n "${deezerId}" ]]; then
+            result="Matched"
+            bestMatchLidarrReleaseForeignId="$(get_state "bestMatchLidarrReleaseForeignId")"
+        fi
+
+        # Create file + header if missing
+        if [[ ! -f "$outFile" ]]; then
+            {
+                echo "# Download Match History"
+                echo
+                echo "| Timestamp | Artist | Album | Album Id | Release Group Id | Result | Release Id | Deezer Id |"
+                echo "|-----------|--------|-------|----------|------------------|--------|------------|-----------|"
+            } >"$outFile"
+        fi
+
+        # Append row
+        printf '| %s | %s | %s | %s | %s | %s | %s | %s |\n' \
+            "$timestamp" \
+            "$lidarrArtistName" \
+            "$lidarrAlbumTitle" \
+            "$lidarrAlbumId" \
+            "$lidarrAlbumForeignAlbumId" \
+            "$result" \
+            "$bestMatchLidarrReleaseForeignId" \
+            "$deezerId" \
+            >>"$outFile"
     fi
 }

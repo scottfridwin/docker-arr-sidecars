@@ -27,7 +27,7 @@ set_state "bestMatchNameDiff" "5"
 set_state "bestMatchTrackDiff" "2"
 set_state "bestMatchNumTracks" "15"
 set_state "bestMatchContainsCommentary" "true"
-set_state "bestMatchLidarrReleaseInfo" '{"some":"json"}'
+set_state "bestMatchLidarrReleaseForeignId" 'uuid123'
 set_state "bestMatchFormatPriority" "1"
 set_state "bestMatchCountryPriority" "2"
 set_state "bestMatchLyricTypePreferred" "true"
@@ -43,7 +43,7 @@ if [[ "$(get_state "bestMatchID")" == "" ]] &&
     [[ "$(get_state "bestMatchTrackDiff")" == "9999" ]] &&
     [[ "$(get_state "bestMatchNumTracks")" == "0" ]] &&
     [[ "$(get_state "bestMatchContainsCommentary")" == "false" ]] &&
-    [[ "$(get_state "bestMatchLidarrReleaseInfo")" == "" ]] &&
+    [[ "$(get_state "bestMatchLidarrReleaseForeignId")" == "" ]] &&
     [[ "$(get_state "bestMatchFormatPriority")" == "999" ]] &&
     [[ "$(get_state "bestMatchCountryPriority")" == "999" ]] &&
     [[ "$(get_state "bestMatchLyricTypePreferred")" == "false" ]] &&
@@ -156,7 +156,7 @@ reset_state
 set_state "bestMatchID" "abc123"
 set_state "bestMatchTitle" "Album Title"
 set_state "bestMatchYear" "2020"
-set_state "bestMatchLidarrReleaseInfo" '{"data":"test"}'
+set_state "bestMatchLidarrReleaseForeignId" 'uuid123'
 set_state "bestMatchFormatPriority" "high"
 set_state "bestMatchCountryPriority" "US"
 set_state "bestMatchLyricTypePreferred" "explicit"
@@ -166,7 +166,7 @@ ResetBestMatch
 if [[ "$(get_state "bestMatchID")" == "" ]] &&
     [[ "$(get_state "bestMatchTitle")" == "" ]] &&
     [[ "$(get_state "bestMatchYear")" == "" ]] &&
-    [[ "$(get_state "bestMatchLidarrReleaseInfo")" == "" ]]; then
+    [[ "$(get_state "bestMatchLidarrReleaseForeignId")" == "" ]]; then
     echo "✅ PASS: All string fields reset to empty"
     ((pass++))
 else
