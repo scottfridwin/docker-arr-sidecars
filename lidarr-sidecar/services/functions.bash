@@ -652,7 +652,7 @@ ExtractReleaseInfo() {
         track_titles+=("$track_title")
     done < <(
         safe_jq --optional -r '
-            .media[]?.tracks[]?.title // empty
+            .media[]?.tracks[]?.recording?.title // empty
         ' <<<"$mbJson"
     )
 
