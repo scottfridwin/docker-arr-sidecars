@@ -260,6 +260,43 @@ run_test \
     "Song Title - Parody of Madonna feat. Drake" \
     "Song Title"
 
+# --- Real cases ---
+
+run_test \
+    "real test 1" \
+    "Another Tattoo Parody of \"Nothin' On You\" by B.o.B. featuring Bruno Mars" \
+    "Another Tattoo"
+
+run_test \
+    "real test 2" \
+    "Party In the CIA Parody of \"Party In The U.S.A.\" by Miley Cyrus" \
+    "Party In the CIA"
+
+run_test \
+    "real test 3" \
+    "TMZ Parody of \"You Belong With Me\" by Taylor Swift" \
+    "TMZ"
+
+run_test \
+    "real test 4" \
+    "It's All About the Pentiums An adaptation of \"It's All About the Benjamins\" by Puff Daddy" \
+    "It's All About the Pentiums"
+
+run_test \
+    "real test 5" \
+    "The Saga Begins Lyrical Adaption of \"American Pie\"" \
+    "The Saga Begins"
+
+run_test \
+    "real test 6" \
+    "Pretty Fly for a Rabbi Parody of \"Pretty Fly For a White Guy\" by Offspring" \
+    "Pretty Fly for a Rabbi"
+
+run_test \
+    "real test 7" \
+    "Grapefruit Diet Parody of \"Zoot Suit Riot\" by Cherry Poppin' Daddies" \
+    "Grapefruit Diet"
+
 echo "----------------------------------------------"
 echo "Passed: $pass, Failed: $fail"
 

@@ -1152,20 +1152,28 @@ SkipReleaseCandidate() {
 StripTrackFeature() {
     local s="$1"
 
-    # 1) Remove parenthetical annotations:
-    #    (feat. X), (ft X), (featuring X), (parody of X)
+    # 1) Remove parenthetical annotations
     s="$(sed -E '
-        s/[[:space:]]*\((feat\.?|ft\.?|featuring|parody[[:space:]]+of)[^)]*\)//Ig
+        s/[[:space:]]*\((feat\.?|ft\.?|featuring|parody[[:space:]]+of|an[[:space:]]+adaptation[[:space:]]+of|lyrical[[:space:]]+adapt(ation|ion)[[:space:]]+of)[^)]*\)//Ig
     ' <<<"$s")"
 
-    # 2) Remove non-parenthetical suffix annotations ONLY when separated
-    #    by dash or explicit spacing
+    # 2) Remove dash-separated suffix annotations
     s="$(sed -E '
-        s/[[:space:]]+[-–—][[:space:]]*(feat\.?|ft\.?|featuring|parody[[:space:]]+of)[[:space:]].*$//Ig
+        s/[[:space:]]*[-–—][[:space:]]*(feat\.?|ft\.?|featuring|parody[[:space:]]+of|an[[:space:]]+adaptation[[:space:]]+of|lyrical[[:space:]]+adapt(ation|ion)[[:space:]]+of)[[:space:]].*$//Ig
+    ' <<<"$s")"
+
+    # 3) Remove bare feature annotations (feat/ft only)
+    s="$(sed -E '
         s/[[:space:]]+(feat\.?|ft\.?|featuring)[[:space:]].*$//Ig
     ' <<<"$s")"
 
-    # 3) Normalize whitespace
+    # 4) Remove prose-style parody/adaptation metadata
+    #    ONLY when followed by a quoted work
+    s="$(sed -E '
+        s/[[:space:]]+(parody|an[[:space:]]+adaptation|lyrical[[:space:]]+adapt(ation|ion))[[:space:]]+of[[:space:]]+"[^"]+".*$//Ig
+    ' <<<"$s")"
+
+    # 5) Normalize whitespace
     s="$(sed -E 's/[[:space:]]+/ /g; s/^ //; s/ $//' <<<"$s")"
 
     printf '%s' "$s"
