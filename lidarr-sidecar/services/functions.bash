@@ -250,11 +250,13 @@ CompareTrackTitles() {
     local lidarr_raw deezer_raw
     lidarr_raw="$(get_state "lidarrReleaseTrackTitles")"
     deezer_raw="$(get_state "deezerCandidateTrackTitles")"
+    deezer_long_raw="$(get_state "deezerCandidateLongTrackTitles")"
     log "DEBUG :: Comparing track lists of lidarr \"$lidarrReleaseForeignId\" to deezer \"$deezerCandidateAlbumID\""
 
     local lidarr_tracks=() deezer_tracks=()
     [[ -n "$lidarr_raw" ]] && IFS="$TRACK_SEP" read -r -a lidarr_tracks <<<"$lidarr_raw"
     [[ -n "$deezer_raw" ]] && IFS="$TRACK_SEP" read -r -a deezer_tracks <<<"$deezer_raw"
+    [[ -n "$deezer_long_raw" ]] && IFS="$TRACK_SEP" read -r -a deezer_long_tracks <<<"$deezer_long_raw"
 
     local lidarr_len=${#lidarr_tracks[@]}
     local deezer_len=${#deezer_tracks[@]}
@@ -276,22 +278,19 @@ CompareTrackTitles() {
     local compared_tracks=0
     if (($lidarr_len != $deezer_len)); then
         log "DEBUG :: Lidarr release has a different number of tracks that the deezer release (lidarr $lidarr_len; deezer $deezer_len)"
-        for t in "${lidarr_tracks[@]}"; do
-            log "DEBUG :: tmp - lidarr track: \"$t\""
-        done
-        for t in "${deezer_tracks[@]}"; do
-            log "DEBUG :: tmp - deezer track: \"$t\""
-        done
         total_diff=999
         max_diff=999
         compared_tracks=1
     else
-        local lidarr_norm=() deezer_norm=()
+        local lidarr_norm=() deezer_norm=() deezer_long_norm=()
         for t in "${lidarr_tracks[@]}"; do
             lidarr_norm+=("$(normalize_string "$t")")
         done
         for t in "${deezer_tracks[@]}"; do
             deezer_norm+=("$(normalize_string "$t")")
+        done
+        for t in "${deezer_long_tracks[@]}"; do
+            deezer_long_norm+=("$(normalize_string "$t")")
         done
 
         for ((i = 0; i < max_len; i++)); do
@@ -316,6 +315,18 @@ CompareTrackTitles() {
                         d2="$(LevenshteinDistance "${a,,}" "${b_stripped,,}")"
 
                         ((d2 < d)) && d="$d2"
+                    fi
+                fi
+                # Third-pass comparison: use long Deezer title
+                if ((d > 0)); then
+                    local b_long="${deezer_long_norm[i]:-}"
+
+                    if [[ -n "$b_long" && "$b_long" != "$b" ]]; then
+                        local d3
+                        log "DEBUG :: Recalculating distance \"$a\" to \"$b_long\" (long title)..."
+                        d3="$(LevenshteinDistance "${a,,}" "${b_long,,}")"
+
+                        ((d3 < d)) && d="$d3"
                     fi
                 fi
                 if [[ "$d" =~ ^[0-9]+$ ]]; then
@@ -416,7 +427,6 @@ EvaluateDeezerAlbumCandidate() {
     set_state "deezerCandidateTitle" "${deezerCandidateTitle}"
 
     # Extract track titles
-    log "DEBUG :: Extracting Deezer track titles"
     local track_titles=()
     local deezerCandidateTrackTitles=""
 
@@ -434,6 +444,24 @@ EvaluateDeezerAlbumCandidate() {
         deezerCandidateTrackTitles="${deezerCandidateTrackTitles%${TRACK_SEP}}"
     fi
     set_state "deezerCandidateTrackTitles" "${deezerCandidateTrackTitles}"
+
+    local track_titles_long=()
+    local deezerCandidateLongTrackTitles=""
+
+    while IFS= read -r track_title; do
+        [[ -z "$track_title" ]] && continue
+        track_titles_long+=("$track_title")
+    done < <(
+        safe_jq --optional -r '
+            .tracks?.data[]?.title // empty
+        ' <<<"$deezerAlbumData"
+    )
+
+    if ((${#track_titles_long[@]} > 0)); then
+        deezerCandidateLongTrackTitles="$(printf "%s${TRACK_SEP}" "${track_titles_long[@]}")"
+        deezerCandidateLongTrackTitles="${deezerCandidateLongTrackTitles%${TRACK_SEP}}"
+    fi
+    set_state "deezerCandidateLongTrackTitles" "${deezerCandidateLongTrackTitles}"
 
     local lyricTypeSetting="${AUDIO_LYRIC_TYPE:-}"
     local deezerCandidatelyricTypePreferred=$(IsLyricTypePreferred "${deezerCandidateIsExplicit}" "${lyricTypeSetting}")
