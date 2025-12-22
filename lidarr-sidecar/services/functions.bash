@@ -681,19 +681,15 @@ ExtractReleaseInfo() {
         lidarrReleaseContainsCommentary="true"
     else
         # Check track names
-        while IFS= read -r track_title; do
+        for t in "${track_titles[@]}"; do
             # Skip blank (just in case safe_jq returns empty)
-            [[ -z "$track_title" ]] && continue
-            if [[ "${track_title,,}" =~ ${commentaryPattern,,} ]]; then
-                log "DEBUG :: track \"${track_title}\" matched commentary keyword (${AUDIO_COMMENTARY_KEYWORDS})"
+            [[ -z "$t" ]] && continue
+            if [[ "${t,,}" =~ ${commentaryPattern,,} ]]; then
+                log "DEBUG :: track \"${t}\" matched commentary keyword (${AUDIO_COMMENTARY_KEYWORDS})"
                 lidarrReleaseContainsCommentary="true"
                 break
             fi
-        done < <(
-            safe_jq --optional -r '
-        .media[]?.tracks[]?.title // empty
-    ' <<<"$mbJson"
-        )
+        done
     fi
 
     set_state "lidarrReleaseContainsCommentary" "${lidarrReleaseContainsCommentary}"

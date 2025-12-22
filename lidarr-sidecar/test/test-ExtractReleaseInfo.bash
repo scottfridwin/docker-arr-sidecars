@@ -285,7 +285,7 @@ fi
 
 # Test 11: Commentary detection in track name
 reset_state
-set_state "musicbrainzReleaseJson" "{\"media\":[{\"tracks\": [{\"title\": \"Overture\"},{\"title\": \"Overture (Commentary)\"}]}]}"
+set_state "musicbrainzReleaseJson" "{\"media\":[{\"tracks\": [{\"recording\": {\"title\": \"Overture\"}},{\"recording\": {\"title\": \"Overture (Commentary)\"}}]}]}"
 release_json='{
   "title": "2048",
   "disambiguation": "Deluxe Edition",
@@ -304,7 +304,7 @@ if [[ "$(get_state "lidarrReleaseTitle")" == "2048" ]] &&
     [[ "$(get_state "lidarrReleaseForeignId")" == "abc123-def456" ]] &&
     [[ "$(get_state "lidarrReleaseYear")" == "2014" ]] &&
     [[ "$(get_state "lidarrReleaseContainsCommentary")" == "true" ]] &&
-    [[ "$(get_state "lidarrReleaseMBJson")" == "{\"media\":[{\"tracks\": [{\"title\": \"Overture\"},{\"title\": \"Overture (Commentary)\"}]}]}" ]]; then
+    [[ "$(get_state "lidarrReleaseMBJson")" == "{\"media\":[{\"tracks\": [{\"recording\": {\"title\": \"Overture\"}},{\"recording\": {\"title\": \"Overture (Commentary)\"}}]}]}" ]]; then
     echo "✅ PASS: Commentary detection in track name"
     ((pass++))
 else
@@ -318,7 +318,7 @@ fi
 
 # Test 12: Track list
 reset_state
-set_state "musicbrainzReleaseJson" "{\"media\":[{\"tracks\": [{\"title\": \"Overture\"},{\"title\": \"Movement I\"},{\"title\": \"Movement II\"},{\"title\": \"Movement III\"}]}]}"
+set_state "musicbrainzReleaseJson" "{\"media\":[{\"tracks\": [{\"recording\": {\"title\": \"Overture\"}},{\"recording\": {\"title\": \"Movement I\"}},{\"recording\": {\"title\": \"Movement II\"}},{\"recording\": {\"title\": \"Movement III\"}}]}]}"
 release_json='{
   "title": "2048",
   "disambiguation": "Deluxe Edition",
