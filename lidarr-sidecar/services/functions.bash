@@ -135,14 +135,10 @@ CallMusicBrainzAPI() {
 
         log "DEBUG :: Calling MusicBrainz API (${attempts}/${maxAttempts}): ${url}"
 
-        # Run curl with:
-        #   -S : show errors
-        #   -s : silent otherwise
-        #   timeouts: prevent hangs
         response="$(
-            curl -sS \
+            curl -sS -L \
                 --connect-timeout 5 \
-                --max-time 10 \
+                --max-time 15 \
                 -H "User-Agent: ${mbUserAgent}" \
                 -H "Accept: application/json" \
                 -w "\n%{http_code}" \
@@ -152,23 +148,22 @@ CallMusicBrainzAPI() {
         curlExit=$?
         log "TRACE :: curl exit code: ${curlExit}"
 
-        # On total failure, retry
+        # Curl-level failure (DNS, TLS, timeout, etc)
         if ((curlExit != 0)); then
             log "WARNING :: curl failed (exit ${curlExit}). Retrying..."
-            sleep ${backoff}
+            sleep "${backoff}"
             backoff=$((backoff * 2))
             continue
         fi
 
-        httpCode=$(tail -n1 <<<"${response}")
-        body=$(sed '$d' <<<"${response}")
+        httpCode="$(tail -n1 <<<"${response}")"
+        body="$(sed '$d' <<<"${response}")"
 
         log "DEBUG :: HTTP response code: ${httpCode}"
         log "TRACE :: HTTP response body: ${body}"
 
-        case "$httpCode" in
+        case "${httpCode}" in
         200)
-            # Validate JSON
             if safe_jq --optional '.' <<<"${body}" >/dev/null 2>&1; then
                 set_state "musicBrainzApiResponse" "${body}"
                 return 0
@@ -176,20 +171,24 @@ CallMusicBrainzAPI() {
                 log "WARNING :: Invalid JSON from MusicBrainz. Retrying..."
             fi
             ;;
-        503)
-            # MusicBrainz rate limits heavily
-            log "WARNING :: MusicBrainz returned 503. Backing off..."
-            sleep ${backoff}
-            backoff=$((backoff * 2))
+        301 | 302)
+            # Should not happen often because -L is enabled,
+            # but treat as retryable just in case
+            log "DEBUG :: Redirect response (${httpCode}) handled by curl"
             ;;
         429)
             log "WARNING :: HTTP 429 (Too Many Requests). Backing off..."
-            sleep ${backoff}
+            sleep "${backoff}"
+            backoff=$((backoff * 2))
+            ;;
+        503)
+            log "WARNING :: MusicBrainz returned 503. Backing off..."
+            sleep "${backoff}"
             backoff=$((backoff * 2))
             ;;
         5*)
             log "WARNING :: Server error ${httpCode}. Retrying..."
-            sleep ${backoff}
+            sleep "${backoff}"
             backoff=$((backoff * 2))
             ;;
         *)
@@ -199,7 +198,6 @@ CallMusicBrainzAPI() {
         esac
     done
 
-    # Failed completely
     log "ERROR :: CallMusicBrainzAPI failed after ${maxAttempts} attempts"
     setUnhealthy
     exit 1
