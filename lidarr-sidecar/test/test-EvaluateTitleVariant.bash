@@ -19,8 +19,8 @@ log() {
 ComputeMatchMetrics() {
     set_state "MOCK_ComputeMatchMetrics" "true"
 }
-CompareTrackTitles() {
-    set_state "MOCK_CompareTrackTitles" "true"
+CompareTrackLists() {
+    set_state "MOCK_CompareTrackLists" "true"
 }
 
 IsBetterMatch() {
@@ -42,7 +42,7 @@ UpdateBestMatchState() {
 # Helper to setup state for the test
 setup_state() {
     set_state "MOCK_ComputeMatchMetrics" "false"
-    set_state "MOCK_CompareTrackTitles" "false"
+    set_state "MOCK_CompareTrackLists" "false"
     set_state "MOCK_IsBetterMatch" "false"
     set_state "MOCK_AlbumPreviouslyFailed" "false"
     set_state "MOCK_AlbumPreviouslyFailed_Val1" "unset"
@@ -63,7 +63,7 @@ setup_state() {
 run_test() {
     local testName="$1"
     local expected_ComputeMatchMetrics="$2"
-    local expected_CompareTrackTitles="$3"
+    local expected_CompareTrackLists="$3"
     local expected_IsBetterMatch="$4"
     local expected_AlbumPreviouslyFailed="$5"
     local expected_AlbumPreviouslyFailed_Val1="$6"
@@ -72,13 +72,13 @@ run_test() {
     EvaluateTitleVariant
 
     MOCK_ComputeMatchMetrics=$(get_state "MOCK_ComputeMatchMetrics")
-    MOCK_CompareTrackTitles=$(get_state "MOCK_CompareTrackTitles")
+    MOCK_CompareTrackLists=$(get_state "MOCK_CompareTrackLists")
     MOCK_IsBetterMatch=$(get_state "MOCK_IsBetterMatch")
     MOCK_AlbumPreviouslyFailed=$(get_state "MOCK_AlbumPreviouslyFailed")
     MOCK_AlbumPreviouslyFailed_Val1=$(get_state "MOCK_AlbumPreviouslyFailed_Val1")
     MOCK_UpdateBestMatchState=$(get_state "MOCK_UpdateBestMatchState")
     if [[ "${MOCK_ComputeMatchMetrics}" == "${expected_ComputeMatchMetrics}" ]] &&
-        [[ "${MOCK_CompareTrackTitles}" == "${expected_CompareTrackTitles}" ]] &&
+        [[ "${MOCK_CompareTrackLists}" == "${expected_CompareTrackLists}" ]] &&
         [[ "${MOCK_IsBetterMatch}" == "${expected_IsBetterMatch}" ]] &&
         [[ "${MOCK_AlbumPreviouslyFailed}" == "${expected_AlbumPreviouslyFailed}" ]] &&
         [[ "${MOCK_AlbumPreviouslyFailed_Val1}" == "${expected_AlbumPreviouslyFailed_Val1}" ]] &&
@@ -88,7 +88,7 @@ run_test() {
     else
         echo "❌ FAIL: $testName"
         echo "    MOCK_ComputeMatchMetrics=$MOCK_ComputeMatchMetrics (expected $expected_ComputeMatchMetrics)"
-        echo "    MOCK_CompareTrackTitles=$MOCK_CompareTrackTitles (expected $expected_CompareTrackTitles)"
+        echo "    MOCK_CompareTrackLists=$MOCK_CompareTrackLists (expected $expected_CompareTrackLists)"
         echo "    MOCK_IsBetterMatch=$MOCK_IsBetterMatch (expected $expected_IsBetterMatch)"
         echo "    MOCK_AlbumPreviouslyFailed=$MOCK_AlbumPreviouslyFailed (expected $expected_AlbumPreviouslyFailed)"
         echo "    MOCK_AlbumPreviouslyFailed_Val1=$MOCK_AlbumPreviouslyFailed_Val1 (expected $expected_AlbumPreviouslyFailed_Val1)"

@@ -227,9 +227,75 @@ ClearTrackComparisonCache() {
     log "DEBUG :: Cleared all cached track values from state"
 }
 
+# Compares a lidarr track title to a deezer track title
+CompareTrack() {
+    local lidarrTrackTitle="${1}"
+    local deezerTrackTitle="${2}"
+    local deezerLongTrackTitle="${3}"
+
+    # First-pass comparison: plain titles
+    log "DEBUG :: Calculating distance \"$lidarrTrackTitle\" to \"$deezerTrackTitle\"..."
+    local d="$(LevenshteinDistance "${lidarrTrackTitle,,}" "${deezerTrackTitle,,}")"
+
+    if [[ "$d" =~ ^[0-9]+$ ]]; then
+
+        # Second-pass comparison: strip feature annotations from Deezer title
+        if ((d > 0)); then
+            local deezerTrackTitleStripped
+            deezerTrackTitleStripped="$(StripTrackFeature "$deezerTrackTitle")"
+
+            if [[ -n "$deezerTrackTitleStripped" && "$deezerTrackTitleStripped" != "$deezerTrackTitle" ]]; then
+                local d2
+                log "DEBUG :: Recalculating distance \"$lidarrTrackTitle\" to \"$deezerTrackTitleStripped\" (feature stripped)..."
+                d2="$(LevenshteinDistance "${lidarrTrackTitle,,}" "${deezerTrackTitleStripped,,}")"
+
+                ((d2 < d)) && d="$d2"
+            fi
+        fi
+
+        # Third-pass comparison: use long Deezer title
+        if ((d > 0)); then
+            if [[ -n "$deezerLongTrackTitle" && "$deezerLongTrackTitle" != "$deezerTrackTitle" ]]; then
+                local d3
+                log "DEBUG :: Recalculating distance \"$lidarrTrackTitle\" to \"$deezerLongTrackTitle\" (long title)..."
+                d3="$(LevenshteinDistance "${lidarrTrackTitle,,}" "${deezerLongTrackTitle,,}")"
+
+                ((d3 < d)) && d="$d3"
+            fi
+        fi
+
+        # Fourth-pass comparison: remove album title from track title (niche case)
+        if ((d > 0)); then
+            local deezerTrackTitleStripped
+            local searchReleaseTitleClean="$(get_state "searchReleaseTitleClean")"
+            deezerTrackTitleStripped="$(RemovePatternFromString "$deezerTrackTitle" "${searchReleaseTitleClean}")"
+
+            if [[ -n "$deezerTrackTitleStripped" && "$deezerTrackTitleStripped" != "$deezerTrackTitle" ]]; then
+                local d2
+                log "DEBUG :: Recalculating distance \"$lidarrTrackTitle\" to \"$deezerTrackTitleStripped\" (album title stripped)..."
+                d2="$(LevenshteinDistance "${lidarrTrackTitle,,}" "${deezerTrackTitleStripped,,}")"
+
+                ((d2 < d)) && d="$d2"
+            fi
+        fi
+
+        if [[ "$d" =~ ^[0-9]+$ ]]; then
+            set_state "trackTitleDiff" "$d"
+        else
+            log "ERROR :: Invalid Levenshtein distance '$d' for '$lidarrTrackTitle' vs '$deezerTrackTitle'"
+            setUnhealthy
+            exit 1
+        fi
+    else
+        log "ERROR :: Invalid Levenshtein distance '$d' for '$lidarrTrackTitle' vs '$deezerTrackTitle'"
+        setUnhealthy
+        exit 1
+    fi
+}
+
 # Compares the track lists from a lidarr release and a deezer album
-CompareTrackTitles() {
-    log "TRACE :: Entering CompareTrackTitles..."
+CompareTrackLists() {
+    log "TRACE :: Entering CompareTrackLists..."
 
     # Check if a cached comparison exists
     local deezerCandidateAlbumID="$(get_state "deezerCandidateAlbumID")"
@@ -249,12 +315,14 @@ CompareTrackTitles() {
 
     local lidarr_raw deezer_raw
     lidarr_raw="$(get_state "lidarrReleaseTrackTitles")"
+    lidarr_recording_raw="$(get_state "lidarrReleaseRecordingTitles")"
     deezer_raw="$(get_state "deezerCandidateTrackTitles")"
     deezer_long_raw="$(get_state "deezerCandidateLongTrackTitles")"
     log "DEBUG :: Comparing track lists of lidarr \"$lidarrReleaseForeignId\" to deezer \"$deezerCandidateAlbumID\""
 
     local lidarr_tracks=() deezer_tracks=()
     [[ -n "$lidarr_raw" ]] && IFS="$TRACK_SEP" read -r -a lidarr_tracks <<<"$lidarr_raw"
+    [[ -n "$lidarr_recording_raw" ]] && IFS="$TRACK_SEP" read -r -a lidarr_recordings <<<"$lidarr_recording_raw"
     [[ -n "$deezer_raw" ]] && IFS="$TRACK_SEP" read -r -a deezer_tracks <<<"$deezer_raw"
     [[ -n "$deezer_long_raw" ]] && IFS="$TRACK_SEP" read -r -a deezer_long_tracks <<<"$deezer_long_raw"
 
@@ -282,9 +350,12 @@ CompareTrackTitles() {
         max_diff=999
         compared_tracks=1
     else
-        local lidarr_norm=() deezer_norm=() deezer_long_norm=()
+        local lidarr_track_norm=() lidarr_recording_norm=() deezer_norm=() deezer_long_norm=()
         for t in "${lidarr_tracks[@]}"; do
-            lidarr_norm+=("$(normalize_string "$t")")
+            lidarr_track_norm+=("$(normalize_string "$t")")
+        done
+        for t in "${lidarr_recordings[@]}"; do
+            lidarr_recording_norm+=("$(normalize_string "$t")")
         done
         for t in "${deezer_tracks[@]}"; do
             deezer_norm+=("$(normalize_string "$t")")
@@ -294,68 +365,14 @@ CompareTrackTitles() {
         done
 
         for ((i = 0; i < max_len; i++)); do
-            local a="${lidarr_norm[i]:-}"
-            local b="${deezer_norm[i]:-}"
-
-            [[ -z "$a" || -z "$b" ]] && continue
-
-            local d
-            log "DEBUG :: Calculating distance \"$a\" to \"$b\"..."
-            d="$(LevenshteinDistance "${a,,}" "${b,,}")"
-
-            if [[ "$d" =~ ^[0-9]+$ ]]; then
-                # Second-pass comparison: strip feature annotations from Deezer title
-                if ((d > 0)); then
-                    local b_stripped
-                    b_stripped="$(StripTrackFeature "$b")"
-
-                    if [[ -n "$b_stripped" && "$b_stripped" != "$b" ]]; then
-                        local d2
-                        log "DEBUG :: Recalculating distance \"$a\" to \"$b_stripped\" (feature stripped)..."
-                        d2="$(LevenshteinDistance "${a,,}" "${b_stripped,,}")"
-
-                        ((d2 < d)) && d="$d2"
-                    fi
-                fi
-                # Third-pass comparison: use long Deezer title
-                if ((d > 0)); then
-                    local b_long="${deezer_long_norm[i]:-}"
-
-                    if [[ -n "$b_long" && "$b_long" != "$b" ]]; then
-                        local d3
-                        log "DEBUG :: Recalculating distance \"$a\" to \"$b_long\" (long title)..."
-                        d3="$(LevenshteinDistance "${a,,}" "${b_long,,}")"
-
-                        ((d3 < d)) && d="$d3"
-                    fi
-                fi
-                # Fourth-pass comparison: remove album title from track title (niche case)
-                if ((d > 0)); then
-                    local b_stripped
-                    local searchReleaseTitleClean="$(get_state "searchReleaseTitleClean")"
-                    b_stripped="$(RemovePatternFromString "$b" "${searchReleaseTitleClean}")"
-
-                    if [[ -n "$b_stripped" && "$b_stripped" != "$b" ]]; then
-                        local d2
-                        log "DEBUG :: Recalculating distance \"$a\" to \"$b_stripped\" (album title stripped)..."
-                        d2="$(LevenshteinDistance "${a,,}" "${b_stripped,,}")"
-
-                        ((d2 < d)) && d="$d2"
-                    fi
-                fi
-                if [[ "$d" =~ ^[0-9]+$ ]]; then
-                    total_diff=$((total_diff + d))
-                else
-                    log "ERROR :: Invalid Levenshtein distance '$d' for '$a' vs '$b'"
-                    setUnhealthy
-                    exit 1
-                fi
-            else
-                log "ERROR :: Invalid Levenshtein distance '$d' for '$a' vs '$b'"
-                setUnhealthy
-                exit 1
+            CompareTrack "${lidarr_track_norm[i]:-}" "${deezer_norm[i]:-}" "${deezer_long_norm[i]:-}"
+            local d="$(get_state "trackTitleDiff")"
+            if ((d > 0)); then
+                CompareTrack "${lidarr_recording_norm[i]:-}" "${deezer_norm[i]:-}" "${deezer_long_norm[i]:-}"
+                local d2="$(get_state "trackTitleDiff")"
+                ((d2 < d)) && d="$d2"
             fi
-
+            total_diff=$((total_diff + d))
             compared_tracks=$((compared_tracks + 1))
             ((d > max_diff)) && max_diff="$d"
         done
@@ -376,7 +393,7 @@ CompareTrackTitles() {
     set_state "trackcache.${cache_key}.tot" "$total_diff"
     set_state "trackcache.${cache_key}.max" "$max_diff"
 
-    log "TRACE :: Exiting CompareTrackTitles..."
+    log "TRACE :: Exiting CompareTrackLists..."
 }
 
 # Compute match metrics for a candidate album
@@ -538,7 +555,7 @@ EvaluateTitleVariant() {
     fi
 
     # Calculate track title score
-    CompareTrackTitles
+    CompareTrackLists
 
     local candidateTrackNameDiffAvg=$(get_state "candidateTrackNameDiffAvg")
     local candidateTrackNameDiffMax=$(get_state "candidateTrackNameDiffMax")
@@ -658,18 +675,31 @@ ExtractReleaseInfo() {
     fi
 
     # Extract track titles
+    local recording_titles=()
     local track_titles=()
+    local lidarrReleaseRecordingTitles=""
     local lidarrReleaseTrackTitles=""
 
     while IFS= read -r track_title; do
         [[ -z "$track_title" ]] && continue
-        track_titles+=("$track_title")
+        recording_titles+=("$track_title")
     done < <(
         safe_jq --optional -r '
             .media[]?.tracks[]?.recording?.title // empty
         ' <<<"$mbJson"
     )
-
+    while IFS= read -r track_title; do
+        [[ -z "$track_title" ]] && continue
+        track_titles+=("$track_title")
+    done < <(
+        safe_jq --optional -r '
+            .media[]?.tracks[]?.title // empty
+        ' <<<"$mbJson"
+    )
+    if ((${#recording_titles[@]} > 0)); then
+        lidarrReleaseRecordingTitles="$(printf "%s${TRACK_SEP}" "${recording_titles[@]}")"
+        lidarrReleaseRecordingTitles="${lidarrReleaseRecordingTitles%${TRACK_SEP}}"
+    fi
     if ((${#track_titles[@]} > 0)); then
         lidarrReleaseTrackTitles="$(printf "%s${TRACK_SEP}" "${track_titles[@]}")"
         lidarrReleaseTrackTitles="${lidarrReleaseTrackTitles%${TRACK_SEP}}"
@@ -717,6 +747,7 @@ ExtractReleaseInfo() {
     set_state "lidarrReleaseYear" "${lidarrReleaseYear}"
     set_state "lidarrReleaseMBJson" "${mbJson}"
     set_state "lidarrReleaseCountries" "${lidarrReleaseCountries}"
+    set_state "lidarrReleaseRecordingTitles" "${lidarrReleaseRecordingTitles}"
     set_state "lidarrReleaseTrackTitles" "${lidarrReleaseTrackTitles}"
 
     log "TRACE :: Exiting ExtractReleaseInfo..."

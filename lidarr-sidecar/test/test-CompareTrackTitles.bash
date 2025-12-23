@@ -37,7 +37,7 @@ run_test() {
         echo "${local_deezer_tracks[*]}"
     )"
 
-    CompareTrackTitles
+    CompareTrackLists
 
     if [[ "$(get_state "candidateTrackNameDiffTotal")" == "$expected_Total" ]] &&
         [[ "$(get_state "candidateTrackNameDiffAvg")" == "$expected_Average" ]] &&
