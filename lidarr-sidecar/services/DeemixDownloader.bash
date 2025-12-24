@@ -258,7 +258,7 @@ AddDownloadClient() {
     ' <<<"${downloadClientsData}")"
 
     if [[ "${downloadClientExists}" != "true" ]]; then
-        log "INFO :: ${AUDIO_DOWNLOADCLIENT_NAME} client not found, creating it..."
+        log "DEBUG :: ${AUDIO_DOWNLOADCLIENT_NAME} client not found, creating it..."
 
         # Build JSON payload safely
         payload="$(
@@ -286,9 +286,9 @@ AddDownloadClient() {
 
         # Submit to API
         ArrApiRequest "POST" "downloadclient" "${payload}"
-        log "INFO :: Successfully added ${AUDIO_DOWNLOADCLIENT_NAME} download client."
+        log "DEBUG :: Successfully added ${AUDIO_DOWNLOADCLIENT_NAME} download client."
     else
-        log "INFO :: ${AUDIO_DOWNLOADCLIENT_NAME} download client already exists, skipping creation."
+        log "DEBUG :: ${AUDIO_DOWNLOADCLIENT_NAME} download client already exists, skipping creation."
     fi
 
     log "TRACE :: Exiting AddDownloadClient..."
@@ -300,7 +300,7 @@ FolderCleaner() {
     if [ -d "${AUDIO_DATA_PATH}/notfound" ]; then
         # check for notfound entries older than AUDIO_RETRY_NOTFOUND_DAYS days
         if find "${AUDIO_DATA_PATH}/notfound" -mindepth 1 -type f -mtime +${AUDIO_RETRY_NOTFOUND_DAYS} | read; then
-            log "INFO :: Removing prevously notfound lidarr album ids older than ${AUDIO_RETRY_NOTFOUND_DAYS} days to give them a retry..."
+            log "DEBUG :: Removing prevously notfound lidarr album ids older than ${AUDIO_RETRY_NOTFOUND_DAYS} days to give them a retry..."
             # delete notfound entries older than AUDIO_RETRY_NOTFOUND_DAYS days
             find "${AUDIO_DATA_PATH}/notfound" -mindepth 1 -type f -mtime +${AUDIO_RETRY_NOTFOUND_DAYS} -delete
         fi
@@ -308,7 +308,7 @@ FolderCleaner() {
     if [ -d "${AUDIO_DATA_PATH}/downloaded" ]; then
         # check for downloaded entries older than AUDIO_RETRY_DOWNLOADED_DAYS days
         if find "${AUDIO_DATA_PATH}/downloaded" -mindepth 1 -type f -mtime +${AUDIO_RETRY_DOWNLOADED_DAYS} | read; then
-            log "INFO :: Removing previously downloaded lidarr album ids older than ${AUDIO_RETRY_DOWNLOADED_DAYS} days to give them a retry..."
+            log "DEBUG :: Removing previously downloaded lidarr album ids older than ${AUDIO_RETRY_DOWNLOADED_DAYS} days to give them a retry..."
             # delete downloaded entries older than AUDIO_RETRY_DOWNLOADED_DAYS days
             find "${AUDIO_DATA_PATH}/downloaded" -mindepth 1 -type f -mtime +${AUDIO_RETRY_DOWNLOADED_DAYS} -delete
         fi
@@ -316,7 +316,7 @@ FolderCleaner() {
     if [ -d "${AUDIO_DATA_PATH}/failed" ]; then
         # check for failed entries older than AUDIO_RETRY_FAILED_DAYS days
         if find "${AUDIO_DATA_PATH}/failed" -mindepth 1 -type f -mtime +${AUDIO_RETRY_FAILED_DAYS} | read; then
-            log "INFO :: Removing previously failed lidarr album ids older than ${AUDIO_RETRY_FAILED_DAYS} days to give them a retry..."
+            log "DEBUG :: Removing previously failed lidarr album ids older than ${AUDIO_RETRY_FAILED_DAYS} days to give them a retry..."
             # delete failed entries older than AUDIO_RETRY_FAILED_DAYS days
             find "${AUDIO_DATA_PATH}/failed" -mindepth 1 -type f -mtime +${AUDIO_RETRY_FAILED_DAYS} -delete
         fi
@@ -332,14 +332,14 @@ NotifyLidarrForImport() {
 
     ArrApiRequest "POST" "command" "{\"name\":\"DownloadedAlbumsScan\", \"path\":\"${importPath}\"}"
 
-    log "INFO :: Sent notification to Lidarr to import downloaded album at path: ${importPath}"
+    log "DEBUG :: Sent notification to Lidarr to import downloaded album at path: ${importPath}"
     log "TRACE :: Exiting NotifyLidarrForImport..."
 }
 
 # Set up Deemix client configuration
 SetupDeemix() {
     log "TRACE :: Entering SetupDeemix..."
-    log "INFO :: Setting up Deemix client"
+    log "DEBUG :: Setting up Deemix client"
 
     # Determine ARL token
     if [[ -n "${AUDIO_DEEMIX_ARL_FILE}" && -f "${AUDIO_DEEMIX_ARL_FILE}" ]]; then
@@ -377,17 +377,17 @@ SetupDeemix() {
             <(echo "${customConfigContent}"))
 
         echo "${configContent}" >"${DEEMIX_CONFIG_PATH}"
-        log "INFO :: Custom Deemix config merged into ${DEEMIX_CONFIG_PATH}"
+        log "DEBUG :: Custom Deemix config merged into ${DEEMIX_CONFIG_PATH}"
     fi
 
-    log "INFO :: Deemix client setup complete. ARL token stored in global DEEMIX_ARL variable."
+    log "DEBUG :: Deemix client setup complete. ARL token stored in global DEEMIX_ARL variable."
     log "TRACE :: Exiting SetupDeemix..."
 }
 
 # Set up Deemix client configuration
 SetupBeets() {
     log "TRACE :: Entering SetupBeets..."
-    log "INFO :: Setting up Beets configuration"
+    log "DEBUG :: Setting up Beets configuration"
 
     # Copy default config to /tmp
     local defaultConfigFile="/app/config/beets_config.yaml"
@@ -416,10 +416,10 @@ SetupBeets() {
             <(echo "${customConfigContent}"))
 
         echo "${configContent}" >"${BEETS_CONFIG_PATH}"
-        log "INFO :: Custom Beets config merged into ${BEETS_CONFIG_PATH}"
+        log "DEBUG :: Custom Beets config merged into ${BEETS_CONFIG_PATH}"
     fi
 
-    log "INFO :: Beets configuration complete"
+    log "DEBUG :: Beets configuration complete"
     log "TRACE :: Exiting SetupBeets..."
 }
 
@@ -432,17 +432,17 @@ ProcessLidarrWantedList() {
     local searchDirection="descending"
     local pageSize=1000
 
-    log "INFO :: Retrieving ${listType} albums from Lidarr"
+    log "DEBUG :: Retrieving ${listType} albums from Lidarr"
 
     # Get total count of albums
     local response totalRecords
     ArrApiRequest "GET" "wanted/${listType}?page=1&pagesize=1&sortKey=${searchOrder}&sortDirection=${searchDirection}"
     response="$(get_state "arrApiResponse")"
     totalRecords=$(jq -r .totalRecords <<<"$response")
-    log "INFO :: Found ${totalRecords} ${listType} albums"
+    log "DEBUG :: Found ${totalRecords} ${listType} albums"
 
     if ((totalRecords < 1)); then
-        log "INFO :: No ${listType} albums to process"
+        log "DEBUG :: No ${listType} albums to process"
         return
     fi
 
@@ -476,7 +476,7 @@ ProcessLidarrWantedList() {
     local totalPages=$(((totalRecords + pageSize - 1) / pageSize))
 
     for ((page = 1; page <= totalPages; page++)); do
-        log "INFO :: Downloading page ${page} of ${totalPages} for ${listType} albums"
+        log "DEBUG :: Downloading page ${page} of ${totalPages} for ${listType} albums"
 
         # Fetch page of album IDs
         ArrApiRequest "GET" "wanted/${listType}?page=${page}&pagesize=${pageSize}&sortKey=${searchOrder}&sortDirection=${searchDirection}"
@@ -490,7 +490,7 @@ ProcessLidarrWantedList() {
         mapfile -t toProcess < <(comm -13 <(printf "%s\n" "${downloaded[@]}") <(printf "%s\n" "${tmpList[@]}"))
 
         local recordCount=${#toProcess[@]}
-        log "INFO :: ${recordCount} ${listType} albums to process"
+        log "DEBUG :: ${recordCount} ${listType} albums to process"
 
         if ((recordCount > 0)); then
             log "INFO :: Starting search for ${recordCount} ${listType} albums"
@@ -538,13 +538,13 @@ SearchProcess() {
 
     # Check if album was previously marked "not found"
     if [ -f "${AUDIO_DATA_PATH}/notfound/${lidarrAlbumId}--${lidarrArtistForeignArtistId}--${lidarrAlbumForeignAlbumId}" ]; then
-        log "INFO :: Album \"${lidarrAlbumTitle}\" by artist \"${lidarrArtistName}\" was previously marked as not found, skipping..."
+        log "DEBUG :: Album \"${lidarrAlbumTitle}\" by artist \"${lidarrArtistName}\" was previously marked as not found, skipping..."
         return
     fi
 
     # Check if album was previously marked "downloaded"
     if [ -f "${AUDIO_DATA_PATH}/downloaded/${lidarrAlbumId}--${lidarrArtistForeignArtistId}--${lidarrAlbumForeignAlbumId}" ]; then
-        log "INFO :: Album \"${lidarrAlbumTitle}\" by artist \"${lidarrArtistName}\" was previously marked as downloaded, skipping..."
+        log "DEBUG :: Album \"${lidarrAlbumTitle}\" by artist \"${lidarrArtistName}\" was previously marked as downloaded, skipping..."
         return
     fi
 
@@ -555,7 +555,7 @@ SearchProcess() {
 
     currentDateClean=$(date "+%Y%m%d")
     if [[ "${currentDateClean}" -lt "${lidarrAlbumReleaseDateClean}" ]]; then
-        log "INFO :: Album \"${lidarrAlbumTitle}\" by artist \"${lidarrArtistName}\" has not been released yet (${lidarrAlbumReleaseDate}), skipping..."
+        log "DEBUG :: Album \"${lidarrAlbumTitle}\" by artist \"${lidarrArtistName}\" has not been released yet (${lidarrAlbumReleaseDate}), skipping..."
         return
     elif ((currentDateClean - lidarrAlbumReleaseDateClean < 8)); then
         albumIsNewRelease=true
@@ -601,7 +601,7 @@ SearchProcess() {
         mapfile -t titleArray <<<"${lidarrTitlesToSearch}"
 
         local lidarrReleaseForeignId="$(get_state "lidarrReleaseForeignId")"
-        log "INFO :: Processing Lidarr release \"${lidarrReleaseTitle}\" (${lidarrReleaseForeignId})"
+        log "DEBUG :: Processing Lidarr release \"${lidarrReleaseTitle}\" (${lidarrReleaseForeignId})"
 
         # Shortcut the evaluation process if the release isn't potentially better in some ways
         if SkipReleaseCandidate; then
@@ -623,10 +623,10 @@ SearchProcess() {
                 ))" # join array with | for pattern matching
 
                 if [[ "${searchReleaseTitle}" =~ ${keywordPattern} ]]; then
-                    log "INFO :: Search title \"${searchReleaseTitle}\" matched instrumental keyword (${AUDIO_INSTRUMENTAL_KEYWORDS}), skipping..."
+                    log "DEBUG :: Search title \"${searchReleaseTitle}\" matched instrumental keyword (${AUDIO_INSTRUMENTAL_KEYWORDS}), skipping..."
                     continue
                 elif [[ "${searchReleaseTitle,,}" =~ ${keywordPattern,,} ]]; then
-                    log "INFO :: Search title \"${searchReleaseTitle}\" matched instrumental keyword (${AUDIO_INSTRUMENTAL_KEYWORDS}), skipping..."
+                    log "DEBUG :: Search title \"${searchReleaseTitle}\" matched instrumental keyword (${AUDIO_INSTRUMENTAL_KEYWORDS}), skipping..."
                     continue
                 fi
             fi
@@ -651,7 +651,7 @@ SearchProcess() {
             # Optionally de-prioritize releases that contain commentary tracks
             bestMatchContainsCommentary=$(get_state "bestMatchContainsCommentary")
             if [[ "${AUDIO_DEPRIORITIZE_COMMENTARY_RELEASES}" == "true" && "${lidarrReleaseContainsCommentary}" == "true" && "${bestMatchContainsCommentary}" == "false" ]]; then
-                log "INFO :: Already found a match without commentary. Skipping commentary album ${searchReleaseTitle}"
+                log "DEBUG :: Already found a match without commentary. Skipping commentary album ${searchReleaseTitle}"
                 continue
             fi
 
@@ -678,8 +678,6 @@ SearchProcess() {
         done
     done
 
-    log "INFO :: Search process complete..."
-
     # Write result if configured
     WriteResultFile
 
@@ -691,9 +689,9 @@ SearchProcess() {
         log "INFO :: Album not found"
         local albumIsNewRelease="$(get_state "lidarrAlbumIsNewRelease")"
         if [ ${albumIsNewRelease} == true ]; then
-            log "INFO :: Skip marking album as not found because it's a new release..."
+            log "DEBUG :: Skip marking album as not found because it's a new release..."
         else
-            log "INFO :: Marking album as not found"
+            log "DEBUG :: Marking album as not found"
             if [ ! -f "${AUDIO_DATA_PATH}/notfound/${lidarrAlbumId}--${lidarrArtistForeignArtistId}--${lidarrAlbumForeignAlbumId}" ]; then
                 touch "${AUDIO_DATA_PATH}/notfound/${lidarrAlbumId}--${lidarrArtistForeignArtistId}--${lidarrAlbumForeignAlbumId}"
             fi
@@ -716,7 +714,7 @@ ArtistDeezerSearch() {
     if [ "$returnCode" -eq 0 ]; then
         artistAlbums="$(get_state "deezerArtistInfo")"
         resultsCount=$(jq '.total' <<<"${artistAlbums}")
-        log "INFO :: Searching albums for Artist ${artistId} (Total Albums: ${resultsCount} found)"
+        log "DEBUG :: Searching albums for Artist ${artistId} (Total Albums: ${resultsCount} found)"
 
         # Pass filtered albums to the CalculateBestMatch function
         if ((resultsCount > 0)); then
@@ -752,10 +750,10 @@ FuzzyDeezerSearch() {
     # Build search URL
     # -------------------------------
     if [[ -z "${artistName}" ]]; then
-        log "INFO :: Fuzzy searching for '${searchReleaseTitle}' with no artist filter..."
+        log "DEBUG :: Fuzzy searching for '${searchReleaseTitle}' with no artist filter..."
         url="https://api.deezer.com/search/album?q=album:${albumSearchTerm}&strict=on&limit=20"
     else
-        log "INFO :: Fuzzy searching for '${searchReleaseTitle}' with artist name '${artistName}'..."
+        log "DEBUG :: Fuzzy searching for '${searchReleaseTitle}' with artist name '${artistName}'..."
         local artistNameClean artistSearchTerm
         artistNameClean="$(normalize_string "${artistName}")"
         artistSearchTerm="$(jq -Rn --arg str "$(remove_quotes "${artistNameClean}")" '$str|@uri')"
@@ -944,13 +942,17 @@ DownloadProcess() {
             return
         fi
 
-        log "INFO :: Download attempt #${downloadTry} for album \"${deezerAlbumTitle}\""
+        log "DEBUG :: Download attempt #${downloadTry} for album \"${deezerAlbumTitle}\""
         (
             cd ${DEEMIX_DIR}
             echo "${DEEMIX_ARL}" | deemix \
                 --portable \
                 -p "${AUDIO_WORK_PATH}/staging" \
-                "https://www.deezer.com/album/${deezerAlbumId}" 2>&1
+                "https://www.deezer.com/album/${deezerAlbumId}" \
+                2>&1 |
+                while IFS= read -r line; do
+                    log "DEBUG :: deemix :: ${line}"
+                done
 
             # Clean up any temporary deemix data
             rm -rf /tmp/deemix-imgs 2>/dev/null || true
@@ -968,7 +970,7 @@ DownloadProcess() {
         find "${AUDIO_WORK_PATH}/staging" -type f -iname "*.flac" -print0 |
             while IFS= read -r -d '' file; do
                 if audioFlacVerification "$file"; then
-                    log "INFO :: File \"${file}\" passed FLAC verification"
+                    log "DEBUG :: File \"${file}\" passed FLAC verification"
                 else
                     log "WARNING :: File \"${file}\" failed FLAC verification. Removing"
                     rm -f "$file"
@@ -988,7 +990,7 @@ DownloadProcess() {
     done
 
     # Consolidate files to a single folder and delete empty folders
-    log "INFO :: Consolidating files to single folder"
+    log "DEBUG :: Consolidating files to single folder"
 
     # Move all files from subdirectories to the staging root
     find "${AUDIO_WORK_PATH}/staging" -mindepth 2 -type f -print0 | while IFS= read -r -d '' f; do
@@ -1056,7 +1058,7 @@ DownloadProcess() {
         AddReplaygainTags "${AUDIO_WORK_PATH}/staging"
         returnCode=$?
     else
-        log "INFO :: Replaygain tagging disabled"
+        log "DEBUG :: Replaygain tagging disabled"
     fi
 
     # Add Beets tags if enabled
@@ -1064,7 +1066,7 @@ DownloadProcess() {
         AddBeetsTags "${AUDIO_WORK_PATH}/staging"
         returnCode=$?
     else
-        log "INFO :: Beets tagging disabled"
+        log "DEBUG :: Beets tagging disabled"
     fi
 
     # Correct album artist to what is expected by Lidarr
@@ -1107,7 +1109,7 @@ DownloadProcess() {
 
     # Log Completed Download
     if [ "$returnCode" -eq 0 ]; then
-        log "INFO :: Album \"${deezerAlbumTitle}\" successfully downloaded"
+        log "DEBUG :: Album \"${deezerAlbumTitle}\" successfully downloaded"
         touch "${AUDIO_DATA_PATH}/downloaded/${lidarrAlbumId}--${lidarrArtistForeignArtistId}--${lidarrAlbumForeignAlbumId}"
 
         local downloadedAlbumFolder="$(CleanPathString "${lidarrArtistName:0:100}")-$(CleanPathString "${lidarrAlbumTitle:0:100}") (${downloadedReleaseYear})"
@@ -1129,12 +1131,17 @@ AddReplaygainTags() {
     log "TRACE :: Entering AddReplaygainTags..."
     # $1 -> folder path containing audio files to be tagged
     local importPath="${1}"
-    log "INFO :: Adding ReplayGain Tags using rsgain"
+    log "DEBUG :: Adding ReplayGain Tags using rsgain"
 
     local returnCode=0
     (
         set +e # temporarily disable -e in subshell
-        rsgain easy --quiet "${importPath}"
+        rsgain easy "${importPath}" 2>&1 |
+            while IFS= read -r line; do
+                log "DEBUG :: rsgain :: ${line}"
+            done
+
+        exit ${PIPESTATUS[0]}
     )
     returnCode=$? # capture exit code of subshell
 
@@ -1147,7 +1154,7 @@ AddBeetsTags() {
     log "TRACE :: Entering AddBeetsTags..."
     # $1 -> folder path containing audio files to be tagged
     local importPath="${1}"
-    log "INFO :: Adding Beets tags"
+    log "DEBUG :: Adding Beets tags"
 
     # Setup
     rm -f "${BEETS_DIR}/beets-library.blb"
@@ -1196,7 +1203,7 @@ AddBeetsTags() {
             if [ $returnCode -ne 0 ]; then
                 log "WARNING :: Beets returned error code ${returnCode}"
             else
-                log "INFO :: Successfully added Beets tags"
+                log "DEBUG :: Successfully added Beets tags"
             fi
 
             exit $returnCode
