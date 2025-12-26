@@ -1,0 +1,5 @@
+<Config>
+  <Port>1234</Port>
+  <ApiKey>abcd</ApiKey>
+  <InstanceName>Lidarr</InstanceName>
+</Config>

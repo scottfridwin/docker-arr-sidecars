@@ -1,0 +1,4 @@
+lidarr-sidecar/functionalTest/work
+lidarr-sidecar/functionalTest/data
+lidarr-sidecar/functionalTest/ArrApiRequestResponses/GET_album_*.json
+lidarr-sidecar/functionalTest/config/album_title_replacements.json

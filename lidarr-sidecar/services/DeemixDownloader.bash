@@ -6,8 +6,9 @@ set -euo pipefail
 scriptName="DeemixDownloader"
 
 #### Imports
-source /app/utilities.sh
-source /app/services/functions.bash
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/../utilities.sh"
+source "${SCRIPT_DIR}/functions.bash"
 
 #### Constants
 readonly VARIOUS_ARTIST_ID_MUSICBRAINZ="89ad4ac3-39f7-470e-963a-56509c546377"
@@ -84,7 +85,7 @@ CallDeezerAPI() {
 GetDeezerAlbumInfo() {
     log "TRACE :: Entering GetDeezerAlbumInfo..."
     local albumId="$1"
-    local albumCacheFile="${AUDIO_WORK_PATH}/cache/album-${albumId}.json"
+    local albumCacheFile="${AUDIO_WORK_PATH}/cache/deezer-album-${albumId}.json"
     local albumJson=""
 
     mkdir -p "${AUDIO_WORK_PATH}/cache"
@@ -175,7 +176,7 @@ GetDeezerAlbumInfo() {
 GetDeezerArtistAlbums() {
     log "TRACE :: Entering GetDeezerArtistAlbums..."
     local artistId="$1"
-    local artistCacheFile="${AUDIO_WORK_PATH}/cache/artist-${artistId}-albums.json"
+    local artistCacheFile="${AUDIO_WORK_PATH}/cache/deezer-artist-${artistId}-albums.json"
     local artistJson=""
 
     mkdir -p "${AUDIO_WORK_PATH}/cache"
@@ -352,6 +353,9 @@ SetupDeemix() {
 
     # Copy default config to /tmp
     local defaultConfigFile="/app/config/deemix_config.json"
+    if [[ -n "${FUNCTIONALTESTDIR:-}" ]]; then
+        defaultConfigFile="$FUNCTIONALTESTDIR/../config/deemix_config.json"
+    fi
     if [[ ! -f "${defaultConfigFile}" ]]; then
         log "ERROR :: Default Deemix config not found at ${defaultConfigFile}"
         setUnhealthy
@@ -391,6 +395,9 @@ SetupBeets() {
 
     # Copy default config to /tmp
     local defaultConfigFile="/app/config/beets_config.yaml"
+    if [[ -n "${FUNCTIONALTESTDIR:-}" ]]; then
+        defaultConfigFile="$FUNCTIONALTESTDIR/../config/beets_config.yaml"
+    fi
     if [[ ! -f "${defaultConfigFile}" ]]; then
         log "ERROR :: Default Beets config not found at ${defaultConfigFile}"
         setUnhealthy
@@ -826,7 +833,7 @@ CalculateBestMatch() {
     log "DEBUG :: Calculating best match for \"${searchReleaseTitleClean}\" with ${albumsCount} Deezer albums to compare"
 
     for ((i = 0; i < albumsCount; i++)); do
-        local deezerAlbumData deezerAlbumID deezerAlbumTitle deezerAlbumExplicitLyrics
+        local deezerAlbumData deezerAlbumID deezerAlbumExplicitLyrics
 
         deezerAlbumData=$(jq -c ".[$i]" <<<"${albums}")
         deezerAlbumID=$(jq -r ".id" <<<"${deezerAlbumData}")
@@ -874,237 +881,248 @@ DownloadProcess() {
     local deezerAlbumJson
     deezerAlbumJson=$(cat) # read JSON object from stdin
 
-    # Create Required Directories
-    if [ ! -d "${AUDIO_WORK_PATH}/staging" ]; then
-        mkdir -p "${AUDIO_WORK_PATH}"/staging
-    else
-        rm -rf "${AUDIO_WORK_PATH}"/staging/*
-    fi
-
-    if [ ! -d "${AUDIO_WORK_PATH}/complete" ]; then
-        mkdir -p "${AUDIO_WORK_PATH}"/complete
-    else
-        rm -rf "${AUDIO_WORK_PATH}"/complete/*
-    fi
-
-    if [ ! -d "${AUDIO_WORK_PATH}/cache" ]; then
-        mkdir -p "${AUDIO_WORK_PATH}"/cache
-    else
-        # Delete only files (and empty directories) older than $AUDIO_CACHE_MAX_AGE_DAYS
-        find "${AUDIO_WORK_PATH}/cache" -mindepth 1 -mtime +"${AUDIO_CACHE_MAX_AGE_DAYS}" -exec rm -rf {} +
-    fi
-
-    if [ ! -d "${AUDIO_DATA_PATH}/downloaded" ]; then
-        mkdir -p "${AUDIO_DATA_PATH}"/downloaded
-    fi
-
-    if [ ! -d "${AUDIO_DATA_PATH}/failed" ]; then
-        mkdir -p "${AUDIO_DATA_PATH}"/failed
-    fi
-
-    if [ ! -d "${AUDIO_SHARED_LIDARR_PATH}" ]; then
-        log "ERROR :: Shared Lidarr Path not found: ${AUDIO_SHARED_LIDARR_PATH}"
-        setUnhealthy
-        exit 1
-    fi
-
-    local deezerAlbumId deezerAlbumTitle deezerAlbumTitleClean deezerAlbumTrackCount deezerArtistName deezerArtistNameClean downloadedReleaseDate downloadedReleaseYear
+    local deezerAlbumId deezerAlbumTitle deezerAlbumTrackCount downloadedReleaseDate downloadedReleaseYear
     deezerAlbumId=$(jq -r ".id" <<<"${deezerAlbumJson}")
     deezerAlbumTitle=$(jq -r ".title" <<<"${deezerAlbumJson}" | head -n1)
-    deezerAlbumTitleClean=$(normalize_string "$deezerAlbumTitle")
     deezerAlbumTrackCount="$(jq -r .nb_tracks <<<"${deezerAlbumJson}")"
-    deezerArtistName=$(jq -r '.artist.name' <<<"${deezerAlbumJson}")
-    deezerArtistNameClean=$(normalize_string "$deezerArtistName")
     downloadedReleaseDate=$(jq -r .release_date <<<"${deezerAlbumJson}")
     downloadedReleaseYear="${downloadedReleaseDate:0:4}"
 
-    # Check if previously downloaded or failed download
-    local lidarrArtistName="$(get_state "lidarrArtistName")"
-    local lidarrArtistForeignArtistId="$(get_state "lidarrArtistForeignArtistId")"
-    local lidarrAlbumForeignAlbumId="$(get_state "lidarrAlbumForeignAlbumId")"
-    if [ -f "${AUDIO_DATA_PATH}/downloaded/${lidarrAlbumId}--${lidarrArtistForeignArtistId}--${lidarrAlbumForeignAlbumId}" ]; then
-        log "WARNING :: Album \"${deezerAlbumTitle}\" previously downloaded (deezer: ${deezerAlbumId}, lidarr:${lidarrAlbumId})...Skipping..."
-        return
-    fi
-    if [ -f "${AUDIO_DATA_PATH}/failed/${deezerAlbumId}" ]; then
-        log "WARNING :: Album \"${deezerAlbumTitle}\" previously failed to download (deezer: ${deezerAlbumId}, lidarr:${lidarrAlbumId})...Skipping..."
-        return
-    fi
+    local returnCode=0
+    if [[ -z "$FUNCTIONALTESTDIR" ]]; then
 
-    local downloadTry=0
-    while true; do
-        downloadTry=$(($downloadTry + 1))
+        # Create Required Directories
+        if [ ! -d "${AUDIO_WORK_PATH}/staging" ]; then
+            mkdir -p "${AUDIO_WORK_PATH}"/staging
+        else
+            rm -rf "${AUDIO_WORK_PATH}"/staging/*
+        fi
 
-        # Stop trying after too many attempts
-        if ((downloadTry >= AUDIO_DOWNLOAD_ATTEMPT_THRESHOLD)); then
-            log "WARNING :: Album \"${deezerAlbumTitle}\" failed to download after ${downloadTry} attempts...Skipping..."
-            touch "${AUDIO_DATA_PATH}/failed/${deezerAlbumId}"
+        if [ ! -d "${AUDIO_WORK_PATH}/complete" ]; then
+            mkdir -p "${AUDIO_WORK_PATH}"/complete
+        else
+            rm -rf "${AUDIO_WORK_PATH}"/complete/*
+        fi
+
+        if [ ! -d "${AUDIO_WORK_PATH}/cache" ]; then
+            mkdir -p "${AUDIO_WORK_PATH}"/cache
+        else
+            # Delete MusicBrainz files (and empty directories) older than $AUDIO_CACHE_MAX_AGE_DAYS_MUSICBRAINZ days
+            if ((AUDIO_CACHE_MAX_AGE_DAYS_MUSICBRAINZ > 0)); then
+                find "${AUDIO_WORK_PATH}/cache" -mindepth 1 -type d -name "mb_*" -mtime +"${AUDIO_CACHE_MAX_AGE_DAYS_MUSICBRAINZ}" -exec rm -rf {} +
+            fi
+            # Delete Deezer files (and empty directories) older than $AUDIO_CACHE_MAX_AGE_DAYS_DEEZER days
+            if ((AUDIO_CACHE_MAX_AGE_DAYS_DEEZER > 0)); then
+                find "${AUDIO_WORK_PATH}/cache" -mindepth 1 -type d -name "deezer_*" -mtime +"${AUDIO_CACHE_MAX_AGE_DAYS_DEEZER}" -exec rm -rf {} +
+            fi
+            # Delete Lidarr files (and empty directories) older than $AUDIO_CACHE_MAX_AGE_DAYS_LIDARR days
+            if ((AUDIO_CACHE_MAX_AGE_DAYS_LIDARR > 0)); then
+                find "${AUDIO_WORK_PATH}/cache" -mindepth 1 -type d -name "lidarr_*" -mtime +"${AUDIO_CACHE_MAX_AGE_DAYS_LIDARR}" -exec rm -rf {} +
+            fi
+        fi
+
+        if [ ! -d "${AUDIO_DATA_PATH}/downloaded" ]; then
+            mkdir -p "${AUDIO_DATA_PATH}"/downloaded
+        fi
+
+        if [ ! -d "${AUDIO_DATA_PATH}/failed" ]; then
+            mkdir -p "${AUDIO_DATA_PATH}"/failed
+        fi
+
+        if [ ! -d "${AUDIO_SHARED_LIDARR_PATH}" ]; then
+            log "ERROR :: Shared Lidarr Path not found: ${AUDIO_SHARED_LIDARR_PATH}"
+            setUnhealthy
+            exit 1
+        fi
+
+        # Check if previously downloaded or failed download
+        local lidarrArtistName="$(get_state "lidarrArtistName")"
+        local lidarrArtistForeignArtistId="$(get_state "lidarrArtistForeignArtistId")"
+        local lidarrAlbumForeignAlbumId="$(get_state "lidarrAlbumForeignAlbumId")"
+        if [ -f "${AUDIO_DATA_PATH}/downloaded/${lidarrAlbumId}--${lidarrArtistForeignArtistId}--${lidarrAlbumForeignAlbumId}" ]; then
+            log "WARNING :: Album \"${deezerAlbumTitle}\" previously downloaded (deezer: ${deezerAlbumId}, lidarr:${lidarrAlbumId})...Skipping..."
+            return
+        fi
+        if [ -f "${AUDIO_DATA_PATH}/failed/${deezerAlbumId}" ]; then
+            log "WARNING :: Album \"${deezerAlbumTitle}\" previously failed to download (deezer: ${deezerAlbumId}, lidarr:${lidarrAlbumId})...Skipping..."
             return
         fi
 
-        log "DEBUG :: Download attempt #${downloadTry} for album \"${deezerAlbumTitle}\""
-        (
-            cd ${DEEMIX_DIR}
-            echo "${DEEMIX_ARL}" | deemix \
-                --portable \
-                -p "${AUDIO_WORK_PATH}/staging" \
-                "https://www.deezer.com/album/${deezerAlbumId}" \
-                2>&1 |
-                while IFS= read -r line; do
-                    log "DEBUG :: deemix :: ${line}"
+        local downloadTry=0
+        while true; do
+            downloadTry=$(($downloadTry + 1))
+
+            # Stop trying after too many attempts
+            if ((downloadTry >= AUDIO_DOWNLOAD_ATTEMPT_THRESHOLD)); then
+                log "WARNING :: Album \"${deezerAlbumTitle}\" failed to download after ${downloadTry} attempts...Skipping..."
+                touch "${AUDIO_DATA_PATH}/failed/${deezerAlbumId}"
+                return
+            fi
+
+            log "DEBUG :: Download attempt #${downloadTry} for album \"${deezerAlbumTitle}\""
+            (
+                cd ${DEEMIX_DIR}
+                echo "${DEEMIX_ARL}" | deemix \
+                    --portable \
+                    -p "${AUDIO_WORK_PATH}/staging" \
+                    "https://www.deezer.com/album/${deezerAlbumId}" \
+                    2>&1 |
+                    while IFS= read -r line; do
+                        log "DEBUG :: deemix :: ${line}"
+                    done
+
+                # Clean up any temporary deemix data
+                rm -rf /tmp/deemix-imgs 2>/dev/null || true
+            )
+
+            # Check if any audio files were downloaded
+            local clientTestDlCount
+            clientTestDlCount=$(find "${AUDIO_WORK_PATH}/staging" -type f \( -iname "*.flac" -o -iname "*.opus" -o -iname "*.m4a" -o -iname "*.mp3" \) | wc -l)
+            if ((clientTestDlCount <= 0)); then
+                log "WARNING :: No audio files downloaded for album \"${deezerAlbumTitle}\" on attempt #${downloadTry}"
+                continue
+            fi
+
+            # Verify all downloaded FLAC files
+            find "${AUDIO_WORK_PATH}/staging" -type f -iname "*.flac" -print0 |
+                while IFS= read -r -d '' file; do
+                    if audioFlacVerification "$file"; then
+                        log "DEBUG :: File \"${file}\" passed FLAC verification"
+                    else
+                        log "WARNING :: File \"${file}\" failed FLAC verification. Removing"
+                        rm -f "$file"
+                    fi
                 done
 
-            # Clean up any temporary deemix data
-            rm -rf /tmp/deemix-imgs 2>/dev/null || true
-        )
+            # Check if full album downloaded
+            local downloadedCount
+            downloadedCount=$(find "${AUDIO_WORK_PATH}/staging" -type f \( -iname "*.flac" -o -iname "*.opus" -o -iname "*.m4a" -o -iname "*.mp3" \) | wc -l)
+            if ((downloadedCount != deezerAlbumTrackCount)); then
+                log "WARNING :: Album \"${deezerAlbumTitle}\" did not download expected number of tracks"
+                sleep 1
+                continue
+            else
+                break
+            fi
+        done
 
-        # Check if any audio files were downloaded
-        local clientTestDlCount
-        clientTestDlCount=$(find "${AUDIO_WORK_PATH}/staging" -type f \( -iname "*.flac" -o -iname "*.opus" -o -iname "*.m4a" -o -iname "*.mp3" \) | wc -l)
-        if ((clientTestDlCount <= 0)); then
-            log "WARNING :: No audio files downloaded for album \"${deezerAlbumTitle}\" on attempt #${downloadTry}"
-            continue
-        fi
+        # Consolidate files to a single folder and delete empty folders
+        log "DEBUG :: Consolidating files to single folder"
 
-        # Verify all downloaded FLAC files
-        find "${AUDIO_WORK_PATH}/staging" -type f -iname "*.flac" -print0 |
-            while IFS= read -r -d '' file; do
-                if audioFlacVerification "$file"; then
-                    log "DEBUG :: File \"${file}\" passed FLAC verification"
-                else
-                    log "WARNING :: File \"${file}\" failed FLAC verification. Removing"
-                    rm -f "$file"
-                fi
+        # Move all files from subdirectories to the staging root
+        find "${AUDIO_WORK_PATH}/staging" -mindepth 2 -type f -print0 | while IFS= read -r -d '' f; do
+            dest="${AUDIO_WORK_PATH}/staging/$(basename "$f")"
+
+            # Handle potential name collisions
+            if [[ -e "$dest" ]]; then
+                base="$(basename "$f")"
+                ext="${base##*.}"
+                name="${base%.*}"
+                dest="${AUDIO_WORK_PATH}/staging/${name}_$(date +%s%N).${ext}"
+                log "WARN :: Renamed duplicate file $(basename "$f") -> $(basename "$dest")"
+            fi
+
+            mv "$f" "$dest"
+            log "TRACE :: Moved $f -> $dest"
+        done
+
+        # Remove now-empty subdirectories
+        find "${AUDIO_WORK_PATH}/staging" -type d -mindepth 1 -empty -delete 2>/dev/null
+
+        # Add the MusicBrainz album info to FLAC and MP3 files
+        if [ "$returnCode" -eq 0 ]; then
+            local lidarrAlbumTitle=$(get_state "lidarrAlbumTitle")
+            local lidarrAlbumForeignAlbumId="$(get_state "lidarrAlbumForeignAlbumId")"
+            local lidarrReleaseForeignId="$(get_state "bestMatchLidarrReleaseForeignId")"
+
+            shopt -s nullglob
+            for file in "${AUDIO_WORK_PATH}"/staging/*.{flac,mp3}; do
+                [ -f "${file}" ] || continue
+
+                case "${file##*.}" in
+                flac)
+                    metaflac --remove-tag=MUSICBRAINZ_ALBUMID \
+                        --remove-tag=MUSICBRAINZ_RELEASEGROUPID \
+                        --remove-tag=ALBUM \
+                        --set-tag=MUSICBRAINZ_ALBUMID="${lidarrReleaseForeignId}" \
+                        --set-tag=MUSICBRAINZ_RELEASEGROUPID="${lidarrAlbumForeignAlbumId}" \
+                        --set-tag=ALBUM="${lidarrAlbumTitle}" "${file}"
+                    ;;
+                mp3)
+                    export ALBUM_TITLE=""
+                    export MUSICBRAINZ_ALBUMID=""
+                    export MUSICBRAINZ_RELEASEGROUPID=""
+                    export ALBUMARTIST=""
+                    export ARTIST=""
+                    export MUSICBRAINZ_ARTISTID=""
+                    export ALBUM_TITLE="${lidarrAlbumTitle}"
+                    export MUSICBRAINZ_ALBUMID="${lidarrReleaseForeignId}"
+                    export MUSICBRAINZ_RELEASEGROUPID="${lidarrAlbumForeignAlbumId}"
+                    python3 python/MutagenTagger.py "${file}"
+                    ;;
+                *)
+                    log "WARN :: Skipping unsupported format: ${file}"
+                    ;;
+                esac
             done
+            shopt -u nullglob
+        fi
 
-        # Check if full album downloaded
-        local downloadedCount
-        downloadedCount=$(find "${AUDIO_WORK_PATH}/staging" -type f \( -iname "*.flac" -o -iname "*.opus" -o -iname "*.m4a" -o -iname "*.mp3" \) | wc -l)
-        if ((downloadedCount != deezerAlbumTrackCount)); then
-            log "WARNING :: Album \"${deezerAlbumTitle}\" did not download expected number of tracks"
-            sleep 1
-            continue
+        # Add ReplayGain tags if enabled
+        if [ "${returnCode}" -eq 0 ] && [ "${AUDIO_APPLY_REPLAYGAIN}" == "true" ]; then
+            AddReplaygainTags "${AUDIO_WORK_PATH}/staging"
+            returnCode=$?
         else
-            break
-        fi
-    done
-
-    # Consolidate files to a single folder and delete empty folders
-    log "DEBUG :: Consolidating files to single folder"
-
-    # Move all files from subdirectories to the staging root
-    find "${AUDIO_WORK_PATH}/staging" -mindepth 2 -type f -print0 | while IFS= read -r -d '' f; do
-        dest="${AUDIO_WORK_PATH}/staging/$(basename "$f")"
-
-        # Handle potential name collisions
-        if [[ -e "$dest" ]]; then
-            base="$(basename "$f")"
-            ext="${base##*.}"
-            name="${base%.*}"
-            dest="${AUDIO_WORK_PATH}/staging/${name}_$(date +%s%N).${ext}"
-            log "WARN :: Renamed duplicate file $(basename "$f") -> $(basename "$dest")"
+            log "DEBUG :: Replaygain tagging disabled"
         fi
 
-        mv "$f" "$dest"
-        log "TRACE :: Moved $f -> $dest"
-    done
+        # Add Beets tags if enabled
+        if [ "${returnCode}" -eq 0 ] && [ "${AUDIO_APPLY_BEETS}" == "true" ]; then
+            AddBeetsTags "${AUDIO_WORK_PATH}/staging"
+            returnCode=$?
+        else
+            log "DEBUG :: Beets tagging disabled"
+        fi
 
-    # Remove now-empty subdirectories
-    find "${AUDIO_WORK_PATH}/staging" -type d -mindepth 1 -empty -delete 2>/dev/null
+        # Correct album artist to what is expected by Lidarr
+        if [ "$returnCode" -eq 0 ]; then
+            local lidarrAlbumInfo="$(get_state "lidarrAlbumInfo")"
+            local lidarrArtistForeignArtistId="$(get_state "lidarrArtistForeignArtistId")"
 
-    local returnCode=0
+            shopt -s nullglob
+            for file in "${AUDIO_WORK_PATH}"/staging/*.{flac,mp3}; do
+                [ -f "${file}" ] || continue
 
-    # Add the MusicBrainz album info to FLAC and MP3 files
-    if [ "$returnCode" -eq 0 ]; then
-        local lidarrAlbumTitle=$(get_state "lidarrAlbumTitle")
-        local lidarrAlbumForeignAlbumId="$(get_state "lidarrAlbumForeignAlbumId")"
-        local lidarrReleaseForeignId="$(get_state "bestMatchLidarrReleaseForeignId")"
-
-        shopt -s nullglob
-        for file in "${AUDIO_WORK_PATH}"/staging/*.{flac,mp3}; do
-            [ -f "${file}" ] || continue
-
-            case "${file##*.}" in
-            flac)
-                metaflac --remove-tag=MUSICBRAINZ_ALBUMID \
-                    --remove-tag=MUSICBRAINZ_RELEASEGROUPID \
-                    --remove-tag=ALBUM \
-                    --set-tag=MUSICBRAINZ_ALBUMID="${lidarrReleaseForeignId}" \
-                    --set-tag=MUSICBRAINZ_RELEASEGROUPID="${lidarrAlbumForeignAlbumId}" \
-                    --set-tag=ALBUM="${lidarrAlbumTitle}" "${file}"
-                ;;
-            mp3)
-                export ALBUM_TITLE=""
-                export MUSICBRAINZ_ALBUMID=""
-                export MUSICBRAINZ_RELEASEGROUPID=""
-                export ALBUMARTIST=""
-                export ARTIST=""
-                export MUSICBRAINZ_ARTISTID=""
-                export ALBUM_TITLE="${lidarrAlbumTitle}"
-                export MUSICBRAINZ_ALBUMID="${lidarrReleaseForeignId}"
-                export MUSICBRAINZ_RELEASEGROUPID="${lidarrAlbumForeignAlbumId}"
-                python3 python/MutagenTagger.py "${file}"
-                ;;
-            *)
-                log "WARN :: Skipping unsupported format: ${file}"
-                ;;
-            esac
-        done
-        shopt -u nullglob
-    fi
-
-    # Add ReplayGain tags if enabled
-    if [ "${returnCode}" -eq 0 ] && [ "${AUDIO_APPLY_REPLAYGAIN}" == "true" ]; then
-        AddReplaygainTags "${AUDIO_WORK_PATH}/staging"
-        returnCode=$?
+                case "${file##*.}" in
+                flac)
+                    metaflac --remove-tag=MUSICBRAINZ_ARTISTID \
+                        --remove-tag=ALBUMARTIST \
+                        --remove-tag=ARTIST \
+                        --set-tag=MUSICBRAINZ_ARTISTID="${lidarrArtistForeignArtistId}" \
+                        --set-tag=ALBUMARTIST="${lidarrArtistName}" \
+                        --set-tag=ARTIST="${lidarrArtistName}" "${file}"
+                    ;;
+                mp3)
+                    export ALBUM_TITLE=""
+                    export MUSICBRAINZ_ALBUMID=""
+                    export MUSICBRAINZ_RELEASEGROUPID=""
+                    export ALBUMARTIST=""
+                    export ARTIST=""
+                    export MUSICBRAINZ_ARTISTID=""
+                    export ALBUMARTIST="${lidarrArtistName}"
+                    export ARTIST="${lidarrArtistName}"
+                    export MUSICBRAINZ_ARTISTID="${lidarrArtistForeignArtistId}"
+                    python3 python/MutagenTagger.py "${file}"
+                    ;;
+                *)
+                    log "WARNING :: Skipping unsupported format: ${file}"
+                    ;;
+                esac
+            done
+            shopt -u nullglob
+        fi
     else
-        log "DEBUG :: Replaygain tagging disabled"
-    fi
-
-    # Add Beets tags if enabled
-    if [ "${returnCode}" -eq 0 ] && [ "${AUDIO_APPLY_BEETS}" == "true" ]; then
-        AddBeetsTags "${AUDIO_WORK_PATH}/staging"
-        returnCode=$?
-    else
-        log "DEBUG :: Beets tagging disabled"
-    fi
-
-    # Correct album artist to what is expected by Lidarr
-    if [ "$returnCode" -eq 0 ]; then
-        local lidarrAlbumInfo="$(get_state "lidarrAlbumInfo")"
-        local lidarrArtistForeignArtistId="$(get_state "lidarrArtistForeignArtistId")"
-
-        shopt -s nullglob
-        for file in "${AUDIO_WORK_PATH}"/staging/*.{flac,mp3}; do
-            [ -f "${file}" ] || continue
-
-            case "${file##*.}" in
-            flac)
-                metaflac --remove-tag=MUSICBRAINZ_ARTISTID \
-                    --remove-tag=ALBUMARTIST \
-                    --remove-tag=ARTIST \
-                    --set-tag=MUSICBRAINZ_ARTISTID="${lidarrArtistForeignArtistId}" \
-                    --set-tag=ALBUMARTIST="${lidarrArtistName}" \
-                    --set-tag=ARTIST="${lidarrArtistName}" "${file}"
-                ;;
-            mp3)
-                export ALBUM_TITLE=""
-                export MUSICBRAINZ_ALBUMID=""
-                export MUSICBRAINZ_RELEASEGROUPID=""
-                export ALBUMARTIST=""
-                export ARTIST=""
-                export MUSICBRAINZ_ARTISTID=""
-                export ALBUMARTIST="${lidarrArtistName}"
-                export ARTIST="${lidarrArtistName}"
-                export MUSICBRAINZ_ARTISTID="${lidarrArtistForeignArtistId}"
-                python3 python/MutagenTagger.py "${file}"
-                ;;
-            *)
-                log "WARNING :: Skipping unsupported format: ${file}"
-                ;;
-            esac
-        done
-        shopt -u nullglob
+        log "DEBUG :: Skipping audio processing in functional test mode"
     fi
 
     # Log Completed Download
@@ -1250,9 +1268,12 @@ audioFlacVerification() {
 
 log "INFO :: Starting ${scriptName}"
 
+log "DEBUG :: FUNCTIONALTESTDIR=${FUNCTIONALTESTDIR:-}"
 log "DEBUG :: AUDIO_APPLY_BEETS=${AUDIO_APPLY_BEETS}"
 log "DEBUG :: AUDIO_APPLY_REPLAYGAIN=${AUDIO_APPLY_REPLAYGAIN}"
-log "DEBUG :: AUDIO_CACHE_MAX_AGE_DAYS=${AUDIO_CACHE_MAX_AGE_DAYS}"
+log "DEBUG :: AUDIO_CACHE_MAX_AGE_DAYS_DEEZER=${AUDIO_CACHE_MAX_AGE_DAYS_DEEZER}"
+log "DEBUG :: AUDIO_CACHE_MAX_AGE_DAYS_LIDARR=${AUDIO_CACHE_MAX_AGE_DAYS_LIDARR}"
+log "DEBUG :: AUDIO_CACHE_MAX_AGE_DAYS_MUSICBRAINZ=${AUDIO_CACHE_MAX_AGE_DAYS_MUSICBRAINZ}"
 log "DEBUG :: AUDIO_BEETS_CUSTOM_CONFIG=${AUDIO_BEETS_CUSTOM_CONFIG}"
 log "DEBUG :: AUDIO_COMMENTARY_KEYWORDS=${AUDIO_COMMENTARY_KEYWORDS}"
 log "DEBUG :: AUDIO_DATA_PATH=${AUDIO_DATA_PATH}"

@@ -8,7 +8,7 @@
     "fileDate": "none",
     "watchLibraryForChanges": false,
     "rescanAfterRefresh": "always",
-    "allowFingerprinting": "newFiles",
+    "allowFingerprinting": "never",
     "setPermissionsLinux": false,
     "chmodFolder": "775",
     "chownGroup": "",

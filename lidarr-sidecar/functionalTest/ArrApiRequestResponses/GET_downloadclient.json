@@ -1,0 +1,40 @@
+[
+    {
+        "enable": true,
+        "protocol": "usenet",
+        "priority": 10,
+        "removeCompletedDownloads": true,
+        "removeFailedDownloads": true,
+        "name": "lidarr-deemix-sidecar",
+        "fields": [
+            {
+                "order": 0,
+                "name": "nzbFolder",
+                "label": "Nzb Folder",
+                "helpText": "Folder in which Lidarr will store the .nzb file",
+                "value": "/sidecar-import",
+                "type": "path",
+                "advanced": false,
+                "privacy": "normal",
+                "isFloat": false
+            },
+            {
+                "order": 1,
+                "name": "watchFolder",
+                "label": "Watch Folder",
+                "helpText": "Folder from which Lidarr should import completed downloads",
+                "value": "/sidecar-import",
+                "type": "path",
+                "advanced": false,
+                "privacy": "normal",
+                "isFloat": false
+            }
+        ],
+        "implementationName": "Usenet Blackhole",
+        "implementation": "UsenetBlackhole",
+        "configContract": "UsenetBlackholeSettings",
+        "infoLink": "https://wiki.servarr.com/lidarr/supported#usenetblackhole",
+        "tags": [],
+        "id": 1
+    }
+]

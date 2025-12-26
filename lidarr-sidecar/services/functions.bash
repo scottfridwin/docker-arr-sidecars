@@ -232,8 +232,8 @@ CompareTrack() {
     local deezerLongTrackTitle="${3}"
 
     # First-pass comparison: plain titles
-    log "DEBUG :: Calculating distance \"$lidarrTrackTitle\" to \"$deezerTrackTitle\"..."
     local d="$(LevenshteinDistance "${lidarrTrackTitle,,}" "${deezerTrackTitle,,}")"
+    log "DEBUG :: Calculated distance \"$lidarrTrackTitle\" to \"$deezerTrackTitle\": $d"
 
     if [[ "$d" =~ ^[0-9]+$ ]]; then
 
@@ -244,8 +244,8 @@ CompareTrack() {
 
             if [[ -n "$deezerTrackTitleStripped" && "$deezerTrackTitleStripped" != "$deezerTrackTitle" ]]; then
                 local d2
-                log "DEBUG :: Recalculating distance \"$lidarrTrackTitle\" to \"$deezerTrackTitleStripped\" (feature stripped)..."
                 d2="$(LevenshteinDistance "${lidarrTrackTitle,,}" "${deezerTrackTitleStripped,,}")"
+                log "DEBUG :: Recalculated distance \"$lidarrTrackTitle\" to \"$deezerTrackTitleStripped\" (feature stripped): $d2"
 
                 ((d2 < d)) && d="$d2"
             fi
@@ -255,8 +255,8 @@ CompareTrack() {
         if ((d > 0)); then
             if [[ -n "$deezerLongTrackTitle" && "$deezerLongTrackTitle" != "$deezerTrackTitle" ]]; then
                 local d3
-                log "DEBUG :: Recalculating distance \"$lidarrTrackTitle\" to \"$deezerLongTrackTitle\" (long title)..."
                 d3="$(LevenshteinDistance "${lidarrTrackTitle,,}" "${deezerLongTrackTitle,,}")"
+                log "DEBUG :: Recalculated distance \"$lidarrTrackTitle\" to \"$deezerLongTrackTitle\" (long title): $d3"
 
                 ((d3 < d)) && d="$d3"
             fi
@@ -269,11 +269,38 @@ CompareTrack() {
             deezerTrackTitleStripped="$(RemovePatternFromString "$deezerTrackTitle" "${searchReleaseTitleClean}")"
 
             if [[ -n "$deezerTrackTitleStripped" && "$deezerTrackTitleStripped" != "$deezerTrackTitle" ]]; then
-                local d2
-                log "DEBUG :: Recalculating distance \"$lidarrTrackTitle\" to \"$deezerTrackTitleStripped\" (album title stripped)..."
-                d2="$(LevenshteinDistance "${lidarrTrackTitle,,}" "${deezerTrackTitleStripped,,}")"
+                local d4
+                d4="$(LevenshteinDistance "${lidarrTrackTitle,,}" "${deezerTrackTitleStripped,,}")"
+                log "DEBUG :: Recalculated distance \"$lidarrTrackTitle\" to \"$deezerTrackTitleStripped\" (album title stripped): $d4"
 
-                ((d2 < d)) && d="$d2"
+                ((d4 < d)) && d="$d4"
+            fi
+        fi
+
+        # Fifth-pass comparison: remove spaces and punctuation from track title (niche case)
+        if ((d > 0)); then
+            local deezerTrackTitleStripped
+            local searchReleaseTitleClean="$(get_state "searchReleaseTitleClean")"
+
+            deezerTrackTitleStripped="$(tr -cd '[:alnum:]' <<<"$deezerTrackTitle")"
+
+            if [[ -n "$deezerTrackTitleStripped" && "$deezerTrackTitleStripped" != "$deezerTrackTitle" ]]; then
+                local d5
+                d5="$(LevenshteinDistance "${lidarrTrackTitle,,}" "${deezerTrackTitleStripped,,}")"
+                log "DEBUG :: Recalculated distance \"$lidarrTrackTitle\" to \"$deezerTrackTitleStripped\" (no spaces): $d5"
+
+                ((d5 < d)) && d="$d5"
+            fi
+        fi
+
+        # Sixth-pass comparison: substring containment (Deezer ⊆ Lidarr or Lidarr ⊆ Deezer)
+        if ((d > 0)); then
+            if [[ " ${deezerTrackTitle,,} " == *" ${lidarrTrackTitle,,} "* ]] ||
+                [[ " ${lidarrTrackTitle,,} " == *" ${deezerTrackTitle,,} "* ]]; then
+                # Treat as a close match
+                local d6=5
+                log "DEBUG :: Recalculated distance \"$lidarrTrackTitle\" to \"$deezerTrackTitle\" (contains check): $d6"
+                ((d6 < d)) && d="$d6"
             fi
         fi
 
@@ -937,6 +964,10 @@ NormalizeDeezerAlbumTitle() {
     titleClean="$(ApplyTitleReplacements "${titleClean}")"
     titleEditionless="$(ApplyTitleReplacements "${titleEditionless}")"
 
+    # Trim leading/trailing whitespace
+    titleClean="${titleClean%"${titleClean##*[![:space:]]}"}"
+    titleEditionless="${titleEditionless%"${titleEditionless##*[![:space:]]}"}"
+
     # Return both as newline-separated values
     set_state "deezerCandidateTitleClean" "${titleClean}"
     set_state "deezerCandidateTitleEditionless" "${titleEditionless}"
@@ -1193,17 +1224,17 @@ StripTrackFeature() {
 
     # 1) Remove parenthetical annotations
     s="$(sed -E '
-        s/[[:space:]]*\((feat\.?|ft\.?|featuring|parody[[:space:]]+of|an[[:space:]]+adaptation[[:space:]]+of|lyrical[[:space:]]+adapt(ation|ion)[[:space:]]+of)[^)]*\)//Ig
+        s/[[:space:]]*\((feat\.?|ft\.?|featuring|duet[[:space:]]+with|parody[[:space:]]+of|an[[:space:]]+adaptation[[:space:]]+of|lyrical[[:space:]]+adapt(ation|ion)[[:space:]]+of)[^)]*\)//Ig
     ' <<<"$s")"
 
     # 2) Remove dash-separated suffix annotations
     s="$(sed -E '
-        s/[[:space:]]*[-–—][[:space:]]*(feat\.?|ft\.?|featuring|parody[[:space:]]+of|an[[:space:]]+adaptation[[:space:]]+of|lyrical[[:space:]]+adapt(ation|ion)[[:space:]]+of)[[:space:]].*$//Ig
+        s/[[:space:]]*[-–—][[:space:]]*(feat\.?|ft\.?|featuring|duet[[:space:]]+with|parody[[:space:]]+of|an[[:space:]]+adaptation[[:space:]]+of|lyrical[[:space:]]+adapt(ation|ion)[[:space:]]+of)[[:space:]].*$//Ig
     ' <<<"$s")"
 
-    # 3) Remove bare feature annotations (feat/ft only)
+    # 3) Remove bare trailing feature annotations
     s="$(sed -E '
-        s/[[:space:]]+(feat\.?|ft\.?|featuring)[[:space:]].*$//Ig
+        s/[[:space:]]+(feat\.?|ft\.?|featuring|duet[[:space:]]+with)[[:space:]].*$//Ig
     ' <<<"$s")"
 
     # 4) Remove prose-style parody/adaptation metadata

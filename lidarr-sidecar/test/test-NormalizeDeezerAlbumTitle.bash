@@ -236,6 +236,19 @@ else
     ((fail++))
 fi
 
+# Test 15: Real 1
+reset_state
+NormalizeDeezerAlbumTitle "Bigger, Better, Faster, More !"
+titleClean=$(get_state "deezerCandidateTitleClean")
+titleEditionless=$(get_state "deezerCandidateTitleEditionless")
+if [[ "$titleClean" == "bigger better faster more" ]] && [[ "$titleEditionless" == "bigger better faster more" ]]; then
+    echo "✅ PASS: Independent replacements for clean and editionless"
+    ((pass++))
+else
+    echo "❌ FAIL: Independent replacements (got clean='$titleClean', editionless='$titleEditionless')"
+    ((fail++))
+fi
+
 echo "----------------------------------------------"
 echo "Passed: $pass, Failed: $fail"
 

@@ -158,20 +158,32 @@ ArrApiRequest() {
     fi
 
     while true; do
-        if [[ -n "${payload}" ]]; then
-            response=$(curl -s -w "\n%{http_code}" -X "${method}" \
-                -H "X-Api-Key: ${arrApiKey}" \
-                -H "Content-Type: application/json" \
-                -d "${payload}" \
-                "${arrUrl}/api/${arrApiVersion}/${path}")
+        if [[ -n "${FUNCTIONALTESTDIR}" ]]; then
+            log "DEBUG :: Skipping actual API request in functional testing mode for ${method} ${path}"
+            # Read response from file for this request
+            local responseFile="${FUNCTIONALTESTDIR}/ArrApiRequestResponses/$(echo "${method}_${path}" | tr '/' '_').json"
+            if [[ -f "${responseFile}" ]]; then
+                body="$(cat "${responseFile}")"
+            else
+                log "ERROR :: Response file not found for functional test: ${responseFile}"
+                exit 1
+            fi
+            httpCode=200
         else
-            response=$(curl -s -w "\n%{http_code}" -X "${method}" \
-                -H "X-Api-Key: ${arrApiKey}" \
-                "${arrUrl}/api/${arrApiVersion}/${path}")
+            if [[ -n "${payload}" ]]; then
+                response=$(curl -s -w "\n%{http_code}" -X "${method}" \
+                    -H "X-Api-Key: ${arrApiKey}" \
+                    -H "Content-Type: application/json" \
+                    -d "${payload}" \
+                    "${arrUrl}/api/${arrApiVersion}/${path}")
+            else
+                response=$(curl -s -w "\n%{http_code}" -X "${method}" \
+                    -H "X-Api-Key: ${arrApiKey}" \
+                    "${arrUrl}/api/${arrApiVersion}/${path}")
+            fi
+            httpCode=$(tail -n1 <<<"${response}")
+            body=$(sed '$d' <<<"${response}")
         fi
-
-        httpCode=$(tail -n1 <<<"${response}")
-        body=$(sed '$d' <<<"${response}")
 
         set_state "arrApiReponseCode" "${httpCode}"
         set_state "arrApiResponse" "${body}"
@@ -276,6 +288,12 @@ verifyArrApiAccess() {
     IFS=',' read -r -a supported_versions <<<"${ARR_SUPPORTED_API_VERSIONS// /}"
 
     for ver in "${supported_versions[@]}"; do
+        if [[ -n "$FUNCTIONALTESTDIR" ]]; then
+            log "DEBUG :: Skipping actual API connectivity test in functional testing mode for version $ver"
+            arrApiVersion=${ver}
+            break
+        fi
+
         local testUrl="${arrUrl}/api/${ver}/system/status?apikey=${arrApiKey}"
         log "DEBUG :: Attempting connection to \"${testUrl}\"..."
 

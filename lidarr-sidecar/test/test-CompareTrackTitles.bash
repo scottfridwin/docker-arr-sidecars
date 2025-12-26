@@ -239,7 +239,7 @@ deezer_tracks=(
     "Track 4"
     "Track 5"
 )
-run_test "Longer album with one mis-matched track" lidarr_tracks deezer_tracks "15" "3.00" "15"
+run_test "Longer album with one mis-matched track" lidarr_tracks deezer_tracks "12" "2.40" "12"
 
 # Test 16: Real Example 1
 reset_state
@@ -277,7 +277,7 @@ deezer_tracks=(
     "Never Be"
     "Voodoo Doll"
 )
-run_test "Real Example 1" lidarr_tracks deezer_tracks "16" "1.07" "16"
+run_test "Real Example 1" lidarr_tracks deezer_tracks "15" "1.00" "15"
 
 # Test 17: Cache key exists
 reset_state
@@ -362,6 +362,40 @@ deezer_tracks=(
     "Movement II searchTitle"
 )
 run_test "Album title stripping" lidarr_tracks deezer_tracks "0" "0.00" "0"
+
+# Test 21: Contains check
+reset_state
+lidarr_tracks=(
+    "I'll Give It All interlude"
+)
+deezer_tracks=(
+    "Interlude"
+)
+run_test "Contains check" lidarr_tracks deezer_tracks "5" "5.00" "5"
+
+# Test 22: Real Example 3
+reset_state
+lidarr_tracks=(
+    "ELECTROSHOCK"
+    "NEATFREAK47"
+    "DONTDANCE"
+    "SAYDEMUP"
+    "DRAGONBACKPACK"
+    "HOTT"
+    "IMNOTCOMINTOYOURPARTYGIRL"
+    "HORNZ"
+)
+deezer_tracks=(
+    "Electroshock"
+    "Neatfreak47"
+    "Don't Dance"
+    "Say'dem Up"
+    "Dragon Backpack"
+    "Hott"
+    "I'm Not Comin to Your Party Girl"
+    "Hornz"
+)
+run_test "Real Example 3" lidarr_tracks deezer_tracks "0" "0.00" "0"
 
 echo "----------------------------------------------"
 echo "Passed: $pass, Failed: $fail"

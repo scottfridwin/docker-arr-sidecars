@@ -68,7 +68,9 @@ Services:
 |---|---|---|
 | AUDIO_APPLY_BEETS | true | Apply Beets tagging to downloads |
 | AUDIO_APPLY_REPLAYGAIN | true | Apply ReplayGain tags via r128gain |
-| AUDIO_CACHE_MAX_AGE_DAYS | 30 | Prune cache entries older than this many days |
+| AUDIO_CACHE_MAX_AGE_DAYS_DEEZER | 30 | Prune Deezer cache entries older than this many days. Set to negative to disable automatic cache pruning for Deezer data |
+| AUDIO_CACHE_MAX_AGE_DAYS_LIDARR | 7 | Prune Lidarr cache entries older than this many days. Set to negative to disable automatic cache pruning for Lidarr data |
+| AUDIO_CACHE_MAX_AGE_DAYS_MUSICBRAINZ | 30 | Prune MusicBrainz cache entries older than this many days. Set to negative to disable automatic cache pruning for MusicBrainz data |
 | AUDIO_BEETS_CUSTOM_CONFIG | (unset) | Beets YAML custom config (path or inline YAML) |
 | AUDIO_COMMENTARY_KEYWORDS | commentary,commentaries,directors commentary,audio commentary,with commentary,track by track | Keywords that mark commentary releases |
 | AUDIO_DATA_PATH | /data | State path for `notfound/`, `downloaded/`, `failed/` |
