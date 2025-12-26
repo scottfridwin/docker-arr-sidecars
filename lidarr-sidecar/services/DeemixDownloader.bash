@@ -965,6 +965,7 @@ DownloadProcess() {
                 echo "${DEEMIX_ARL}" | deemix \
                     --portable \
                     -p "${AUDIO_WORK_PATH}/staging" \
+                    -q FLAC \
                     "https://www.deezer.com/album/${deezerAlbumId}" \
                     2>&1 |
                     while IFS= read -r line; do
