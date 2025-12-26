@@ -889,7 +889,7 @@ DownloadProcess() {
     downloadedReleaseYear="${downloadedReleaseDate:0:4}"
 
     local returnCode=0
-    if [[ -z "$FUNCTIONALTESTDIR" ]]; then
+    if [[ -z "${FUNCTIONALTESTDIR:-}" ]]; then
 
         # Create Required Directories
         if [ ! -d "${AUDIO_WORK_PATH}/staging" ]; then

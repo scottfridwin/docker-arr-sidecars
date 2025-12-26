@@ -158,7 +158,7 @@ ArrApiRequest() {
     fi
 
     while true; do
-        if [[ -n "${FUNCTIONALTESTDIR}" ]]; then
+        if [[ -n "${FUNCTIONALTESTDIR:-}" ]]; then
             log "DEBUG :: Skipping actual API request in functional testing mode for ${method} ${path}"
             # Read response from file for this request
             local responseFile="${FUNCTIONALTESTDIR}/ArrApiRequestResponses/$(echo "${method}_${path}" | tr '/' '_').json"
@@ -288,7 +288,7 @@ verifyArrApiAccess() {
     IFS=',' read -r -a supported_versions <<<"${ARR_SUPPORTED_API_VERSIONS// /}"
 
     for ver in "${supported_versions[@]}"; do
-        if [[ -n "$FUNCTIONALTESTDIR" ]]; then
+        if [[ -n "${FUNCTIONALTESTDIR:-}" ]]; then
             log "DEBUG :: Skipping actual API connectivity test in functional testing mode for version $ver"
             arrApiVersion=${ver}
             break
