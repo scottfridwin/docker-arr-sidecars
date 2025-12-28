@@ -949,14 +949,21 @@ DownloadProcess() {
         fi
 
         local downloadTry=0
+        local deemixQuality="flac"
         while true; do
             downloadTry=$(($downloadTry + 1))
 
             # Stop trying after too many attempts
             if ((downloadTry >= AUDIO_DOWNLOAD_ATTEMPT_THRESHOLD)); then
-                log "WARNING :: Album \"${deezerAlbumTitle}\" failed to download after ${downloadTry} attempts...Skipping..."
-                touch "${AUDIO_DATA_PATH}/failed/${deezerAlbumId}"
-                return
+                if [ "${AUDIO_DOWNLOAD_QUALITY_FALLBACK}" == "true" && "${deemixQuality}" == "flac" ]; then
+                    log "WARNING :: Album \"${deezerAlbumTitle}\" failed to download after ${downloadTry} attempts...Attempting quality fallback..."
+                    rm -rf "${AUDIO_WORK_PATH}/staging"/*
+                    deemixQuality="mp3"
+                else
+                    log "WARNING :: Album \"${deezerAlbumTitle}\" failed to download after ${downloadTry} attempts...Skipping..."
+                    touch "${AUDIO_DATA_PATH}/failed/${deezerAlbumId}"
+                    return
+                fi
             fi
 
             log "DEBUG :: Download attempt #${downloadTry} for album \"${deezerAlbumTitle}\""
@@ -965,7 +972,7 @@ DownloadProcess() {
                 echo "${DEEMIX_ARL}" | deemix \
                     --portable \
                     -p "${AUDIO_WORK_PATH}/staging" \
-                    -b "flac" \
+                    -b "${deemixQuality}" \
                     "https://www.deezer.com/album/${deezerAlbumId}" \
                     2>&1 |
                     while IFS= read -r line; do
@@ -1286,6 +1293,7 @@ log "DEBUG :: AUDIO_DEPRIORITIZE_COMMENTARY_RELEASES=${AUDIO_DEPRIORITIZE_COMMEN
 log "DEBUG :: AUDIO_DOWNLOADCLIENT_NAME=${AUDIO_DOWNLOADCLIENT_NAME}"
 log "DEBUG :: AUDIO_DOWNLOAD_ATTEMPT_THRESHOLD=${AUDIO_DOWNLOAD_ATTEMPT_THRESHOLD}"
 log "DEBUG :: AUDIO_DOWNLOAD_CLIENT_TIMEOUT=${AUDIO_DOWNLOAD_CLIENT_TIMEOUT}"
+log "DEBUG :: AUDIO_DOWNLOAD_QUALITY_FALLBACK=${AUDIO_DOWNLOAD_QUALITY_FALLBACK}"
 log "DEBUG :: AUDIO_FAILED_ATTEMPT_THRESHOLD=${AUDIO_FAILED_ATTEMPT_THRESHOLD}"
 log "DEBUG :: AUDIO_IGNORE_INSTRUMENTAL_RELEASES=${AUDIO_IGNORE_INSTRUMENTAL_RELEASES}"
 log "DEBUG :: AUDIO_INSTRUMENTAL_KEYWORDS=${AUDIO_INSTRUMENTAL_KEYWORDS}"

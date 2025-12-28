@@ -82,6 +82,7 @@ Services:
 | AUDIO_DOWNLOADCLIENT_NAME | lidarr-deemix-sidecar | Name of Blackhole download client created in Lidarr |
 | AUDIO_DOWNLOAD_ATTEMPT_THRESHOLD | 10 | Max attempts per album before skipping |
 | AUDIO_DOWNLOAD_CLIENT_TIMEOUT | 10m | Timeout for Deemix download step |
+| AUDIO_DOWNLOAD_QUALITY_FALLBACK | true | If flac quality download fails, fallback to mp3 |
 | AUDIO_FAILED_ATTEMPT_THRESHOLD | 6 | Fail threshold per album across runs |
 | AUDIO_IGNORE_INSTRUMENTAL_RELEASES | true | Skip instrumental releases by keyword |
 | AUDIO_INSTRUMENTAL_KEYWORDS | Instrumental,Score | Instrumental keywords list |
