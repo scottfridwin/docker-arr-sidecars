@@ -955,7 +955,7 @@ DownloadProcess() {
 
             # Stop trying after too many attempts
             if ((downloadTry >= AUDIO_DOWNLOAD_ATTEMPT_THRESHOLD)); then
-                if [ "${AUDIO_DOWNLOAD_QUALITY_FALLBACK}" == "true" && "${deemixQuality}" == "flac" ]; then
+                if [ "${AUDIO_DOWNLOAD_QUALITY_FALLBACK}" == "true" ] && [ "${deemixQuality}" == "flac" ]; then
                     log "WARNING :: Album \"${deezerAlbumTitle}\" failed to download after ${downloadTry} attempts...Attempting quality fallback..."
                     rm -rf "${AUDIO_WORK_PATH}/staging"/*
                     deemixQuality="mp3"
