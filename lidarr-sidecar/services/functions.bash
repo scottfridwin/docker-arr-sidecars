@@ -996,12 +996,17 @@ RemoveEditionsFromAlbumTitle() {
         "original motion picture soundtrack"
     )
 
-    # Handle numeric Anniversary patterns FIRST
+    # Handle numeric Anniversary or Remaster patterns FIRST
     if [[ "$title" =~ ^(.*)\([[:space:]]*[0-9]+(st|nd|rd|th)[[:space:]]+Anniversary([[:space:]]+(Edition|Version))?[[:space:]]*\)(.*)$ ]]; then
         title="${BASH_REMATCH[1]}${BASH_REMATCH[5]}"
     fi
-
     if [[ "$title" =~ ^(.*)[[:space:]]+[0-9]+(st|nd|rd|th)[[:space:]]+Anniversary([[:space:]]+(Edition|Version))?(.*)$ ]]; then
+        title="${BASH_REMATCH[1]}${BASH_REMATCH[5]}"
+    fi
+    if [[ "$title" =~ ^(.*)\([[:space:]]*[0-9]{4}[[:space:]]+Remaster(ed)?([[:space:]]+(Edition|Version))?[[:space:]]*\)(.*)$ ]]; then
+        title="${BASH_REMATCH[1]}${BASH_REMATCH[5]}"
+    fi
+    if [[ "$title" =~ ^(.*)[[:space:]]+[0-9]{4}[[:space:]]+Remaster(ed)?([[:space:]]+(Edition|Version))?(.*)$ ]]; then
         title="${BASH_REMATCH[1]}${BASH_REMATCH[5]}"
     fi
 

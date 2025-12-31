@@ -48,6 +48,9 @@ declare -A TESTS=(
     ["Musical: Original Motion Picture Soundtrack [Deluxe Edition]"]="Musical"
     ["Musical:Original Motion Picture Soundtrack (Deluxe Edition)"]="Musical"
     ["Musical: Original Motion Picture Soundtrack (Deluxe Edition)"]="Musical"
+    ["The Last Day 2025 Remaster"]="The Last Day"
+    ["The Last Day 2025 Remaster Edition"]="The Last Day"
+    ["The Last Day 202 Remaster"]="The Last Day 202 Remaster"
 )
 
 # --- Run tests ---
