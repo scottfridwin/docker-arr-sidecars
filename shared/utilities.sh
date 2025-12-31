@@ -598,6 +598,14 @@ remove_quotes() {
     echo "$1" | sed -e "s/['\"]//g"
 }
 
+# Removes common punctuation from a string
+remove_punctuation() {
+    # $1 -> the string to process
+
+    # Remove common punctuation characters
+    echo "$1" | sed -e 's/[.,:;!?"\x27]//g'
+}
+
 # Safe jq wrapper that logs parse errors
 safe_jq() {
     local optional=false

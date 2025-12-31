@@ -472,8 +472,8 @@ EvaluateDeezerAlbumCandidate() {
 
     # Extract candidate information
     local deezerAlbumData="$(get_state "deezerAlbumInfo")"
-    local deezerCandidateTitle=$(jq -r ".title" <<<"${deezerAlbumData}")
-    local deezerCandidateIsExplicit=$(jq -r ".explicit_lyrics" <<<"${deezerAlbumData}")
+    local deezerCandidateTitle=$(safe_jq ".title" <<<"${deezerAlbumData}")
+    local deezerCandidateIsExplicit=$(safe_jq ".explicit_lyrics" <<<"${deezerAlbumData}")
     local deezerCandidateTrackCount=$(safe_jq .nb_tracks <<<"${deezerAlbumData}")
     local deezerCandidateReleaseYear=$(safe_jq .release_date <<<"${deezerAlbumData}")
     deezerCandidateReleaseYear="${deezerCandidateReleaseYear:0:4}"
@@ -621,6 +621,7 @@ ExtractAlbumInfo() {
     local album_json="$1"
     local lidarrAlbumTitle lidarrAlbumType lidarrAlbumForeignAlbumId
     lidarrAlbumTitle=$(safe_jq ".title" <<<"$album_json")
+    lidarrAlbumTitle=$(remove_punctuation "$lidarrAlbumTitle")
     lidarrAlbumType=$(safe_jq ".albumType" <<<"$album_json")
     lidarrAlbumForeignAlbumId=$(safe_jq ".foreignAlbumId" <<<"$album_json")
 
@@ -670,6 +671,7 @@ ExtractReleaseInfo() {
 
     local release_json="$1"
     local lidarrReleaseTitle="$(safe_jq ".title" <<<"${release_json}")"
+    lidarrReleaseTitle=$(remove_punctuation "$lidarrReleaseTitle")
     local lidarrReleaseDisambiguation="$(safe_jq --optional ".disambiguation" <<<"${release_json}")"
     local lidarrReleaseTrackCount="$(safe_jq ".trackCount" <<<"${release_json}")"
     local lidarrReleaseForeignId="$(safe_jq ".foreignReleaseId" <<<"${release_json}")"
@@ -953,8 +955,10 @@ LevenshteinDistance() {
 NormalizeDeezerAlbumTitle() {
     local deezerCandidateTitle="$1"
 
-    # Normalize title
+    # Normalize title and remove punctuation
     local titleClean="$(normalize_string "$deezerCandidateTitle")"
+    titleClean="$(remove_punctuation "$titleClean")"
+    # Truncate to 130 characters to avoid excessive lengths
     titleClean="${titleClean:0:130}"
 
     # Get editionless version

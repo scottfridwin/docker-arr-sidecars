@@ -6,24 +6,24 @@ source "${SCRIPT_DIR}/../utilities.sh"
 
 # --- Define test cases ---
 declare -A TESTS=(
-    ["Don't 'test' this"]="Don't 'test' this"
-    ["2020–2021"]="2020-2021"
-    ["Too    many     spaces"]="Too many spaces"
-    ["Album (Deluxe)"]="Album Deluxe"
-    ["What? Where?"]="What Where"
-    ["Hello! World!"]="Hello World"
-    ["One, Two, Three"]="One Two Three"
-    ["  trimmed  "]="trimmed"
-    ["Nº 1"]="N° 1"
-    ["Don't (test) this, okay?"]="Don't test this okay"
-    ["This & that"]="This and that"
-    ["This: Part II"]="This Part II"
-    ["…oh my"]="...oh my"
-    ["...oh my"]="...oh my"
-    ["2020‐2021"]="2020-2021"
+    ["remove.period"]="removeperiod"
+    ["hello, world!"]="hello world"
+    ["what? no way."]="what no way"
+    ["(test) string: yes; no!"]="(test) string yes no"
+    ['single "double" quotes']="single double quotes"
+    ["it's a test's string."]="its a tests string"
+    ["well... maybe!"]="well maybe"
+    ["Nº 1!"]="Nº 1"
+    ["end."]="end"
+    ["(parentheses)"]="(parentheses)"
+    ["[brackets]"]="[brackets]"
+    ["{braces}"]="{braces}"
+    ["dash - hyphen"]="dash - hyphen"
+    ["slash / backslash \\"]="slash / backslash \\"
+    ["colon: semi; comma, period."]="colon semi comma period"
+    ["multiple!!! punctuation???"]="multiple punctuation"
 )
 
-# --- Run tests ---
 pass=0
 fail=0
 
@@ -31,7 +31,7 @@ echo "----------------------------------------------"
 
 for input in "${!TESTS[@]}"; do
     expected="${TESTS[$input]}"
-    output="$(normalize_string "$input")"
+    output="$(remove_punctuation "$input")"
 
     if [[ "$output" == "$expected" ]]; then
         printf "✅ PASS: %-45s → %s\n" "$input" "$output"
@@ -45,9 +45,7 @@ done
 echo "----------------------------------------------"
 echo "Passed: $pass, Failed: $fail"
 
-# --- Exit nonzero if any failed ---
 if ((fail > 0)); then
     exit 1
 fi
-
 exit 0
