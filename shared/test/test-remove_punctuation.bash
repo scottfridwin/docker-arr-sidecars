@@ -7,7 +7,6 @@ source "${SCRIPT_DIR}/../utilities.sh"
 # --- Define test cases ---
 declare -A TESTS=(
     ["remove.period"]="removeperiod"
-    ["hello, world!"]="hello world"
     ["what? no way."]="what no way"
     ["(test) string: yes; no!"]="(test) string yes no"
     ["single 'single' quotes"]="single single quotes"
@@ -24,6 +23,14 @@ declare -A TESTS=(
     ["slash / backslash \\"]="slash / backslash \\"
     ["colon: semi; comma, period."]="colon semi comma period"
     ["multiple!!! punctuation???"]="multiple punctuation"
+    ["single 'single' quotes"]="single single quotes"
+    ['double "double" quotes']="double double quotes"
+    ["hello, world!"]="hello world"
+    ["hello world"]="hello world"
+    ["'hello' world"]="hello world"
+    ["\"hello\" world"]="hello world"
+    ["“hello” world"]="hello world"
+    ["‘hello’ world"]="hello world"
 )
 
 pass=0

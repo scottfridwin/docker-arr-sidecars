@@ -146,7 +146,7 @@ ArrApiRequest() {
         verifyArrApiAccess
     fi
 
-    # If method is not GET, ensure *arr isn’t busy
+    # If method is not GET, ensure *arr isn't busy
     if [[ "${method}" != "GET" ]]; then
         ArrTaskStatusCheck
     fi
@@ -595,7 +595,7 @@ remove_quotes() {
     # $1 -> the string to process
 
     # Remove quotes
-    echo "$1" | sed -e "s/['\"]//g"
+    echo "$1" | sed -e "s/[’‘'“”\"]//g"
 }
 
 # Removes common punctuation from a string
@@ -603,7 +603,7 @@ remove_punctuation() {
     # $1 -> the string to process
 
     # Remove common punctuation characters
-    echo "$1" | sed -e "s/[.,:;!?'\"\x27]//g"
+    echo "$1" | sed -e "s/[.,:;!?’‘'“”\"\x27]//g"
 }
 
 # Safe jq wrapper that logs parse errors
