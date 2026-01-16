@@ -10,13 +10,6 @@ source "${SCRIPT_DIR}/../services/functions.bash"
 log() {
     : # Do nothing, suppress logs in tests
 }
-FetchMusicBrainzReleaseInfo() {
-    set_state "Mock_FetchMusicBrainzReleaseInfo" "true"
-}
-# Mock environment variables
-export AUDIO_PREFERRED_FORMATS="CD,Vinyl,Digital"
-export AUDIO_PREFERRED_COUNTRIES="US,UK,JP"
-export AUDIO_COMMENTARY_KEYWORDS="commentary,talkytalky"
 
 # --- Run tests ---
 pass=0
@@ -26,343 +19,128 @@ reset_state
 
 echo "----------------------------------------------"
 
-# Test 1: Extract basic release info
-reset_state
-set_state "musicbrainzReleaseJson" "{ \"abc\": \"123\" }"
-release_json='{
-  "title": "2048",
-  "disambiguation": "Deluxe Edition",
-  "trackCount": 13,
-  "foreignReleaseId": "abc123-def456",
-  "format": "CD",
-  "country": ["US"],
-  "releaseDate": "2014-10-27T00:00:00Z"
-}'
-
-ExtractReleaseInfo "$release_json"
-
-if [[ "$(get_state "lidarrReleaseTitle")" == "2048" ]] &&
-    [[ "$(get_state "lidarrReleaseDisambiguation")" == "Deluxe Edition" ]] &&
-    [[ "$(get_state "lidarrReleaseTrackCount")" == "13" ]] &&
-    [[ "$(get_state "lidarrReleaseForeignId")" == "abc123-def456" ]] &&
-    [[ "$(get_state "lidarrReleaseYear")" == "2014" ]] &&
-    [[ "$(get_state "lidarrReleaseContainsCommentary")" == "false" ]] &&
-    [[ "$(get_state "lidarrReleaseMBJson")" == "{ \"abc\": \"123\" }" ]]; then
-    echo "✅ PASS: Extract basic release info"
-    ((pass++))
-else
-    echo "❌ FAIL: Extract basic release info"
-    echo "  title: '$(get_state "lidarrReleaseTitle")'"
-    echo "  trackCount: '$(get_state "lidarrReleaseTrackCount")'"
-    echo "  year: '$(get_state "lidarrReleaseYear")'"
-    ((fail++))
-fi
-
-# Test 2: Format priority calculation
-reset_state
-set_state "musicbrainzReleaseJson" "{ \"abc\": \"123\" }"
-release_json='{
-  "title": "Test Album",
-  "disambiguation": "",
-  "trackCount": 10,
-  "foreignReleaseId": "test-123",
-  "format": "Vinyl",
-  "country": ["UK"],
-  "releaseDate": "2020-01-01T00:00:00Z"
-}'
-
-ExtractReleaseInfo "$release_json"
-
-if [[ "$(get_state "lidarrReleaseFormatPriority")" == "1" ]]; then
-    echo "✅ PASS: Format priority calculation (Vinyl=1)"
-    ((pass++))
-else
-    echo "❌ FAIL: Format priority (got '$(get_state "lidarrReleaseFormatPriority")')"
-    ((fail++))
-fi
-
-# Test 3: Country priority calculation
-reset_state
-set_state "musicbrainzReleaseJson" "{ \"abc\": \"123\" }"
-release_json='{
-  "title": "Test Album",
-  "disambiguation": "",
-  "trackCount": 10,
-  "foreignReleaseId": "test-456",
-  "format": "CD",
-  "country": ["JP"],
-  "releaseDate": "2020-01-01T00:00:00Z"
-}'
-
-ExtractReleaseInfo "$release_json"
-
-if [[ "$(get_state "lidarrReleaseCountryPriority")" == "2" ]]; then
-    echo "✅ PASS: Country priority calculation (JP=2)"
-    ((pass++))
-else
-    echo "❌ FAIL: Country priority (got '$(get_state "lidarrReleaseCountryPriority")')"
-    ((fail++))
-fi
-
-# Test 4: Release without disambiguation
-reset_state
-set_state "musicbrainzReleaseJson" "{ \"abc\": \"123\" }"
-release_json='{
-  "title": "Maple Street",
-  "disambiguation": null,
-  "trackCount": 17,
-  "foreignReleaseId": "beetles-ar-001",
-  "format": "CD",
-  "country": ["US"],
-  "releaseDate": "1969-09-26T00:00:00Z"
-}'
-
-ExtractReleaseInfo "$release_json"
-
-if [[ "$(get_state "lidarrReleaseDisambiguation")" == "" ]]; then
-    echo "✅ PASS: Release without disambiguation"
-    ((pass++))
-else
-    echo "❌ FAIL: Release without disambiguation"
-    ((fail++))
-fi
-
-# Test 5: Release with null date checks musicbrainz date
-reset_state
-set_state "lidarrAlbumReleaseYear" "2015"
-set_state "musicbrainzReleaseJson" "{ \"date\":\"2000\" }"
-release_json='{
-  "title": "Test Release",
-  "disambiguation": "",
-  "trackCount": 12,
-  "foreignReleaseId": "test-789",
-  "format": "Digital",
-  "country": ["US"],
-  "releaseDate": null
-}'
-
-ExtractReleaseInfo "$release_json"
-
-Mock_FetchMusicBrainzReleaseInfo=$(get_state "Mock_FetchMusicBrainzReleaseInfo")
-if [[ "$(get_state "lidarrReleaseYear")" == "2000" ]] &&
-    [[ "$Mock_FetchMusicBrainzReleaseInfo" == "true" ]]; then
-    echo "✅ PASS: Release year falls back to musicbrainz year"
-    ((pass++))
-else
-    echo "❌ FAIL: Release year fallback (got '$(get_state "lidarrReleaseYear")')"
-    ((fail++))
-fi
-
-# Test 6: Release with null date falls back to album year
-reset_state
-set_state "lidarrAlbumReleaseYear" "2015"
-set_state "musicbrainzReleaseJson" "{ \"abc\": \"123\" }"
-release_json='{
-  "title": "Test Release",
-  "disambiguation": "",
-  "trackCount": 12,
-  "foreignReleaseId": "test-789",
-  "format": "Digital",
-  "country": ["US"],
-  "releaseDate": null
-}'
-
-ExtractReleaseInfo "$release_json"
-
-Mock_FetchMusicBrainzReleaseInfo=$(get_state "Mock_FetchMusicBrainzReleaseInfo")
-if [[ "$(get_state "lidarrReleaseYear")" == "2015" ]] &&
-    [[ "$Mock_FetchMusicBrainzReleaseInfo" == "true" ]]; then
-    echo "✅ PASS: Release year falls back to album year"
-    ((pass++))
-else
-    echo "❌ FAIL: Release year fallback (got '$(get_state "lidarrReleaseYear")')"
-    ((fail++))
-fi
-
-# Test 7: Verify JSON stored correctly
-reset_state
-set_state "musicbrainzReleaseJson" "{ \"abc\": \"123\" }"
-release_json='{"title":"Test","disambiguation":"","trackCount":5,"foreignReleaseId":"id","format":"CD","country":["US"],"releaseDate":"2020-01-01T00:00:00Z"}'
-
-ExtractReleaseInfo "$release_json"
-
-if [[ "$(get_state "lidarrReleaseInfo")" == "$release_json" ]]; then
-    echo "✅ PASS: JSON stored correctly"
-    ((pass++))
-else
-    echo "❌ FAIL: JSON not stored correctly"
-    ((fail++))
-fi
-
-# Test 8: Unknown format gets low priority
-reset_state
-set_state "musicbrainzReleaseJson" "{ \"abc\": \"123\" }"
-release_json='{
-  "title": "Test",
-  "disambiguation": "",
-  "trackCount": 8,
-  "foreignReleaseId": "test-cassette",
-  "format": "Cassette",
-  "country": ["US"],
-  "releaseDate": "1990-01-01T00:00:00Z"
-}'
-
-ExtractReleaseInfo "$release_json"
-
-if [[ "$(get_state "lidarrReleaseFormatPriority")" == "999" ]]; then
-    echo "✅ PASS: Unknown format gets low priority"
-    ((pass++))
-else
-    echo "❌ FAIL: Unknown format priority (got '$(get_state "lidarrReleaseFormatPriority")')"
-    ((fail++))
-fi
-
-# Test 9: Commentary detection in title
-reset_state
-set_state "musicbrainzReleaseJson" "{ \"abc\": \"123\" }"
-release_json='{
-  "title": "2048 (Commentary)",
-  "disambiguation": "Deluxe Edition",
-  "trackCount": 13,
-  "foreignReleaseId": "abc123-def456",
-  "format": "CD",
-  "country": ["US"],
-  "releaseDate": "2014-10-27T00:00:00Z"
-}'
-
-ExtractReleaseInfo "$release_json"
-
-if [[ "$(get_state "lidarrReleaseTitle")" == "2048 (Commentary)" ]] &&
-    [[ "$(get_state "lidarrReleaseDisambiguation")" == "Deluxe Edition" ]] &&
-    [[ "$(get_state "lidarrReleaseTrackCount")" == "13" ]] &&
-    [[ "$(get_state "lidarrReleaseForeignId")" == "abc123-def456" ]] &&
-    [[ "$(get_state "lidarrReleaseYear")" == "2014" ]] &&
-    [[ "$(get_state "lidarrReleaseContainsCommentary")" == "true" ]] &&
-    [[ "$(get_state "lidarrReleaseMBJson")" == "{ \"abc\": \"123\" }" ]]; then
-    echo "✅ PASS: Commentary detection in title"
-    ((pass++))
-else
-    echo "❌ FAIL: Commentary detection in title"
-    echo "  title: '$(get_state "lidarrReleaseTitle")'"
-    echo "  trackCount: '$(get_state "lidarrReleaseTrackCount")'"
-    echo "  year: '$(get_state "lidarrReleaseYear")'"
-    echo "  lidarrReleaseContainsCommentary: '$(get_state "lidarrReleaseContainsCommentary")'"
-    ((fail++))
-fi
-
-# Test 10: Commentary detection in disambiguation
-reset_state
-set_state "musicbrainzReleaseJson" "{ \"abc\": \"123\" }"
-release_json='{
-  "title": "2048",
-  "disambiguation": "Deluxe Edition (talkyTALKY)",
-  "trackCount": 13,
-  "foreignReleaseId": "abc123-def456",
-  "format": "CD",
-  "country": ["US"],
-  "releaseDate": "2014-10-27T00:00:00Z"
-}'
-
-ExtractReleaseInfo "$release_json"
-
-if [[ "$(get_state "lidarrReleaseTitle")" == "2048" ]] &&
-    [[ "$(get_state "lidarrReleaseDisambiguation")" == "Deluxe Edition (talkyTALKY)" ]] &&
-    [[ "$(get_state "lidarrReleaseTrackCount")" == "13" ]] &&
-    [[ "$(get_state "lidarrReleaseForeignId")" == "abc123-def456" ]] &&
-    [[ "$(get_state "lidarrReleaseYear")" == "2014" ]] &&
-    [[ "$(get_state "lidarrReleaseContainsCommentary")" == "true" ]] &&
-    [[ "$(get_state "lidarrReleaseMBJson")" == "{ \"abc\": \"123\" }" ]]; then
-    echo "✅ PASS: Commentary detection in disambiguation"
-    ((pass++))
-else
-    echo "❌ FAIL: Commentary detection in disambiguation"
-    echo "  title: '$(get_state "lidarrReleaseTitle")'"
-    echo "  trackCount: '$(get_state "lidarrReleaseTrackCount")'"
-    echo "  year: '$(get_state "lidarrReleaseYear")'"
-    echo "  lidarrReleaseContainsCommentary: '$(get_state "lidarrReleaseContainsCommentary")'"
-    ((fail++))
-fi
-
-# Test 11: Commentary detection in track name
-reset_state
-set_state "musicbrainzReleaseJson" "{\"media\":[{\"tracks\": [{\"title\": \"Overture\", \"recording\": {\"title\": \"Overture\"}},{\"title\": \"Overture (Commentary)\", \"recording\": {\"title\": \"Overture (Commentary)\"}}]}]}"
-release_json='{
-  "title": "2048",
-  "disambiguation": "Deluxe Edition",
-  "trackCount": 13,
-  "foreignReleaseId": "abc123-def456",
-  "format": "CD",
-  "country": ["US"],
-  "releaseDate": "2014-10-27T00:00:00Z"
-}'
-
-ExtractReleaseInfo "$release_json"
-
-if [[ "$(get_state "lidarrReleaseTitle")" == "2048" ]] &&
-    [[ "$(get_state "lidarrReleaseDisambiguation")" == "Deluxe Edition" ]] &&
-    [[ "$(get_state "lidarrReleaseTrackCount")" == "13" ]] &&
-    [[ "$(get_state "lidarrReleaseForeignId")" == "abc123-def456" ]] &&
-    [[ "$(get_state "lidarrReleaseYear")" == "2014" ]] &&
-    [[ "$(get_state "lidarrReleaseContainsCommentary")" == "true" ]] &&
-    [[ "$(get_state "lidarrReleaseMBJson")" == "{\"media\":[{\"tracks\": [{\"title\": \"Overture\", \"recording\": {\"title\": \"Overture\"}},{\"title\": \"Overture (Commentary)\", \"recording\": {\"title\": \"Overture (Commentary)\"}}]}]}" ]]; then
-    echo "✅ PASS: Commentary detection in track name"
-    ((pass++))
-else
-    echo "❌ FAIL: Commentary detection in track name"
-    echo "  title: '$(get_state "lidarrReleaseTitle")'"
-    echo "  trackCount: '$(get_state "lidarrReleaseTrackCount")'"
-    echo "  year: '$(get_state "lidarrReleaseYear")'"
-    echo "  lidarrReleaseContainsCommentary: '$(get_state "lidarrReleaseContainsCommentary")'"
-    ((fail++))
-fi
-
-# Test 12: Track list
-reset_state
-set_state "musicbrainzReleaseJson" "{\"media\":[{\"tracks\": [{\"title\": \"Overture\", \"recording\": {\"title\": \"Overture\"}},{\"title\": \"Movement I\", \"recording\": {\"title\": \"Movement I\"}},{\"title\": \"Movement II\", \"recording\": {\"title\": \"Movement II\"}},{\"title\": \"Movement III\", \"recording\": {\"title\": \"Movement III\"}}]}]}"
-release_json='{
-  "title": "2048",
-  "disambiguation": "Deluxe Edition",
-  "trackCount": 13,
-  "foreignReleaseId": "abc123-def456",
-  "format": "CD",
-  "country": ["US"],
-  "releaseDate": "2014-10-27T00:00:00Z"
-}'
-expected_track_titles=(
-    "Overture"
-    "Movement I"
-    "Movement II"
-    "Movement III"
-)
-
-ExtractReleaseInfo "$release_json"
-lidarrReleaseTrackTitles="$(get_state "lidarrReleaseTrackTitles")"
-track_titles=()
-if [[ -n "$lidarrReleaseTrackTitles" ]]; then
-    IFS="$TRACK_SEP" read -r -a track_titles <<<"$lidarrReleaseTrackTitles"
-fi
-passed=1
-if [[ ${#track_titles[@]} -ne ${#expected_track_titles[@]} ]]; then
-    echo "Expected ${#expected_track_titles[@]} tracks"
-    echo "Got ${#track_titles[@]} tracks"
-    passed=0
-else
-    for i in "${!expected_track_titles[@]}"; do
-        if [[ "${track_titles[$i]}" != "${expected_track_titles[$i]}" ]]; then
-            echo "Expected: ${expected_track_titles[$i]}"
-            echo "Got:      ${track_titles[$i]}"
-            passed=0
-            break
+# Helper: assert state equals expected
+assert_state_eq() {
+    local key="$1"
+    local expected="$2"
+    local actual
+    actual="$(get_state "$key")"
+    # If values look like JSON, normalize with jq -c before comparing to avoid formatting differences
+    if ([[ "$expected" == "["* ]] || [[ "$expected" == "{"* ]] || [[ "$actual" == "["* ]] || [[ "$actual" == "{"* ]]); then
+        local expected_canonical actual_canonical
+        if expected_canonical=$(jq -c . <<<"$expected" 2>/dev/null) && actual_canonical=$(jq -c . <<<"$actual" 2>/dev/null); then
+            if [[ "$actual_canonical" == "$expected_canonical" ]]; then
+                ((pass++))
+            else
+                ((fail++))
+            fi
+            return
         fi
-    done
-fi
-if [[ $passed == 1 ]]; then
-    echo "✅ PASS: Track list"
-    ((pass++))
-else
-    echo "❌ FAIL: Track list"
-    ((fail++))
-fi
+    fi
+
+    if [[ "$actual" == "$expected" ]]; then
+        ((pass++))
+    else
+        ((fail++))
+    fi
+}
+
+# Test helpers to emit a single summary line per test
+test_begin() {
+    test_pass_before=$pass
+    test_fail_before=$fail
+}
+
+test_end() {
+    local name="$1"
+    local p=$((pass - test_pass_before))
+    local f=$((fail - test_fail_before))
+    if ((f == 0)); then
+        echo "✅ PASS: ${name} (${p} assertions)"
+    else
+        echo "❌ FAIL: ${name} (${p} passed, ${f} failed)"
+    fi
+
+}
+
+# Test 1: Full release JSON with all fields
+reset_state
+release_json='{
+    "contains_commentary": true,
+    "lyric_type_preferred": false,
+    "title": "Test Album",
+    "disambiguation": "Deluxe",
+    "foreign_id": "rid-123",
+    "track_count": 2,
+    "format_priority": 5,
+    "country_priority": 7,
+    "tiebreaker_country_priority": 8,
+    "year": 1999,
+    "recording_titles": ["Rec A", "Rec B"],
+    "track_titles": ["Track A", "Track B"],
+    "deezer_album_id": 555,
+    "release_status": "official",
+    "rarities": ["rare"],
+    "instrumental": true
+}'
+test_begin "Full release JSON with all fields"
+ExtractReleaseInfo "$release_json"
+assert_state_eq "lidarrReleaseContainsCommentary" "true"
+assert_state_eq "lidarrReleaseLyricTypePreferred" "false"
+assert_state_eq "lidarrReleaseTitle" "Test Album"
+assert_state_eq "lidarrReleaseDisambiguation" "Deluxe"
+assert_state_eq "lidarrReleaseForeignId" "rid-123"
+assert_state_eq "lidarrReleaseTrackCount" "2"
+assert_state_eq "lidarrReleaseFormatPriority" "5"
+assert_state_eq "lidarrReleaseCountryPriority" "7"
+assert_state_eq "lidarrReleaseTiebreakerCountryPriority" "8"
+assert_state_eq "lidarrReleaseYear" "1999"
+assert_state_eq "lidarrReleaseRecordingTitles" '[
+    "Rec A",
+    "Rec B"
+]'
+assert_state_eq "lidarrReleaseTrackTitles" '[
+    "Track A",
+    "Track B"
+]'
+assert_state_eq "lidarrReleaseLinkedDeezerAlbumId" "555"
+assert_state_eq "lidarrReleaseStatus" "official"
+assert_state_eq "lidarrReleaseDisambiguationRarities" '[
+    "rare"
+]'
+assert_state_eq "lidarrReleaseIsInstrumental" "true"
+test_end "Full release JSON with all fields"
+
+# Test 2: Minimal release JSON with missing optional fields
+reset_state
+release_json='{
+    "title": "No Disambig Album",
+    "foreign_id": "rid-2",
+    "track_count": 0,
+    "format_priority": 1,
+    "country_priority": 1,
+    "tiebreaker_country_priority": 1,
+    "year": 2021,
+    "recording_titles": [],
+    "track_titles": []
+}'
+test_begin "Minimal release JSON with missing optional fields"
+ExtractReleaseInfo "$release_json"
+assert_state_eq "lidarrReleaseTitle" "No Disambig Album"
+assert_state_eq "lidarrReleaseDisambiguation" ""
+assert_state_eq "lidarrReleaseForeignId" "rid-2"
+assert_state_eq "lidarrReleaseTrackCount" "0"
+assert_state_eq "lidarrReleaseFormatPriority" "1"
+assert_state_eq "lidarrReleaseCountryPriority" "1"
+assert_state_eq "lidarrReleaseTiebreakerCountryPriority" "1"
+assert_state_eq "lidarrReleaseYear" "2021"
+assert_state_eq "lidarrReleaseRecordingTitles" '[]'
+assert_state_eq "lidarrReleaseTrackTitles" '[]'
+assert_state_eq "lidarrReleaseLinkedDeezerAlbumId" ""
+assert_state_eq "lidarrReleaseStatus" ""
+assert_state_eq "lidarrReleaseDisambiguationRarities" ""
+assert_state_eq "lidarrReleaseIsInstrumental" ""
+test_end "Minimal release JSON with missing optional fields"
 
 echo "----------------------------------------------"
 echo "Passed: $pass, Failed: $fail"

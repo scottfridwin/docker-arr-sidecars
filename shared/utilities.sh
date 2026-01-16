@@ -145,6 +145,9 @@ ArrApiRequest() {
         log "DEBUG :: Need to retrieve arr connection details in order to perform API requests"
         verifyArrApiAccess
     fi
+    arrUrl="$(get_state "arrUrl")"
+    arrApiKey="$(get_state "arrApiKey")"
+    arrApiVersion="$(get_state "arrApiVersion")"
 
     # If method is not GET, ensure *arr isn't busy
     if [[ "${method}" != "GET" ]]; then
@@ -603,7 +606,15 @@ remove_punctuation() {
     # $1 -> the string to process
 
     # Remove common punctuation characters
-    echo "$1" | sed -e "s/[.,:;!?’‘'“”\"\x27]//g"
+    echo "$1" | sed -e "s/[.,:;!?*’‘'“”\"\x27-]//g"
+}
+
+# Removes whitespace from a string
+remove_whitespace() {
+    # $1 -> the string to process
+
+    # Remove whitespace
+    printf '%s' "${1//[[:space:]]/}"
 }
 
 # Safe jq wrapper that logs parse errors

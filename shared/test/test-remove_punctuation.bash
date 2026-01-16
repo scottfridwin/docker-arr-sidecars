@@ -19,7 +19,7 @@ declare -A TESTS=(
     ["(parentheses)"]="(parentheses)"
     ["[brackets]"]="[brackets]"
     ["{braces}"]="{braces}"
-    ["dash - hyphen"]="dash - hyphen"
+    ["dash - hyphen"]="dash  hyphen"
     ["slash / backslash \\"]="slash / backslash \\"
     ["colon: semi; comma, period."]="colon semi comma period"
     ["multiple!!! punctuation???"]="multiple punctuation"
@@ -31,6 +31,7 @@ declare -A TESTS=(
     ["\"hello\" world"]="hello world"
     ["“hello” world"]="hello world"
     ["‘hello’ world"]="hello world"
+    ["Symbol \"☮︎\" test"]="Symbol ☮︎ test"
 )
 
 pass=0

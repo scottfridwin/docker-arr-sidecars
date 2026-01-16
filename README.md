@@ -93,6 +93,7 @@ Services:
 | AUDIO_MATCH_THRESHOLD_TRACK_DIFF_AVG | 1.00 | Maximum track name difference (averaged per track) for matching |
 | AUDIO_MATCH_THRESHOLD_TRACK_DIFF_MAX | 10 | Maximum single-track name difference for matching |
 | AUDIO_PREFER_SPECIAL_EDITIONS | true | Prefer deluxe/special editions when tied |
+| AUDIO_REQUIRE_MUSICBRAINZ_REL | true | Require that the musicbrainz release record have a relationship to the Deezer album |
 | AUDIO_REQUIRE_QUALITY | true | Require target quality (vs. accept best-effort) |
 | AUDIO_RESULT_FILE_NAME | results.md | Name for the result file from matching process. This file is written to the work directory. Set to empty to disable result file |
 | AUDIO_RETRY_NOTFOUND_DAYS | 90 | Give up-not-found entries a retry after this many days |

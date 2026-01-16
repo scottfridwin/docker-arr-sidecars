@@ -51,6 +51,9 @@ declare -A TESTS=(
     ["The Last Day 2025 Remaster"]="The Last Day"
     ["The Last Day 2025 Remaster Edition"]="The Last Day"
     ["The Last Day 202 Remaster"]="The Last Day 202 Remaster"
+    ["My Everything (Tenth Anniversary Edition)"]="My Everything"
+    ["My Everything (TENTH Anniversary Edition)"]="My Everything"
+    ["My Everything TENTH Anniversary Edition"]="My Everything"
 )
 
 # --- Run tests ---

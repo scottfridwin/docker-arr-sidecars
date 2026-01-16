@@ -11,235 +11,11 @@ source "${SCRIPT_DIR}/../utilities.sh"
 source "${SCRIPT_DIR}/functions.bash"
 
 #### Constants
-readonly VARIOUS_ARTIST_ID_MUSICBRAINZ="89ad4ac3-39f7-470e-963a-56509c546377"
 readonly VARIOUS_ARTIST_ID_DEEZER="5080"
 readonly DEEMIX_DIR="/tmp/deemix"
 readonly DEEMIX_CONFIG_PATH="${DEEMIX_DIR}/config/config.json"
 readonly BEETS_DIR="/tmp/beets"
 readonly BEETS_CONFIG_PATH="${BEETS_DIR}/beets.yaml"
-
-# Generic Deezer API call with retries and error handling
-CallDeezerAPI() {
-    log "TRACE :: Entering CallDeezerAPI..."
-    local url="${1}"
-    local maxRetries="${AUDIO_DEEZER_API_RETRIES:-3}"
-    local retries=0
-    local httpCode body response curlExit returnCode=1
-
-    while ((retries < maxRetries)); do
-        log "DEBUG :: Calling Deezer api: ${url}"
-
-        # Run curl and capture output + HTTP code
-        response="$(curl -sS -w '\n%{http_code}' \
-            --connect-timeout 5 \
-            --max-time "${AUDIO_DEEZER_API_TIMEOUT:-10}" \
-            "${url}" 2>/dev/null || true)"
-        curlExit=$?
-
-        if [[ $curlExit -ne 0 || -z "$response" ]]; then
-            log "WARNING :: curl failed (exit $curlExit) for URL ${url}, retrying ($((retries + 1))/${maxRetries})..."
-            retries=$((retries + 1))
-            sleep 1
-            continue
-        fi
-
-        # Split body and HTTP code
-        httpCode=$(tail -n1 <<<"$response")
-        body=$(sed '$d' <<<"$response")
-
-        # Treat HTTP 000 as failure
-        if [[ -z "$httpCode" || "$httpCode" == "000" || "$httpCode" == "0" ]]; then
-            log "WARNING :: No HTTP response (000) from Deezer API for URL ${url}, retrying ($((retries + 1))/${maxRetries})..."
-            retries=$((retries + 1))
-            sleep 1
-            continue
-        fi
-
-        # Check for success
-        if [[ "$httpCode" -eq 200 && -n "$body" ]]; then
-            # Validate JSON safely
-            if safe_jq --optional '.' <<<"$body" >/dev/null; then
-                set_state "deezerApiResponse" "$body"
-                returnCode=0
-                break
-            else
-                log "WARNING :: Invalid JSON body from Deezer API for URL ${url}, retrying ($((retries + 1))/${maxRetries})..."
-            fi
-        else
-            log "WARNING :: Deezer API returned HTTP ${httpCode:-<empty>} for URL ${url}, retrying ($((retries + 1))/${maxRetries})..."
-        fi
-
-        retries=$((retries + 1))
-        sleep 1
-    done
-
-    if ((returnCode != 0)); then
-        log "WARNING :: Failed to get a valid response from Deezer API after ${maxRetries} attempts for URL ${url}"
-    fi
-
-    log "TRACE :: Exiting CallDeezerAPI..."
-    return "$returnCode"
-}
-
-# Fetch Deezer album info with caching (uses CallDeezerAPI)
-GetDeezerAlbumInfo() {
-    log "TRACE :: Entering GetDeezerAlbumInfo..."
-    local albumId="$1"
-    local albumCacheFile="${AUDIO_WORK_PATH}/cache/deezer-album-${albumId}.json"
-    local albumJson=""
-
-    mkdir -p "${AUDIO_WORK_PATH}/cache"
-
-    # Load from cache if valid
-    if [[ -f "${albumCacheFile}" ]]; then
-        if safe_jq --optional '.' <"${albumCacheFile}" >/dev/null 2>&1; then
-            log "DEBUG :: Using cached Deezer album data for ${albumId}"
-            albumJson="$(<"${albumCacheFile}")"
-        else
-            log "WARNING :: Cached album JSON invalid, will refetch: ${albumCacheFile}"
-        fi
-    fi
-
-    if [[ -z "$albumJson" ]]; then
-        local apiUrl="https://api.deezer.com/album/${albumId}"
-        if ! CallDeezerAPI "${apiUrl}"; then
-            log "ERROR :: Failed to get album info for ${albumId}"
-            setUnhealthy
-            exit 1
-        fi
-        albumJson="$(get_state "deezerApiResponse")"
-
-        # Determine if track pagination is needed
-        local nb_tracks embedded_tracks
-        nb_tracks="$(safe_jq '.nb_tracks' <<<"$albumJson")"
-        embedded_tracks="$(safe_jq '.tracks.data | length' <<<"$albumJson")"
-
-        if ((embedded_tracks < nb_tracks)); then
-            log "DEBUG :: Album ${albumId} has ${nb_tracks} tracks, fetching remaining pages"
-
-            local all_tracks=()
-            local nextUrl="https://api.deezer.com/album/${albumId}/tracks"
-
-            while [[ -n "$nextUrl" ]]; do
-                if ! CallDeezerAPI "$nextUrl"; then
-                    log "ERROR :: Failed fetching Deezer album tracks"
-                    setUnhealthy
-                    exit 1
-                fi
-
-                local page
-                page="$(get_state "deezerApiResponse")"
-
-                # Validate JSON
-                if ! safe_jq '.' <<<"$page" >/dev/null 2>&1; then
-                    log "ERROR :: Deezer returned invalid JSON for url ${nextUrl}"
-                    log "ERROR :: Raw response (first 200 chars): ${page:0:200}"
-                    setUnhealthy
-                    exit 1
-                fi
-
-                mapfile -t page_tracks < <(
-                    safe_jq -c '[.data[]]' <<<"$page"
-                )
-
-                all_tracks+=("${page_tracks[@]}")
-
-                # Follow pagination
-                nextUrl="$(safe_jq --optional '.next' <<<"$page")"
-
-                [[ -n "$nextUrl" ]] && sleep 0.2
-            done
-
-            # Replace the json track data in the original result with the new full track list
-            albumJson="$(
-                printf '%s\n' "${all_tracks[@]}" |
-                    safe_jq -s \
-                        --argjson album "$albumJson" '
-                            add as $tracks
-                            | ($tracks | length) as $total
-                            | $album
-                            | .tracks.data = $tracks
-                            | .tracks.total = $total
-                        '
-            )"
-        fi
-    fi
-
-    echo "${albumJson}" >"${albumCacheFile}"
-    set_state "deezerAlbumInfo" "${albumJson}"
-
-    log "TRACE :: Exiting GetDeezerAlbumInfo..."
-    return 0
-}
-
-# Fetch Deezer artist albums with caching (uses CallDeezerAPI)
-GetDeezerArtistAlbums() {
-    log "TRACE :: Entering GetDeezerArtistAlbums..."
-    local artistId="$1"
-    local artistCacheFile="${AUDIO_WORK_PATH}/cache/deezer-artist-${artistId}-albums.json"
-    local artistJson=""
-
-    mkdir -p "${AUDIO_WORK_PATH}/cache"
-
-    # Use cache if exists and valid
-    if [[ -f "${artistCacheFile}" ]]; then
-        if safe_jq --optional '.' <"${artistCacheFile}" >/dev/null 2>&1; then
-            log "DEBUG :: Using cached Deezer artist album list for ${artistId}"
-            artistJson="$(<"${artistCacheFile}")"
-        else
-            log "WARNING :: Cached artist album JSON invalid, will refetch: ${artistCacheFile}"
-        fi
-    fi
-
-    if [[ -z "$artistJson" ]]; then
-        local all_albums=()
-        local nextUrl="https://api.deezer.com/artist/${artistId}/albums?limit=100"
-
-        while [[ -n "$nextUrl" ]]; do
-            if ! CallDeezerAPI "$nextUrl"; then
-                log "ERROR :: Failed calling Deezer artist albums endpoint"
-                setUnhealthy
-                exit 1
-            fi
-
-            local page
-            page="$(get_state "deezerApiResponse")"
-
-            # Validate JSON
-            if ! safe_jq '.' <<<"$page" >/dev/null 2>&1; then
-                log "ERROR :: Deezer returned invalid JSON for url ${nextUrl}"
-                log "ERROR :: Raw response (first 200 chars): ${page:0:200}"
-                setUnhealthy
-                exit 1
-            fi
-
-            # Extract albums
-            mapfile -t page_albums < <(
-                safe_jq -c '[.data[]]' <<<"$page"
-            )
-
-            all_albums+=("${page_albums[@]}")
-
-            # Follow pagination
-            nextUrl="$(safe_jq --optional '.next' <<<"$page")"
-
-            [[ -n "$nextUrl" ]] && sleep 0.2
-        done
-
-        artistJson="$(
-            printf '%s\n' "${all_albums[@]}" | safe_jq -s '
-        add as $arr
-        | { total: ($arr | length), data: $arr }
-    '
-        )"
-    fi
-
-    echo "${artistJson}" >"${artistCacheFile}"
-    set_state "deezerArtistInfo" "${artistJson}"
-
-    log "TRACE :: Exiting GetDeezerArtistAlbums..."
-    return 0
-}
 
 # Add custom download client if it doesn't already exist
 AddDownloadClient() {
@@ -454,19 +230,7 @@ ProcessLidarrWantedList() {
     fi
 
     # Preload title replacement file
-    if [[ -f "${AUDIO_TITLE_REPLACEMENTS_FILE}" ]]; then
-        log "DEBUG :: Loading custom title replacements from ${AUDIO_TITLE_REPLACEMENTS_FILE}"
-        while IFS="=" read -r key value; do
-            key="$(normalize_string "$key")"
-            value="$(normalize_string "$value")"
-            set_state "titleReplacement_${key}" "$value"
-            log "DEBUG :: Loaded title replacement: ${key} -> ${value}"
-        done < <(
-            jq -r 'to_entries[] | "\(.key)=\(.value)"' "${AUDIO_TITLE_REPLACEMENTS_FILE}" 2>/dev/null
-        )
-    else
-        log "DEBUG :: No custom title replacements file found (${AUDIO_TITLE_REPLACEMENTS_FILE})"
-    fi
+    LoadTitleReplacements
 
     # Preload all notfound/downloaded IDs into memory (only once)
     mapfile -t notfound < <(
@@ -522,168 +286,8 @@ SearchProcess() {
     fi
     set_state "lidarrAlbumId" "${lidarrAlbumId}"
 
-    if [ ! -d "${AUDIO_DATA_PATH}/notfound" ]; then
-        mkdir -p "${AUDIO_DATA_PATH}"/notfound
-    fi
-
-    # Fetch album data from Lidarr
-    local lidarrAlbumData
-    ArrApiRequest "GET" "album/${lidarrAlbumId}"
-    lidarrAlbumData="$(get_state "arrApiResponse")"
-    if [ -z "$lidarrAlbumData" ]; then
-        log "WARNING :: Lidarr returned no data for album ID ${lidarrAlbumId}"
-        return
-    fi
-    set_state "lidarrAlbumData" "${lidarrAlbumData}" # Cache response in state object
-
-    ExtractArtistInfo "$(safe_jq '.artist' <<<"$lidarrAlbumData")"
-    ExtractAlbumInfo "$(safe_jq '.' <<<"$lidarrAlbumData")"
-    local lidarrArtistForeignArtistId=$(get_state "lidarrArtistForeignArtistId")
-    local lidarrAlbumForeignAlbumId=$(get_state "lidarrAlbumForeignAlbumId")
-    local lidarrArtistName=$(get_state "lidarrArtistName")
-    local lidarrAlbumTitle=$(get_state "lidarrAlbumTitle")
-
-    # Check if album was previously marked "not found"
-    if [ -f "${AUDIO_DATA_PATH}/notfound/${lidarrAlbumId}--${lidarrArtistForeignArtistId}--${lidarrAlbumForeignAlbumId}" ]; then
-        log "DEBUG :: Album \"${lidarrAlbumTitle}\" by artist \"${lidarrArtistName}\" was previously marked as not found, skipping..."
-        return
-    fi
-
-    # Check if album was previously marked "downloaded"
-    if [ -f "${AUDIO_DATA_PATH}/downloaded/${lidarrAlbumId}--${lidarrArtistForeignArtistId}--${lidarrAlbumForeignAlbumId}" ]; then
-        log "DEBUG :: Album \"${lidarrAlbumTitle}\" by artist \"${lidarrArtistName}\" was previously marked as downloaded, skipping..."
-        return
-    fi
-
-    # Release date check
-    local albumIsNewRelease=false
-    local lidarrAlbumReleaseDate=$(get_state "lidarrAlbumReleaseDate")
-    local lidarrAlbumReleaseDateClean=$(get_state "lidarrAlbumReleaseDateClean")
-
-    currentDateClean=$(date "+%Y%m%d")
-    if [[ "${currentDateClean}" -lt "${lidarrAlbumReleaseDateClean}" ]]; then
-        log "DEBUG :: Album \"${lidarrAlbumTitle}\" by artist \"${lidarrArtistName}\" has not been released yet (${lidarrAlbumReleaseDate}), skipping..."
-        return
-    elif ((currentDateClean - lidarrAlbumReleaseDateClean < 8)); then
-        albumIsNewRelease=true
-    fi
-    set_state "lidarrAlbumIsNewRelease" "${albumIsNewRelease}"
-
-    log "INFO :: Starting search for album \"${lidarrAlbumTitle}\" by artist \"${lidarrArtistName}\""
-
-    # Extract artist links
-    local deezerArtistIds
-    local lidarrArtistInfo="$(get_state "lidarrArtistInfo")"
-    local deezerArtistUrl=$(safe_jq '.links[]? | select(.name=="deezer") | .url' <<<"${lidarrArtistInfo}")
-    if [ -z "${deezerArtistUrl}" ]; then
-        log "WARNING :: Missing Deezer link for artist ${lidarrArtistName}"
-    else
-        deezerArtistIds=($(echo "${deezerArtistUrl}" | grep -Eo '[[:digit:]]+' | sort -u))
-    fi
-
-    # Sort parameter explanations:
-    #  - Track count (descending)
-    #  - Title length (ascending, as a consistent tiebreaker)
-
-    local lidarrAlbumInfo="$(get_state "lidarrAlbumInfo")"
-    jq_filter="[.releases[]
-    | .normalized_title = (.title | ascii_downcase)
-    | .title_length = (.title | length)
-] | sort_by(-.trackCount, .title_length)"
-    sorted_releases=$(jq -c "${jq_filter}" <<<"${lidarrAlbumInfo}")
-
-    # Reset search variables
-    ResetBestMatch
-
-    # Start search loop
-    local exactMatchFound="false"
-    mapfile -t releasesArray < <(jq -c '.[]' <<<"$sorted_releases")
-    for release_json in "${releasesArray[@]}"; do
-        ExtractReleaseInfo "${release_json}"
-        local lidarrReleaseTitle="$(get_state "lidarrReleaseTitle")"
-        local lidarrReleaseDisambiguation="$(get_state "lidarrReleaseDisambiguation")"
-
-        SetLidarrTitlesToSearch "${lidarrReleaseTitle}" "${lidarrReleaseDisambiguation}"
-        local lidarrTitlesToSearch=$(get_state "lidarrTitlesToSearch")
-        mapfile -t titleArray <<<"${lidarrTitlesToSearch}"
-
-        local lidarrReleaseForeignId="$(get_state "lidarrReleaseForeignId")"
-        log "DEBUG :: Processing Lidarr release \"${lidarrReleaseTitle}\" (${lidarrReleaseForeignId})"
-
-        # Shortcut the evaluation process if the release isn't potentially better in some ways
-        if SkipReleaseCandidate; then
-            continue
-        fi
-
-        # Loop over all titles to search for this release
-        for searchReleaseTitle in "${titleArray[@]}"; do
-            set_state "searchReleaseTitle" "${searchReleaseTitle}"
-
-            # TODO: Enhance this functionality to intelligently handle releases that are expected to have these keywords
-            # Ignore instrumental-like titles if configured
-            if [[ "${AUDIO_IGNORE_INSTRUMENTAL_RELEASES}" == "true" ]]; then
-                # Convert comma-separated list into an alternation pattern for Bash regex
-                IFS=',' read -r -a keywordArray <<<"${AUDIO_INSTRUMENTAL_KEYWORDS}"
-                keywordPattern="($(
-                    IFS="|"
-                    echo "${keywordArray[*]}"
-                ))" # join array with | for pattern matching
-
-                if [[ "${searchReleaseTitle}" =~ ${keywordPattern} ]]; then
-                    log "DEBUG :: Search title \"${searchReleaseTitle}\" matched instrumental keyword (${AUDIO_INSTRUMENTAL_KEYWORDS}), skipping..."
-                    continue
-                elif [[ "${searchReleaseTitle,,}" =~ ${keywordPattern,,} ]]; then
-                    log "DEBUG :: Search title \"${searchReleaseTitle}\" matched instrumental keyword (${AUDIO_INSTRUMENTAL_KEYWORDS}), skipping..."
-                    continue
-                fi
-            fi
-
-            # Check for commentary keywords in the search title
-            local lidarrReleaseContainsCommentary="false"
-            IFS=',' read -r -a commentaryArray <<<"${AUDIO_COMMENTARY_KEYWORDS}"
-            commentaryPattern="($(
-                IFS="|"
-                echo "${commentaryArray[*]}"
-            ))" # join array with | for pattern matching
-
-            if [[ "${searchReleaseTitle,,}" =~ ${commentaryPattern,,} ]]; then
-                log "TRACE :: Search title \"${searchReleaseTitle}\" matched commentary keyword (${AUDIO_COMMENTARY_KEYWORDS})"
-                lidarrReleaseContainsCommentary="true"
-            elif [[ "${searchReleaseTitle,,}" =~ ${commentaryPattern,,} ]]; then
-                log "TRACE :: Search title \"${searchReleaseTitle}\" matched commentary keyword (${AUDIO_COMMENTARY_KEYWORDS})"
-                lidarrReleaseContainsCommentary="true"
-            fi
-            set_state "lidarrReleaseContainsCommentary" "${lidarrReleaseContainsCommentary}"
-
-            # Optionally de-prioritize releases that contain commentary tracks
-            bestMatchContainsCommentary=$(get_state "bestMatchContainsCommentary")
-            if [[ "${AUDIO_DEPRIORITIZE_COMMENTARY_RELEASES}" == "true" && "${lidarrReleaseContainsCommentary}" == "true" && "${bestMatchContainsCommentary}" == "false" ]]; then
-                log "DEBUG :: Already found a match without commentary. Skipping commentary album ${searchReleaseTitle}"
-                continue
-            fi
-
-            # First search through the artist's Deezer albums to find a match on album title and track count
-            log "DEBUG :: Starting search with searchReleaseTitle: ${searchReleaseTitle}"
-            if [ "${lidarrArtistForeignArtistId}" != "${VARIOUS_ARTIST_ID_MUSICBRAINZ}" ]; then
-                for dId in "${!deezerArtistIds[@]}"; do
-                    local deezerArtistId="${deezerArtistIds[$dId]}"
-                    ArtistDeezerSearch "${deezerArtistId}"
-                done
-
-                # Fuzzy search with album and artist name
-                exactMatchFound="$(get_state "exactMatchFound")"
-                if [ "${exactMatchFound}" != "true" ]; then
-                    FuzzyDeezerSearch "${lidarrArtistName}"
-                fi
-            fi
-
-            # Fuzzy search with only album name
-            exactMatchFound="$(get_state "exactMatchFound")"
-            if [ "${exactMatchFound}" != "true" ]; then
-                FuzzyDeezerSearch
-            fi
-        done
-    done
+    # Perform matching process
+    FindDeezerMatch
 
     # Write result if configured
     WriteResultFile
@@ -699,6 +303,8 @@ SearchProcess() {
             log "DEBUG :: Skip marking album as not found because it's a new release..."
         else
             log "DEBUG :: Marking album as not found"
+            local lidarrArtistForeignArtistId="$(get_state "lidarrArtistForeignArtistId")"
+            local lidarrAlbumForeignAlbumId="$(get_state "lidarrAlbumForeignAlbumId")"
             if [ ! -f "${AUDIO_DATA_PATH}/notfound/${lidarrAlbumId}--${lidarrArtistForeignArtistId}--${lidarrAlbumForeignAlbumId}" ]; then
                 touch "${AUDIO_DATA_PATH}/notfound/${lidarrAlbumId}--${lidarrArtistForeignArtistId}--${lidarrAlbumForeignAlbumId}"
             fi
@@ -706,144 +312,6 @@ SearchProcess() {
     fi
 
     log "TRACE :: Exiting SearchProcess..."
-}
-
-# Search Deezer artist's albums for matches
-ArtistDeezerSearch() {
-    log "TRACE :: Entering ArtistDeezerSearch..."
-    # $1 -> Deezer Artist ID
-    local artistId="${1}"
-
-    # Get Deezer artist album list
-    local artistAlbums filteredAlbums resultsCount
-    GetDeezerArtistAlbums "${artistId}"
-    local returnCode=$?
-    if [ "$returnCode" -eq 0 ]; then
-        artistAlbums="$(get_state "deezerArtistInfo")"
-        resultsCount=$(jq '.total' <<<"${artistAlbums}")
-        log "DEBUG :: Searching albums for Artist ${artistId} (Total Albums: ${resultsCount} found)"
-
-        # Pass filtered albums to the CalculateBestMatch function
-        if ((resultsCount > 0)); then
-            CalculateBestMatch <<<"${artistAlbums}"
-        fi
-    else
-        log "WARNING :: Failed to fetch album list for Deezer artist ID ${artistId}"
-    fi
-    log "TRACE :: Exiting ArtistDeezerSearch..."
-}
-
-FuzzyDeezerSearch() {
-    log "TRACE :: Entering FuzzyDeezerSearch..."
-    # $1 -> Deezer Artist Name (default to blank)
-    local artistName="${1:-}"
-
-    local deezerSearch=""
-    local resultsCount=0
-    local url=""
-
-    local searchReleaseTitle
-    searchReleaseTitle="$(get_state "searchReleaseTitle")"
-
-    # -------------------------------
-    # Normalize and URI-encode album title
-    # -------------------------------
-    local albumTitleClean albumSearchTerm
-    albumTitleClean="$(normalize_string "${searchReleaseTitle}")"
-    # Use plain jq here; this is not JSON, just encoding a string
-    albumSearchTerm="$(jq -Rn --arg str "$(remove_quotes "${albumTitleClean}")" '$str|@uri')"
-
-    # -------------------------------
-    # Build search URL
-    # -------------------------------
-    if [[ -z "${artistName}" ]]; then
-        log "DEBUG :: Fuzzy searching for '${searchReleaseTitle}' with no artist filter..."
-        url="https://api.deezer.com/search/album?q=album:${albumSearchTerm}&strict=on&limit=20"
-    else
-        log "DEBUG :: Fuzzy searching for '${searchReleaseTitle}' with artist name '${artistName}'..."
-        local artistNameClean artistSearchTerm
-        artistNameClean="$(normalize_string "${artistName}")"
-        artistSearchTerm="$(jq -Rn --arg str "$(remove_quotes "${artistNameClean}")" '$str|@uri')"
-        url="https://api.deezer.com/search/album?q=artist:${artistSearchTerm}%20album:${albumSearchTerm}&strict=on&limit=20"
-    fi
-
-    # -------------------------------
-    # Call Deezer API
-    # -------------------------------
-    CallDeezerAPI "${url}"
-    local returnCode=$?
-    if ((returnCode != 0)); then
-        log "WARNING :: Deezer Fuzzy Search failed for '${searchReleaseTitle}'"
-        log "TRACE :: Exiting FuzzyDeezerSearch..."
-        return 1
-    fi
-
-    deezerSearch="$(get_state "deezerApiResponse" || echo "")"
-    log "TRACE :: deezerSearch: ${deezerSearch}"
-
-    # -------------------------------
-    # Validate JSON and parse
-    # -------------------------------
-    if [[ -n "${deezerSearch}" ]] && safe_jq --optional 'true' <<<"${deezerSearch}" >/dev/null 2>&1; then
-        resultsCount="$(safe_jq --optional '.total // 0' <<<"${deezerSearch}")"
-        log "DEBUG :: ${resultsCount} search results found for '${searchReleaseTitle}'"
-
-        if ((resultsCount > 0)); then
-            local formattedAlbums
-            formattedAlbums="$(safe_jq '{
-                data: ([.data[]] | unique_by(.id | select(. != null))),
-                total: ([.data[] | .id] | unique | length)
-            }' <<<"${deezerSearch}" || echo '{}')"
-
-            log "TRACE :: Formatted unique album data: ${formattedAlbums}"
-            CalculateBestMatch <<<"${formattedAlbums}"
-        else
-            log "DEBUG :: No results found via Fuzzy Search for '${searchReleaseTitle}'"
-        fi
-    else
-        log "WARNING :: Deezer Fuzzy Search API returned invalid JSON for '${searchReleaseTitle}'"
-    fi
-
-    log "TRACE :: Exiting FuzzyDeezerSearch..."
-}
-
-# Given a JSON array of Deezer albums, find the best match based on title similarity and track count
-CalculateBestMatch() {
-    log "TRACE :: Entering CalculateBestMatch..."
-    # stdin -> JSON array containing list of Deezer albums to check
-
-    local albums albumsRaw albumsCount
-    albumsRaw=$(cat) # read JSON array from stdin
-    albumsCount=$(jq '.total' <<<"${albumsRaw}")
-    albums=$(jq '[.data[]]' <<<"${albumsRaw}")
-
-    local lidarrReleaseInfo="$(get_state "lidarrReleaseInfo")"
-    local lidarrReleaseTrackCount="$(get_state "lidarrReleaseTrackCount")"
-    local searchReleaseTitle="$(get_state "searchReleaseTitle")"
-    local lidarrReleaseContainsCommentary="$(get_state "lidarrReleaseContainsCommentary")"
-    local lidarrReleaseFormatPriority="$(get_state "lidarrReleaseFormatPriority")"
-    local lidarrReleaseCountryPriority="$(get_state "lidarrReleaseCountryPriority")"
-
-    # Normalize Lidarr release title
-    local searchReleaseTitleClean
-    searchReleaseTitleClean="$(normalize_string "${searchReleaseTitle}")"
-    searchReleaseTitleClean="${searchReleaseTitleClean:0:130}"
-    set_state "searchReleaseTitleClean" "${searchReleaseTitleClean}"
-
-    log "DEBUG :: Calculating best match for \"${searchReleaseTitleClean}\" with ${albumsCount} Deezer albums to compare"
-
-    for ((i = 0; i < albumsCount; i++)); do
-        local deezerAlbumData deezerAlbumID deezerAlbumExplicitLyrics
-
-        deezerAlbumData=$(jq -c ".[$i]" <<<"${albums}")
-        deezerAlbumID=$(jq -r ".id" <<<"${deezerAlbumData}")
-        set_state "deezerCandidateAlbumID" "${deezerAlbumID}"
-
-        # Evaluate this candidate
-        EvaluateDeezerAlbumCandidate
-    done
-
-    log "TRACE :: Exiting CalculateBestMatch..."
 }
 
 # Download the best matching Deezer album found
@@ -1305,12 +773,14 @@ log "DEBUG :: AUDIO_MATCH_THRESHOLD_TRACK_DIFF_AVG=${AUDIO_MATCH_THRESHOLD_TRACK
 log "DEBUG :: AUDIO_MATCH_THRESHOLD_TRACK_DIFF_MAX=${AUDIO_MATCH_THRESHOLD_TRACK_DIFF_MAX}"
 log "DEBUG :: AUDIO_PREFERRED_COUNTRIES=${AUDIO_PREFERRED_COUNTRIES}"
 log "DEBUG :: AUDIO_PREFERRED_FORMATS=${AUDIO_PREFERRED_FORMATS}"
+log "DEBUG :: AUDIO_REQUIRE_MUSICBRAINZ_REL=${AUDIO_REQUIRE_MUSICBRAINZ_REL}"
 log "DEBUG :: AUDIO_REQUIRE_QUALITY=${AUDIO_REQUIRE_QUALITY}"
 log "DEBUG :: AUDIO_RESULT_FILE_NAME=${AUDIO_RESULT_FILE_NAME}"
 log "DEBUG :: AUDIO_RETRY_DOWNLOADED_DAYS=${AUDIO_RETRY_DOWNLOADED_DAYS}"
 log "DEBUG :: AUDIO_RETRY_FAILED_DAYS=${AUDIO_RETRY_FAILED_DAYS}"
 log "DEBUG :: AUDIO_RETRY_NOTFOUND_DAYS=${AUDIO_RETRY_NOTFOUND_DAYS}"
 log "DEBUG :: AUDIO_SHARED_LIDARR_PATH=${AUDIO_SHARED_LIDARR_PATH}"
+log "DEBUG :: AUDIO_TIEBREAKER_COUNTRIES=${AUDIO_TIEBREAKER_COUNTRIES}"
 log "DEBUG :: AUDIO_TITLE_REPLACEMENTS_FILE=${AUDIO_TITLE_REPLACEMENTS_FILE}"
 log "DEBUG :: AUDIO_WORK_PATH=${AUDIO_WORK_PATH}"
 
@@ -1351,9 +821,18 @@ while true; do
     # Clear cache data from previous runs
     ClearTrackComparisonCache
 
+    if [ ! -d "${AUDIO_DATA_PATH}/notfound" ]; then
+        mkdir -p "${AUDIO_DATA_PATH}"/notfound
+    fi
+
     ProcessLidarrWantedList "missing"
     ProcessLidarrWantedList "cutoff"
 
+    # If AUDIO_INTERVAL is "none", run only once
+    if [[ "${AUDIO_INTERVAL}" == "none" ]]; then
+        log "INFO :: AUDIO_INTERVAL is 'none', exiting after single run..."
+        break
+    fi
     log "INFO :: Script sleeping for ${AUDIO_INTERVAL}..."
     sleep ${AUDIO_INTERVAL}
 done

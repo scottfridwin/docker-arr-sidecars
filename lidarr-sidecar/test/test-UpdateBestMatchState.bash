@@ -48,7 +48,7 @@ if [[ "$(get_state "bestMatchID")" == "id_set" ]] &&
     [[ "$(get_state "bestMatchNumTracks")" == "trackCount_set" ]] &&
     [[ "$(get_state "bestMatchFormatPriority")" == "formatPriority_set" ]] &&
     [[ "$(get_state "bestMatchCountryPriority")" == "countryPriority_set" ]] &&
-    [[ "$(get_state "bestMatchLyricTypePreferred")" == "lyricTypePreferred_set" ]] &&
+    [[ "$(get_state "bestMatchDeezerLyricTypePreferred")" == "lyricTypePreferred_set" ]] &&
     [[ "$(get_state "bestMatchContainsCommentary")" == "containsCommentary_set" ]] &&
     [[ "$(get_state "bestMatchLidarrReleaseForeignId")" == "releaseForeignId_set" ]] &&
     [[ "$(get_state "exactMatchFound")" == "exactMatch_unset" ]]; then
@@ -73,7 +73,7 @@ if [[ "$(get_state "bestMatchID")" == "id_set" ]] &&
     [[ "$(get_state "bestMatchNumTracks")" == "trackCount_set" ]] &&
     [[ "$(get_state "bestMatchFormatPriority")" == "formatPriority_set" ]] &&
     [[ "$(get_state "bestMatchCountryPriority")" == "countryPriority_set" ]] &&
-    [[ "$(get_state "bestMatchLyricTypePreferred")" == "lyricTypePreferred_set" ]] &&
+    [[ "$(get_state "bestMatchDeezerLyricTypePreferred")" == "lyricTypePreferred_set" ]] &&
     [[ "$(get_state "bestMatchContainsCommentary")" == "containsCommentary_set" ]] &&
     [[ "$(get_state "bestMatchLidarrReleaseForeignId")" == "releaseForeignId_set" ]] &&
     [[ "$(get_state "exactMatchFound")" == "true" ]]; then
@@ -98,7 +98,7 @@ if [[ "$(get_state "bestMatchID")" == "id_set" ]] &&
     [[ "$(get_state "bestMatchNumTracks")" == "trackCount_set" ]] &&
     [[ "$(get_state "bestMatchFormatPriority")" == "formatPriority_set" ]] &&
     [[ "$(get_state "bestMatchCountryPriority")" == "countryPriority_set" ]] &&
-    [[ "$(get_state "bestMatchLyricTypePreferred")" == "lyricTypePreferred_set" ]] &&
+    [[ "$(get_state "bestMatchDeezerLyricTypePreferred")" == "lyricTypePreferred_set" ]] &&
     [[ "$(get_state "bestMatchContainsCommentary")" == "containsCommentary_set" ]] &&
     [[ "$(get_state "bestMatchLidarrReleaseForeignId")" == "releaseForeignId_set" ]] &&
     [[ "$(get_state "exactMatchFound")" == "exactMatch_unset" ]]; then
@@ -123,7 +123,7 @@ if [[ "$(get_state "bestMatchID")" == "id_set" ]] &&
     [[ "$(get_state "bestMatchNumTracks")" == "trackCount_set" ]] &&
     [[ "$(get_state "bestMatchFormatPriority")" == "formatPriority_set" ]] &&
     [[ "$(get_state "bestMatchCountryPriority")" == "countryPriority_set" ]] &&
-    [[ "$(get_state "bestMatchLyricTypePreferred")" == "lyricTypePreferred_set" ]] &&
+    [[ "$(get_state "bestMatchDeezerLyricTypePreferred")" == "lyricTypePreferred_set" ]] &&
     [[ "$(get_state "bestMatchContainsCommentary")" == "containsCommentary_set" ]] &&
     [[ "$(get_state "bestMatchLidarrReleaseForeignId")" == "releaseForeignId_set" ]] &&
     [[ "$(get_state "exactMatchFound")" == "exactMatch_unset" ]]; then
@@ -135,6 +135,7 @@ else
 fi
 
 # Test 3: Non-exact match (YearDiff > 0)
+# Now correctly maps to exact match
 reset_state
 setup_cand_state "id_set" "title_set" "0" "0" "1" "year_set" "trackCount_set" "formatPriority_set" "countryPriority_set" "lyricTypePreferred_set" "containsCommentary_set" 'releaseForeignId_set'
 UpdateBestMatchState
@@ -148,10 +149,10 @@ if [[ "$(get_state "bestMatchID")" == "id_set" ]] &&
     [[ "$(get_state "bestMatchNumTracks")" == "trackCount_set" ]] &&
     [[ "$(get_state "bestMatchFormatPriority")" == "formatPriority_set" ]] &&
     [[ "$(get_state "bestMatchCountryPriority")" == "countryPriority_set" ]] &&
-    [[ "$(get_state "bestMatchLyricTypePreferred")" == "lyricTypePreferred_set" ]] &&
+    [[ "$(get_state "bestMatchDeezerLyricTypePreferred")" == "lyricTypePreferred_set" ]] &&
     [[ "$(get_state "bestMatchContainsCommentary")" == "containsCommentary_set" ]] &&
     [[ "$(get_state "bestMatchLidarrReleaseForeignId")" == "releaseForeignId_set" ]] &&
-    [[ "$(get_state "exactMatchFound")" == "exactMatch_unset" ]]; then
+    [[ "$(get_state "exactMatchFound")" == "true" ]]; then
     echo "✅ PASS: Non-exact match (YearDiff)"
     ((pass++))
 else
@@ -171,7 +172,7 @@ set_state "bestMatchYear" "year_unset"
 set_state "bestMatchNumTracks" "trackCount_unset"
 set_state "bestMatchFormatPriority" "formatPriority_unset"
 set_state "bestMatchCountryPriority" "countryPriority_unset"
-set_state "bestMatchLyricTypePreferred" "lyricTypePreferred_unset"
+set_state "bestMatchDeezerLyricTypePreferred" "lyricTypePreferred_unset"
 set_state "bestMatchContainsCommentary" "containsCommentary_unset"
 set_state "bestMatchLidarrReleaseForeignId" "releaseForeignId_unset"
 UpdateBestMatchState
@@ -185,7 +186,7 @@ if [[ "$(get_state "bestMatchID")" == "id_set" ]] &&
     [[ "$(get_state "bestMatchNumTracks")" == "trackCount_set" ]] &&
     [[ "$(get_state "bestMatchFormatPriority")" == "formatPriority_set" ]] &&
     [[ "$(get_state "bestMatchCountryPriority")" == "countryPriority_set" ]] &&
-    [[ "$(get_state "bestMatchLyricTypePreferred")" == "lyricTypePreferred_set" ]] &&
+    [[ "$(get_state "bestMatchDeezerLyricTypePreferred")" == "lyricTypePreferred_set" ]] &&
     [[ "$(get_state "bestMatchContainsCommentary")" == "containsCommentary_set" ]] &&
     [[ "$(get_state "bestMatchLidarrReleaseForeignId")" == "releaseForeignId_set" ]] &&
     [[ "$(get_state "exactMatchFound")" == "exactMatch_unset" ]]; then
@@ -210,7 +211,7 @@ if [[ "$(get_state "bestMatchID")" == "id_set" ]] &&
     [[ "$(get_state "bestMatchNumTracks")" == "trackCount_set" ]] &&
     [[ "$(get_state "bestMatchFormatPriority")" == "formatPriority_set" ]] &&
     [[ "$(get_state "bestMatchCountryPriority")" == "countryPriority_set" ]] &&
-    [[ "$(get_state "bestMatchLyricTypePreferred")" == "lyricTypePreferred_set" ]] &&
+    [[ "$(get_state "bestMatchDeezerLyricTypePreferred")" == "lyricTypePreferred_set" ]] &&
     [[ "$(get_state "bestMatchContainsCommentary")" == "containsCommentary_set" ]] &&
     [[ "$(get_state "bestMatchLidarrReleaseForeignId")" == "releaseForeignId_set" ]] &&
     [[ "$(get_state "exactMatchFound")" == "exactMatch_unset" ]]; then
@@ -235,14 +236,14 @@ if [[ "$(get_state "bestMatchID")" == "id_set" ]] &&
     [[ "$(get_state "bestMatchNumTracks")" == "trackCount_set" ]] &&
     [[ "$(get_state "bestMatchFormatPriority")" == "formatPriority_set" ]] &&
     [[ "$(get_state "bestMatchCountryPriority")" == "countryPriority_set" ]] &&
-    [[ "$(get_state "bestMatchLyricTypePreferred")" == "lyricTypePreferred_set" ]] &&
+    [[ "$(get_state "bestMatchDeezerLyricTypePreferred")" == "lyricTypePreferred_set" ]] &&
     [[ "$(get_state "bestMatchContainsCommentary")" == "containsCommentary_set" ]] &&
     [[ "$(get_state "bestMatchLidarrReleaseForeignId")" == "releaseForeignId_set" ]] &&
     [[ "$(get_state "exactMatchFound")" == "exactMatch_unset" ]]; then
-    echo "✅ PASS: Non-numeric NameDiff"
+    echo "✅ PASS: Non-numeric TrackDiff"
     ((pass++))
 else
-    echo "❌ FAIL: Non-numeric NameDiff"
+    echo "❌ FAIL: Non-numeric TrackDiff"
     ((fail++))
 fi
 
@@ -260,14 +261,14 @@ if [[ "$(get_state "bestMatchID")" == "id_set" ]] &&
     [[ "$(get_state "bestMatchNumTracks")" == "trackCount_set" ]] &&
     [[ "$(get_state "bestMatchFormatPriority")" == "formatPriority_set" ]] &&
     [[ "$(get_state "bestMatchCountryPriority")" == "countryPriority_set" ]] &&
-    [[ "$(get_state "bestMatchLyricTypePreferred")" == "lyricTypePreferred_set" ]] &&
+    [[ "$(get_state "bestMatchDeezerLyricTypePreferred")" == "lyricTypePreferred_set" ]] &&
     [[ "$(get_state "bestMatchContainsCommentary")" == "containsCommentary_set" ]] &&
     [[ "$(get_state "bestMatchLidarrReleaseForeignId")" == "releaseForeignId_set" ]] &&
-    [[ "$(get_state "exactMatchFound")" == "exactMatch_unset" ]]; then
-    echo "✅ PASS: Non-numeric NameDiff"
+    [[ "$(get_state "exactMatchFound")" == "true" ]]; then
+    echo "✅ PASS: Non-numeric YearDiff"
     ((pass++))
 else
-    echo "❌ FAIL: Non-numeric NameDiff"
+    echo "❌ FAIL: Non-numeric YearDiff"
     ((fail++))
 fi
 

@@ -30,7 +30,7 @@ set_state "bestMatchContainsCommentary" "true"
 set_state "bestMatchLidarrReleaseForeignId" 'uuid123'
 set_state "bestMatchFormatPriority" "1"
 set_state "bestMatchCountryPriority" "2"
-set_state "bestMatchLyricTypePreferred" "true"
+set_state "bestMatchDeezerLyricTypePreferred" "true"
 set_state "bestMatchYearDiff" "1"
 set_state "exactMatchFound" "true"
 
@@ -46,7 +46,7 @@ if [[ "$(get_state "bestMatchID")" == "" ]] &&
     [[ "$(get_state "bestMatchLidarrReleaseForeignId")" == "" ]] &&
     [[ "$(get_state "bestMatchFormatPriority")" == "999" ]] &&
     [[ "$(get_state "bestMatchCountryPriority")" == "999" ]] &&
-    [[ "$(get_state "bestMatchLyricTypePreferred")" == "false" ]] &&
+    [[ "$(get_state "bestMatchDeezerLyricTypePreferred")" == "false" ]] &&
     [[ "$(get_state "bestMatchYearDiff")" == "999" ]] &&
     [[ "$(get_state "exactMatchFound")" != "true" ]]; then
     echo "✅ PASS: Reset from populated state"
@@ -159,7 +159,7 @@ set_state "bestMatchYear" "2020"
 set_state "bestMatchLidarrReleaseForeignId" 'uuid123'
 set_state "bestMatchFormatPriority" "high"
 set_state "bestMatchCountryPriority" "US"
-set_state "bestMatchLyricTypePreferred" "explicit"
+set_state "bestMatchDeezerLyricTypePreferred" "explicit"
 
 ResetBestMatch
 

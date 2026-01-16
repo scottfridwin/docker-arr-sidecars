@@ -19,7 +19,7 @@ setup_best_state() {
     set_state "bestMatchNumTracks" "${4:-0}"
     set_state "bestMatchYearDiff" "${5:-9999}"
     set_state "bestMatchFormatPriority" "${6:-999}"
-    set_state "bestMatchLyricTypePreferred" "${7:-false}"
+    set_state "bestMatchDeezerLyricTypePreferred" "${7:-false}"
 }
 
 # Helper to setup candidate state

@@ -10,30 +10,15 @@ source "${SCRIPT_DIR}/../services/functions.bash"
 log() {
     : # Do nothing, suppress logs in tests
 }
-RemoveEditionsFromAlbumTitle() {
-    local s="$1"
-    # simple test substitutions — keep them idempotent and perform on the local var
-    s="${s// (Deluxe Edition)/}"
-    s="${s// (Remastered)/}"
-    # trim leading/trailing whitespace
-    s="$(echo "$s" | sed -E 's/^[[:space:]]+|[[:space:]]+$//g')"
-    printf '%s' "$s"
-}
-AddDisambiguationToTitle() {
-    local title="$1"
-    local disambig="$2"
-    if [[ -z "$disambig" ]]; then
-        echo "$title"
-    else
-        echo "${title} (${disambig})"
-    fi
-}
 
 # --- Helpers ---
 # Compare two arrays for equality
 arrays_equal() {
-    local -n arr1=$1
-    local -n arr2=$2
+    local arr1_name="$1"
+    local arr2_name="$2"
+
+    local -n arr1="$arr1_name"
+    local -n arr2="$arr2_name"
 
     # Compare lengths
     if ((${#arr1[@]} != ${#arr2[@]})); then
@@ -50,6 +35,31 @@ arrays_equal() {
     return 0
 }
 
+# Helper to execute a test
+run_test() {
+    local testName="$1"
+    local title="$2"
+    local releaseDisambig="$3"
+    local albumDisambig="$4"
+    local expected_name="expected" # name of the array variable holding expected results
+
+    reset_state
+    set_state "lidarrAlbumDisambiguation" "$albumDisambig"
+    SetLidarrTitlesToSearch "$title" "$releaseDisambig"
+    tmpResult=$(get_state "lidarrTitlesToSearch")
+    local result=()
+    mapfile -t result <<<"${tmpResult}"
+
+    if arrays_equal "$expected_name" "result"; then
+        echo "✅ PASS: $testName"
+        ((pass++))
+    else
+        local -n exp="$expected_name"
+        echo "❌ FAIL: $testName (expected ${exp[*]}, got ${result[*]})"
+        ((fail++))
+    fi
+}
+
 # --- Run tests ---
 pass=0
 fail=0
@@ -58,133 +68,88 @@ init_state
 echo "----------------------------------------------"
 
 # Test 1: Basic title without disambiguation
-reset_state
-set_state "lidarrAlbumDisambiguation" ""
 expected=("2048")
-
-SetLidarrTitlesToSearch "2048" ""
-tmpResult=$(get_state "lidarrTitlesToSearch")
-mapfile -t result <<<"${tmpResult}"
-if arrays_equal result expected; then
-    echo "✅ PASS: Basic title without disambiguation"
-    ((pass++))
-else
-    echo "❌ FAIL: Basic title without disambiguation (expected ${expected[*]}, got ${result[*]})"
-    ((fail++))
-fi
+run_test "Basic title without disambiguation" "2048" "" ""
 
 # Test 2: Title with release disambiguation
-reset_state
-set_state "lidarrAlbumDisambiguation" ""
-expected=("2048" "2048 (Deluxe Version)")
-
-SetLidarrTitlesToSearch "2048" "Deluxe Version"
-tmpResult=$(get_state "lidarrTitlesToSearch")
-mapfile -t result <<<"${tmpResult}"
-if arrays_equal result expected; then
-    echo "✅ PASS: Title with release disambiguation"
-    ((pass++))
-else
-    echo "❌ FAIL: Title with release disambiguation (expected ${expected[*]}, got ${result[*]})"
-    ((fail++))
-fi
+expected=("2048" "2048 (Deluxe Version)" "2048(DeluxeVersion)")
+run_test "Title with release disambiguation" "2048" "Deluxe Version" ""
 
 # Test 3: Title with edition suffix
-reset_state
-set_state "lidarrAlbumDisambiguation" ""
-expected=("The Vectors (Deluxe Edition)" "The Vectors")
-
-SetLidarrTitlesToSearch "The Vectors (Deluxe Edition)" ""
-tmpResult=$(get_state "lidarrTitlesToSearch")
-mapfile -t result <<<"${tmpResult}"
-if arrays_equal result expected; then
-    echo "✅ PASS: Title with edition suffix"
-    ((pass++))
-else
-    echo "❌ FAIL: Title with edition suffix (expected ${expected[*]}, got ${result[*]})"
-    echo "  Got: $result"
-    ((fail++))
-fi
+expected=("The Vectors Deluxe Edition" "The Vectors" "TheVectorsDeluxeEdition" "TheVectors")
+run_test "Title with edition suffix" "The Vectors (Deluxe Edition)" "" ""
 
 # Test 4: Title with album disambiguation only
-reset_state
-set_state "lidarrAlbumDisambiguation" "Red Album"
-expected=("The Vectors" "The Vectors (Red Album)")
-
-SetLidarrTitlesToSearch "The Vectors" ""
-tmpResult=$(get_state "lidarrTitlesToSearch")
-mapfile -t result <<<"${tmpResult}"
-if arrays_equal result expected; then
-    echo "✅ PASS: Title with album disambiguation only"
-    ((pass++))
-else
-    echo "❌ FAIL: Title with album disambiguation only (expected ${expected[*]}, got ${result[*]})"
-    ((fail++))
-fi
+expected=("The Vectors" "The Vectors (Red Album)" "TheVectors")
+run_test "Title with album disambiguation only" "The Vectors" "" "Red Album"
 
 # Test 5: Title with both edition and album disambiguation
-reset_state
-set_state "lidarrAlbumDisambiguation" "Red Album"
-expected=("The Vectors (Deluxe Edition)" "The Vectors" "The Vectors (Deluxe Edition) (Red Album)" "The Vectors (Red Album)")
-
-SetLidarrTitlesToSearch "The Vectors (Deluxe Edition)" ""
-tmpResult=$(get_state "lidarrTitlesToSearch")
-mapfile -t result <<<"${tmpResult}"
-if arrays_equal result expected; then
-    echo "✅ PASS: Title with both edition and album disambiguation"
-    ((pass++))
-else
-    echo "❌ FAIL: Title with both edition and album disambiguation (expected ${expected[*]}, got ${result[*]})"
-    ((fail++))
-fi
+expected=("The Vectors Deluxe Edition" "The Vectors" "The Vectors Deluxe Edition (Red Album)" "The Vectors (Red Album)" "TheVectorsDeluxeEdition" "TheVectors")
+run_test "Title with both edition and album disambiguation" "The Vectors (Deluxe Edition)" "" "Red Album"
 
 # Test 6: Title with release disambiguation and edition
-reset_state
-set_state "lidarrAlbumDisambiguation" ""
-expected=("2048 (Deluxe Edition)" "2048" "2048 (Deluxe Edition) (Deluxe Version)")
-
-SetLidarrTitlesToSearch "2048 (Deluxe Edition)" "Deluxe Version"
-tmpResult=$(get_state "lidarrTitlesToSearch")
-mapfile -t result <<<"${tmpResult}"
-if arrays_equal result expected; then
-    echo "✅ PASS: Title with release disambiguation and edition"
-    ((pass++))
-else
-    echo "❌ FAIL: Title with release disambiguation and edition (expected ${expected[*]}, got ${result[*]})"
-    ((fail++))
-fi
+expected=("2048 Deluxe Edition" "2048" "2048 Deluxe Edition (Deluxe Version)" "2048DeluxeEdition(DeluxeVersion)")
+run_test "Title with release disambiguation and edition" "2048 (Deluxe Edition)" "Deluxe Version" ""
 
 # Test 7: Complex case with all features
-reset_state
-set_state "lidarrAlbumDisambiguation" "Original"
-expected=("Maple Street (Remastered)" "Maple Street" "Maple Street (Remastered) (50th Anniversary)" "Maple Street (Remastered) (Original)" "Maple Street (Original)")
-
-SetLidarrTitlesToSearch "Maple Street (Remastered)" "50th Anniversary"
-tmpResult=$(get_state "lidarrTitlesToSearch")
-mapfile -t result <<<"${tmpResult}"
-if arrays_equal result expected; then
-    echo "✅ PASS: Complex case with all features"
-    ((pass++))
-else
-    echo "❌ FAIL: Complex case with all features (expected ${expected[*]}, got ${result[*]})"
-    ((fail++))
-fi
+expected=("Maple Street Remastered" "Maple Street" "Maple Street Remastered (50th Anniversary)" "Maple Street Remastered (Original)" "Maple Street (Original)" "MapleStreetRemastered(50thAnniversary)" "MapleStreet")
+run_test "Complex case with all features" "Maple Street (Remastered)" "50th Anniversary" "Original"
 
 # Test 8: Null album disambiguation
-reset_state
-set_state "lidarrAlbumDisambiguation" "null"
 expected=("Storybook")
+run_test "Null album disambiguation" "Storybook" "" "null"
 
-SetLidarrTitlesToSearch "Storybook" ""
-tmpResult=$(get_state "lidarrTitlesToSearch")
-mapfile -t result <<<"${tmpResult}"
-if arrays_equal result expected; then
-    echo "✅ PASS: Null album disambiguation"
-    ((pass++))
-else
-    echo "❌ FAIL: Null album disambiguation (expected ${expected[*]}, got ${result[*]})"
-    ((fail++))
-fi
+# Additional tests for edge cases and special characters
+
+# Test 9: Multiple edition types in one title
+# Behavior: editions are un-parenthesized in the normalized title
+expected=("The Beatles White Album Deluxe Edition Remastered" "The Beatles White Album" "TheBeatlesWhiteAlbumDeluxeEditionRemastered" "TheBeatlesWhiteAlbum")
+run_test "Multiple edition types in one title" "The Beatles White Album (Deluxe Edition) (Remastered)" "" "" expected
+
+# Test 10: Title with special characters (ampersand)
+# Behavior: ampersand becomes "and" in normalization
+expected=("Rock and Roll" "RockandRoll")
+run_test "Title with special characters (ampersand)" "Rock & Roll" "" "" expected
+
+# Test 11: Title with apostrophe
+expected=("The Artists Album" "TheArtistsAlbum")
+run_test "Title with apostrophe" "The Artist's Album" "" "" expected
+
+# Test 12: Title with hyphens and slashes
+# Behavior: hyphens/slashes and spacing preserved in main normalized form; whitespace-removed variant concatenates parts (slashes may remain)
+expected=("Love  Minus  Zero / No Limit" "LoveMinusZero/NoLimit")
+run_test "Title with hyphens" "Love - Minus - Zero / No Limit" "" "" expected
+
+# Test 13: Numbers in title
+# Behavior: ampersand becomes "and" in normalized form
+expected=("808s and Heartbreak" "808sandHeartbreak")
+run_test "Title with numbers and special chars" "808s & Heartbreak" "" "" expected
+
+# Test 14: Parentheses that aren't removed editions
+expected=("Album Name Live Version" "AlbumNameLiveVersion")
+run_test "Non-edition parentheses content" "Album Name (Live Version)" "" "" expected
+
+# Test 15: Unicode/accented characters
+# Behavior: accents may be preserved by normalize_string in this environment
+expected=("Café del Mar" "CafédelMar")
+run_test "Unicode/accented characters" "Café del Mar" "" "" expected
+
+# Test 16: Very long title
+expected=("This Is A Very Long Album Title With Multiple Words That Goes On And On" "ThisIsAVeryLongAlbumTitleWithMultipleWordsThatGoesOnAndOn")
+run_test "Very long album title" "This Is A Very Long Album Title With Multiple Words That Goes On And On" "" "" expected
+
+# Test 17: Release disambiguation with year
+expected=("Album Name" "Album Name (2024 Remaster)" "AlbumName(2024Remaster)" "AlbumName")
+run_test "Release disambiguation with year" "Album Name" "2024 Remaster" "" expected
+
+# Test 18: All uppercase title
+expected=("DARK SIDE OF THE MOON" "DARKSIDEOFTHEMOON")
+run_test "All uppercase title" "DARK SIDE OF THE MOON" "" "" expected
+
+# Test 19: Mixed whitespace and punctuation
+# Behavior: multiple spaces preserved in main normalized form; whitespace-removed concatenation present
+expected=("Album  Name" "AlbumName")
+run_test "Multiple spaces and punctuation" "Album  -  Name..." "" "" expected
 
 echo "----------------------------------------------"
 echo "Passed: $pass, Failed: $fail"
