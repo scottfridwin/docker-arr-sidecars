@@ -968,6 +968,7 @@ ExtractAlbumInfo() {
     local album_json="$1"
     local lidarrAlbumTitle lidarrAlbumType lidarrAlbumForeignAlbumId
     lidarrAlbumTitle=$(safe_jq ".title" <<<"$album_json")
+    lidarrAlbumTitle=$(normalize_string "$lidarrAlbumTitle")
     lidarrAlbumTitle=$(remove_punctuation "$lidarrAlbumTitle")
     lidarrAlbumType=$(safe_jq ".albumType" <<<"$album_json")
     lidarrAlbumForeignAlbumId=$(safe_jq ".foreignAlbumId" <<<"$album_json")

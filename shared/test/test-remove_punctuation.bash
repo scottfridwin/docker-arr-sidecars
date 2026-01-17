@@ -32,6 +32,7 @@ declare -A TESTS=(
     ["“hello” world"]="hello world"
     ["‘hello’ world"]="hello world"
     ["Symbol \"☮︎\" test"]="Symbol ☮︎ test"
+    ["EM—DASH"]="EMDASH"
 )
 
 pass=0

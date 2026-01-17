@@ -606,7 +606,7 @@ remove_punctuation() {
     # $1 -> the string to process
 
     # Remove common punctuation characters
-    echo "$1" | sed -e "s/[.,:;!?*’‘'“”\"\x27-]//g"
+    echo "$1" | sed -e "s/[.,:;!?*’‘'“”\"\x27—-]//g"
 }
 
 # Removes whitespace from a string
