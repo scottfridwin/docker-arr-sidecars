@@ -8,6 +8,21 @@ scriptName="entrypoint"
 #### Imports
 source /app/utilities.sh
 
+# Apply timezone from TZ environment variable (if provided)
+if [[ -n "${TZ:-}" ]]; then
+    if [[ -f "/usr/share/zoneinfo/${TZ}" ]]; then
+        if [ -w /etc/localtime ]; then
+            ln -sf "/usr/share/zoneinfo/${TZ}" /etc/localtime
+            echo "${TZ}" >/etc/timezone 2>/dev/null || true
+            log "INFO :: Timezone set to ${TZ}"
+        else
+            log "INFO :: /etc/localtime is not writable; skipping symlink (assuming host bind-mount)"
+        fi
+    else
+        log "WARNING :: TZ='${TZ}' not found in /usr/share/zoneinfo"
+    fi
+fi
+
 # Start with healthy status
 setHealthy
 

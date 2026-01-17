@@ -297,6 +297,10 @@ docker build -t radarr-sidecar ./radarr-sidecar
 docker build -t sonarr-sidecar ./sonarr-sidecar
 ```
 
+## Timezone
+
+The timezone for each container can be set either by using the `TZ` environment variable or by bind-mounting the host's `/etc/localtime` and `/etc/timezone` paths as read-only.
+
 ## Security and permissions
 
 - Lidarr ARL token file must be owned by the container's user (default root unless you override) and set to `0600`.

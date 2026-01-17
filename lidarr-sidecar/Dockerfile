@@ -11,7 +11,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-pip \
     curl \
     bash \
-    rsgain
+    rsgain \
+    tzdata
 RUN rm -rf /var/lib/apt/lists/*
 
 # Install Python packages into a custom prefix

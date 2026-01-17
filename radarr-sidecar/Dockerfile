@@ -8,7 +8,8 @@ RUN apk add --no-cache \
     jq \
     python3 \
     python3-dev \
-    py3-pip
+    py3-pip \
+    tzdata
 
 # Install uv + Python tools
 RUN pip install --no-cache-dir --break-system-packages uv yq
