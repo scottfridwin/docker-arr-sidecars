@@ -517,6 +517,7 @@ DownloadProcess() {
 
                 case "${file##*.}" in
                 flac)
+                    log "TRACE :: Tagging file ${file} with MusicBrainz album info: MUSICBRAINZ_ALBUMID=${lidarrReleaseForeignId}, MUSICBRAINZ_RELEASEGROUPID=${lidarrAlbumForeignAlbumId}, ALBUM=${lidarrAlbumTitle}"
                     metaflac --remove-tag=MUSICBRAINZ_ALBUMID \
                         --remove-tag=MUSICBRAINZ_RELEASEGROUPID \
                         --remove-tag=ALBUM \
@@ -525,6 +526,7 @@ DownloadProcess() {
                         --set-tag=ALBUM="${lidarrAlbumTitle}" "${file}"
                     ;;
                 mp3)
+                    log "TRACE :: Tagging file ${file} with MusicBrainz album info: MUSICBRAINZ_ALBUMID=${lidarrReleaseForeignId}, MUSICBRAINZ_RELEASEGROUPID=${lidarrAlbumForeignAlbumId}, ALBUM_TITLE=${lidarrAlbumTitle}"
                     export ALBUM_TITLE=""
                     export MUSICBRAINZ_ALBUMID=""
                     export MUSICBRAINZ_RELEASEGROUPID=""
