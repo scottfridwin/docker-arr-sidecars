@@ -11,9 +11,9 @@ ArtistDeezerSearch() {
 
     # Get Deezer artist album list
     local artistAlbums filteredAlbums resultsCount
-    GetDeezerArtistAlbums "${artistId}"
-    local returnCode=$?
-    if [ "$returnCode" -eq 0 ]; then
+    if GetDeezerArtistAlbums "${artistId}"; then
+        log "WARNING :: Failed to fetch album list for Deezer artist ID ${artistId}"
+    else
         artistAlbums="$(get_state "deezerArtistInfo")"
         resultsCount=$(jq '.total' <<<"${artistAlbums}")
         log "DEBUG :: Searching albums for Artist ${artistId} (Total Albums: ${resultsCount} found)"
@@ -22,8 +22,6 @@ ArtistDeezerSearch() {
         if ((resultsCount > 0)); then
             CalculateBestMatch <<<"${artistAlbums}"
         fi
-    else
-        log "WARNING :: Failed to fetch album list for Deezer artist ID ${artistId}"
     fi
     log "TRACE :: Exiting ArtistDeezerSearch..."
 }
@@ -820,8 +818,7 @@ EvaluateDeezerAlbumCandidate() {
 
     # Get album info from Deezer
     GetDeezerAlbumInfo "${deezerCandidateAlbumID}"
-    local returnCode=$?
-    if [ "$returnCode" -ne 0 ]; then
+    if GetDeezerAlbumInfo "${deezerCandidateAlbumID}"; then
         log "WARNING :: Failed to fetch album info for Deezer album ID ${deezerCandidateAlbumID}, skipping..."
         return
     fi
