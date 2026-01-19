@@ -11,7 +11,7 @@ ArtistDeezerSearch() {
 
     # Get Deezer artist album list
     local artistAlbums filteredAlbums resultsCount
-    if GetDeezerArtistAlbums "${artistId}"; then
+    if ! GetDeezerArtistAlbums "${artistId}"; then
         log "WARNING :: Failed to fetch album list for Deezer artist ID ${artistId}"
     else
         artistAlbums="$(get_state "deezerArtistInfo")"
@@ -63,9 +63,7 @@ FuzzyDeezerSearch() {
     # -------------------------------
     # Call Deezer API
     # -------------------------------
-    CallDeezerAPI "${url}"
-    local returnCode=$?
-    if ((returnCode != 0)); then
+    if ! CallDeezerAPI "${url}"; then
         log "WARNING :: Deezer Fuzzy Search failed for '${searchReleaseTitle}'"
         log "TRACE :: Exiting FuzzyDeezerSearch..."
         return 1
@@ -817,8 +815,7 @@ EvaluateDeezerAlbumCandidate() {
     local lidarrReleaseForeignId="$(get_state "lidarrReleaseForeignId")"
 
     # Get album info from Deezer
-    GetDeezerAlbumInfo "${deezerCandidateAlbumID}"
-    if GetDeezerAlbumInfo "${deezerCandidateAlbumID}"; then
+    if ! GetDeezerAlbumInfo "${deezerCandidateAlbumID}"; then
         log "WARNING :: Failed to fetch album info for Deezer album ID ${deezerCandidateAlbumID}, skipping..."
         return
     fi
