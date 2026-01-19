@@ -219,6 +219,14 @@ GetDeezerAlbumInfo() {
         fi
         albumJson="$(get_state "deezerApiResponse")"
 
+        # Check for errors in response
+        local errorCode
+        errorCode="$(safe_jq --optional '.error.code' <<<"$albumJson")"
+        if [[ -n "$errorCode" && "$errorCode" != "null" ]]; then
+            log "WARNING :: Deezer API returned error code ${errorCode} for album ID ${albumId}"
+            return 1
+        fi
+
         # Determine if track pagination is needed
         local nb_tracks embedded_tracks
         nb_tracks="$(safe_jq '.nb_tracks' <<<"$albumJson")"
@@ -312,16 +320,16 @@ GetDeezerArtistAlbums() {
                 exit 1
             fi
 
+            # Check for errors in response
+            local errorCode
+            errorCode="$(safe_jq --optional '.error.code' <<<"$albumJson")"
+            if [[ -n "$errorCode" && "$errorCode" != "null" ]]; then
+                log "WARNING :: Deezer API returned error code ${errorCode} for artist ID ${artistId}"
+                return 1
+            fi
+
             local page
             page="$(get_state "deezerApiResponse")"
-
-            # Validate JSON
-            if ! safe_jq '.' <<<"$page" >/dev/null 2>&1; then
-                log "ERROR :: Deezer returned invalid JSON for url ${nextUrl}"
-                log "ERROR :: Raw response (first 200 chars): ${page:0:200}"
-                setUnhealthy
-                exit 1
-            fi
 
             # Extract albums
             mapfile -t page_albums < <(
