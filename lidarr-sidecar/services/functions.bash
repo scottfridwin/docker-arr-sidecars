@@ -125,6 +125,7 @@ CalculateBestMatch() {
 }
 
 # Generic Deezer API call with retries and error handling
+# Returns 0 on success, 1 on failure
 CallDeezerAPI() {
     log "TRACE :: Entering CallDeezerAPI..."
     local url="${1}"
@@ -188,6 +189,7 @@ CallDeezerAPI() {
 }
 
 # Fetch Deezer album info with caching (uses CallDeezerAPI)
+# Returns 0 on success, 1 on failure
 GetDeezerAlbumInfo() {
     log "TRACE :: Entering GetDeezerAlbumInfo..."
     local albumId="$1"
@@ -287,6 +289,7 @@ GetDeezerAlbumInfo() {
 }
 
 # Fetch Deezer artist albums with caching (uses CallDeezerAPI)
+# Returns 0 on success, 1 on failure
 GetDeezerArtistAlbums() {
     log "TRACE :: Entering GetDeezerArtistAlbums..."
     local artistId="$1"

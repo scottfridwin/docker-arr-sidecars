@@ -568,6 +568,7 @@ normalize_string() {
     # Replaces masculine ordinal º with degree symbol °
     # Replace & with "and"
     # Replace … with ...
+    # Remove "\udcb3" characters
     echo "$1" |
         sed -e "s/’/'/g" \
             -e "s/‘/'/g" \
@@ -585,7 +586,8 @@ normalize_string() {
             -e 's/[!]//g' \
             -e 's/[,]//g' \
             -e 's/[:]//g' \
-            -e 's/…/.../g'
+            -e 's/…/.../g' \
+            -e 's/\\udcb3//g'
 }
 
 # Checks if a string is a numeric value
