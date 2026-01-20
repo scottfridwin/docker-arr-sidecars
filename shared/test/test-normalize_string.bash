@@ -22,7 +22,6 @@ declare -A TESTS=(
     ["...oh my"]="...oh my"
     ["2020‐2021"]="2020-2021"
     ["Peace “☮︎” Sign"]="Peace \"☮︎\" Sign"
-    ["\udcb3Strange Title\udcb3"]="Strange Title"
 )
 
 # --- Run tests ---

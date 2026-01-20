@@ -586,8 +586,7 @@ normalize_string() {
             -e 's/[!]//g' \
             -e 's/[,]//g' \
             -e 's/[:]//g' \
-            -e 's/…/.../g' \
-            -e 's/\\udcb3//g'
+            -e 's/…/.../g'
 }
 
 # Checks if a string is a numeric value

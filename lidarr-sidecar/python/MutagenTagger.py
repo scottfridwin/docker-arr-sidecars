@@ -5,6 +5,17 @@ from mutagen.id3 import ID3, TXXX, TALB, TPE1, TPE2, ID3NoHeaderError
 
 file_path = sys.argv[1]
 
+
+def clean_text(s: str) -> str:
+    cleaned = s.encode("utf-8", "ignore").decode("utf-8")
+    if cleaned != s:
+        print(
+            f"WARNING: stripped invalid UTF-8 from tag value: {repr(s)}",
+            file=sys.stderr,
+        )
+    return cleaned
+
+
 # Read optional environment variables safely
 album_title = os.environ.get("ALBUM_TITLE")
 mb_albumid = os.environ.get("MUSICBRAINZ_ALBUMID")
@@ -12,6 +23,20 @@ mb_releasegroupid = os.environ.get("MUSICBRAINZ_RELEASEGROUPID")
 artist = os.environ.get("ARTIST")
 album_artist = os.environ.get("ALBUMARTIST")
 mb_artistid = os.environ.get("MUSICBRAINZ_ARTISTID")
+
+# Clean text inputs
+if album_title:
+    album_title = clean_text(album_title)
+if mb_albumid:
+    mb_albumid = clean_text(mb_albumid)
+if mb_releasegroupid:
+    mb_releasegroupid = clean_text(mb_releasegroupid)
+if artist:
+    artist = clean_text(artist)
+if album_artist:
+    album_artist = clean_text(album_artist)
+if mb_artistid:
+    mb_artistid = clean_text(mb_artistid)
 
 try:
     tags = ID3(file_path)
