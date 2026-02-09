@@ -8,9 +8,9 @@ source "${SCRIPT_DIR}/../services/functions.bash"
 
 #### Mocks ####
 log() {
-    #: # Do nothing, suppress logs in tests
-    local msg="$1"
-    echo "${scriptName} :: ${msg}" >>"$SCRIPT_DIR/work/${scriptName}.log"
+    : # Do nothing, suppress logs in tests
+    #local msg="$1"
+    #echo "${scriptName} :: ${msg}" >>"$SCRIPT_DIR/work/${scriptName}.log"
 }
 
 # --- Parse arguments ---
@@ -75,6 +75,7 @@ export AUDIO_INTERVAL="none"
 export AUDIO_LYRIC_TYPE=prefer-explicit
 export AUDIO_MATCH_THRESHOLD_TITLE=0
 export AUDIO_MATCH_THRESHOLD_TRACKS=0
+export AUDIO_MATCH_THRESHOLD_YEAR=-1
 export AUDIO_MATCH_THRESHOLD_TRACK_DIFF_AVG=1.00
 export AUDIO_MATCH_THRESHOLD_TRACK_DIFF_MAX=10
 export AUDIO_PREFERRED_COUNTRIES="[Worldwide]|United States|United Kingdom|Australia|Europe|Canada|[BLANK]"
@@ -91,8 +92,8 @@ export AUDIO_TITLE_REPLACEMENTS_FILE="$SCRIPT_DIR/config/album_title_replacement
 export AUDIO_WORK_PATH="$SCRIPT_DIR/work"
 
 # --- Define test cases ---
-#TESTS=({1..250})
-TESTS=(112)
+TESTS=({1..250})
+#TESTS=(88)
 
 # --- Run tests ---
 pass=0

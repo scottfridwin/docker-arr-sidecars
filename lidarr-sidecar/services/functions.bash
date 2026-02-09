@@ -781,11 +781,22 @@ CompareTrackLists() {
     log "TRACE :: Exiting CompareTrackLists..."
 }
 
-# Compute match metrics for a candidate album
-ComputeMatchMetrics() {
+# Compute the track count difference for a candidate album
+ComputeTrackCountDiff() {
+    # Calculate track difference
+    local lidarrReleaseTrackCount="$(get_state "lidarrReleaseTrackCount")"
+    local deezerCandidateTrackCount="$(get_state "deezerCandidateTrackCount")"
+    local trackDiff=$((lidarrReleaseTrackCount - deezerCandidateTrackCount))
+    ((trackDiff < 0)) && trackDiff=$((-trackDiff))
+    set_state "candidateTrackDiff" "${trackDiff}"
+}
+
+# Compute name difference for a candidate album
+ComputeNameDiff() {
     # Calculate name difference
     local searchReleaseTitleClean="$(get_state "searchReleaseTitleClean")"
     local deezerCandidateTitleVariant="$(get_state "deezerCandidateTitleVariant")"
+    log "TRACE :: TMP Computing name difference between \"${searchReleaseTitleClean,,}\" and \"${deezerCandidateTitleVariant,,}\""
     if [[ "${AUDIO_MATCH_THRESHOLD_TITLE}" == "0" ]]; then
         if [[ "${searchReleaseTitleClean,,}" == "${deezerCandidateTitleVariant,,}" ]]; then
             set_state "candidateNameDiff" "0"
@@ -795,14 +806,10 @@ ComputeMatchMetrics() {
     else
         set_state "candidateNameDiff" "$(LevenshteinDistance "${searchReleaseTitleClean,,}" "${deezerCandidateTitleVariant,,}")"
     fi
+}
 
-    # Calculate track difference
-    local lidarrReleaseTrackCount="$(get_state "lidarrReleaseTrackCount")"
-    local deezerCandidateTrackCount="$(get_state "deezerCandidateTrackCount")"
-    local trackDiff=$((lidarrReleaseTrackCount - deezerCandidateTrackCount))
-    ((trackDiff < 0)) && trackDiff=$((-trackDiff))
-    set_state "candidateTrackDiff" "${trackDiff}"
-
+# Compute year difference for a candidate album
+ComputeYearDiff() {
     # Calculate year difference
     local lidarrReleaseYear=$(get_state "lidarrReleaseYear")
     local deezerCandidateReleaseYear="$(get_state "deezerCandidateReleaseYear")"
@@ -877,13 +884,16 @@ EvaluateDeezerAlbumCandidate() {
         return
     fi
 
-    # Calculate year difference
-    local lidarrReleaseYear=$(get_state "lidarrReleaseYear")
-    local yearDiff=$(CalculateYearDifference "${deezerCandidateReleaseYear}" "${lidarrReleaseYear}")
-    set_state "candidateYearDiff" "${yearDiff}"
-
-    # Get normalized titles
     NormalizeDeezerAlbumTitle "${deezerCandidateTitle}"
+
+    set_state "applyNameThreshold" "true"
+    set_state "applyYearThreshold" "true"
+    local lidarrReleaseLinkedDeezerAlbumId="$(get_state "lidarrReleaseLinkedDeezerAlbumId")"
+    if [[ -n "${lidarrReleaseLinkedDeezerAlbumId}" && "${lidarrReleaseLinkedDeezerAlbumId}" != "null" ]]; then
+        # # If linked Deezer album ID is set, only apply threshold for track count difference
+        set_state "applyNameThreshold" "false"
+        set_state "applyYearThreshold" "false"
+    fi
     local deezerCandidateTitleClean="$(get_state "deezerCandidateTitleClean")"
     local deezerCandidateTitleEditionless="$(get_state "deezerCandidateTitleEditionless")"
     local deezerCandidateTitleMinimal="$(get_state "deezerCandidateTitleMinimal")"
@@ -904,54 +914,72 @@ EvaluateDeezerAlbumCandidate() {
 
     for titleVariant in "${titlesToCheck[@]}"; do
         set_state "deezerCandidateTitleVariant" "${titleVariant}"
+
+        # Compute match metrics
+        ComputeTrackCountDiff
+        ComputeNameDiff
+        ComputeYearDiff
+
+        if ! EvaluateMatchThresholds; then
+            continue
+        fi
+
+        # Calculate track title score
+        CompareTrackLists
+        local candidateTrackNameDiffAvg=$(get_state "candidateTrackNameDiffAvg")
+        local candidateTrackNameDiffMax=$(get_state "candidateTrackNameDiffMax")
+        if awk "BEGIN { exit !($candidateTrackNameDiffAvg > $AUDIO_MATCH_THRESHOLD_TRACK_DIFF_AVG) }"; then
+            log "DEBUG :: Album \"${titleVariant,,}\" does not meet matching threshold (Track name difference average=${candidateTrackNameDiffAvg}), skipping..."
+            return 0
+        fi
+        if ((candidateTrackNameDiffMax > AUDIO_MATCH_THRESHOLD_TRACK_DIFF_MAX)); then
+            log "DEBUG :: Album \"${titleVariant,,}\" does not meet matching threshold (Track name difference maximum=${candidateTrackNameDiffMax}), skipping..."
+            return 0
+        fi
+
         EvaluateTitleVariant
     done
 
     return
 }
 
-# Evaluate a single title variant against matching criteria
-EvaluateTitleVariant() {
-
-    # Compute match metrics
-    ComputeMatchMetrics
-
+# Evaluate if candidate meets match thresholds
+# Returns 0 (true) if candidate meets thresholds, 1 (false) otherwise
+EvaluateMatchThresholds() {
     local candidateNameDiff=$(get_state "candidateNameDiff")
     local candidateTrackDiff=$(get_state "candidateTrackDiff")
     local candidateYearDiff=$(get_state "candidateYearDiff")
 
     # Check if meets thresholds
+    local applyNameThreshold=$(get_state "applyNameThreshold")
+    local applyYearThreshold=$(get_state "applyYearThreshold")
     local deezerCandidateTitleVariant="$(get_state "deezerCandidateTitleVariant")"
-    if ((candidateNameDiff > AUDIO_MATCH_THRESHOLD_TITLE)); then
+    if [[ "${applyNameThreshold}" == "true" ]] && ((AUDIO_MATCH_THRESHOLD_TITLE >= 0)) && ((candidateNameDiff > AUDIO_MATCH_THRESHOLD_TITLE)); then
         log "DEBUG :: Album \"${deezerCandidateTitleVariant,,}\" does not meet matching threshold (Name difference=${candidateNameDiff}), skipping..."
-        return 0
+        return 1
     fi
-    if ((candidateTrackDiff > AUDIO_MATCH_THRESHOLD_TRACKS)); then
+    if ((AUDIO_MATCH_THRESHOLD_TRACKS >= 0)) && ((candidateTrackDiff > AUDIO_MATCH_THRESHOLD_TRACKS)); then
         log "DEBUG :: Album \"${deezerCandidateTitleVariant,,}\" does not meet matching threshold (Track count difference=${candidateTrackDiff}), skipping..."
-        return 0
+        return 1
+    fi
+    if [[ "${applyYearThreshold}" == "true" ]] && ((AUDIO_MATCH_THRESHOLD_YEAR >= 0)) && ((candidateYearDiff > AUDIO_MATCH_THRESHOLD_YEAR)); then
+        log "DEBUG :: Album \"${deezerCandidateTitleVariant,,}\" does not meet matching threshold (Year difference=${candidateYearDiff}), skipping..."
+        return 1
     fi
 
-    # Calculate track title score
-    CompareTrackLists
+    return 0
+}
 
-    local candidateTrackNameDiffAvg=$(get_state "candidateTrackNameDiffAvg")
-    local candidateTrackNameDiffMax=$(get_state "candidateTrackNameDiffMax")
-    if awk "BEGIN { exit !($candidateTrackNameDiffAvg > $AUDIO_MATCH_THRESHOLD_TRACK_DIFF_AVG) }"; then
-        log "DEBUG :: Album \"${deezerCandidateTitleVariant,,}\" does not meet matching threshold (Track name difference average=${candidateTrackNameDiffAvg}), skipping..."
-        return 0
-    fi
-    if ((candidateTrackNameDiffMax > AUDIO_MATCH_THRESHOLD_TRACK_DIFF_MAX)); then
-        log "DEBUG :: Album \"${deezerCandidateTitleVariant,,}\" does not meet matching threshold (Track name difference maximum=${candidateTrackNameDiffMax}), skipping..."
-        return 0
-    fi
-
+# Evaluate a single title variant against matching criteria
+EvaluateTitleVariant() {
     local lidarrReleaseYear=$(get_state "lidarrReleaseYear")
     local deezerCandidateAlbumID="$(get_state "deezerCandidateAlbumID")"
+    local deezerCandidateTitleVariant="$(get_state "deezerCandidateTitleVariant")"
     log "INFO :: Potential match found: \"${deezerCandidateTitleVariant,,}\" (${deezerCandidateAlbumID})"
-    log "DEBUG :: Match details: NameDiff=${candidateNameDiff} TrackDiff=${candidateTrackDiff} YearDiff=${candidateYearDiff}"
 
     # Check if this is a better match
     if IsBetterMatch; then
+        log "INFO :: \"${deezerCandidateTitleVariant,,}\" (${deezerCandidateAlbumID}) is a better match than current best match"
         # Check if previously failed
         local deezerCandidateAlbumID="$(get_state "deezerCandidateAlbumID")"
         if AlbumPreviouslyFailed "${deezerCandidateAlbumID}"; then
@@ -1397,6 +1425,7 @@ FindDeezerMatch() {
             log "TRACE :: Searching for release title variant: \"${searchReleaseTitleClean}\""
 
             # If the release has a linked Deezer album, no need to perform search, just check if it's a best match
+            # TODO: Need to just verify track count and skip all other criteria
             local lidarrReleaseLinkedDeezerAlbumId="$(get_state "lidarrReleaseLinkedDeezerAlbumId")"
             if [[ -n "${lidarrReleaseLinkedDeezerAlbumId}" ]]; then
                 log "DEBUG :: Release has linked Deezer album ID ${lidarrReleaseLinkedDeezerAlbumId}, evaluating directly..."
@@ -1682,6 +1711,7 @@ RemoveEditionsFromAlbumTitle() {
         "anniversary edition"
         "original motion picture soundtrack"
         "soundtrack from the motion picture"
+        "soundtrack"
     )
 
     # Handle numeric Anniversary or Remaster patterns FIRST

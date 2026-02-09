@@ -90,6 +90,7 @@ Services:
 | AUDIO_LYRIC_TYPE | prefer-explicit | Lyric preference: prefer-explicit, prefer-clean, both |
 | AUDIO_MATCH_THRESHOLD_TITLE | 0 | Maximum album title difference for matching |
 | AUDIO_MATCH_THRESHOLD_TRACKS | 0 | Maximum track count difference for matching |
+| AUDIO_MATCH_THRESHOLD_YEAR | -1 | Maximum year difference for matching |
 | AUDIO_MATCH_THRESHOLD_TRACK_DIFF_AVG | 1.00 | Maximum track name difference (averaged per track) for matching |
 | AUDIO_MATCH_THRESHOLD_TRACK_DIFF_MAX | 10 | Maximum single-track name difference for matching |
 | AUDIO_PREFER_SPECIAL_EDITIONS | true | Prefer deluxe/special editions when tied |
