@@ -75,7 +75,7 @@ FuzzyDeezerSearch() {
     # -------------------------------
     # Validate JSON and parse
     # -------------------------------
-    if [[ -n "${deezerSearch}" ]] && safe_jq --optional 'true' <<<"${deezerSearch}" >/dev/null 2>&1; then
+    if [[ -n "${deezerSearch}" ]] && safe_jq --validate --optional 'true' <<<"${deezerSearch}"; then
         resultsCount="$(safe_jq --optional '.total // 0' <<<"${deezerSearch}")"
         log "DEBUG :: ${resultsCount} search results found for '${searchReleaseTitle}'"
 
@@ -165,7 +165,7 @@ CallDeezerAPI() {
         # Check for success
         if [[ "$httpCode" -eq 200 && -n "$body" ]]; then
             # Validate JSON safely
-            if safe_jq --optional '.' <<<"$body" >/dev/null; then
+            if safe_jq --validate --optional '.' <<<"$body"; then
                 set_state "deezerApiResponse" "$body"
                 returnCode=0
                 break
@@ -200,7 +200,7 @@ GetDeezerAlbumInfo() {
 
     # Load from cache if valid
     if [[ -f "${albumCacheFile}" ]]; then
-        if safe_jq --optional '.' <"${albumCacheFile}" >/dev/null 2>&1; then
+        if safe_jq --optional --validate '.' <"${albumCacheFile}"; then
             log "DEBUG :: Using cached Deezer album data for ${albumId}"
             albumJson="$(<"${albumCacheFile}")"
         else
@@ -247,7 +247,7 @@ GetDeezerAlbumInfo() {
                 page="$(get_state "deezerApiResponse")"
 
                 # Validate JSON
-                if ! safe_jq '.' <<<"$page" >/dev/null 2>&1; then
+                if ! safe_jq --validate '.' <<<"$page"; then
                     log "ERROR :: Deezer returned invalid JSON for url ${nextUrl}"
                     log "ERROR :: Raw response (first 200 chars): ${page:0:200}"
                     setUnhealthy
@@ -300,7 +300,7 @@ GetDeezerArtistAlbums() {
 
     # Use cache if exists and valid
     if [[ -f "${artistCacheFile}" ]]; then
-        if safe_jq --optional '.' <"${artistCacheFile}" >/dev/null 2>&1; then
+        if safe_jq --validate --optional '.' <"${artistCacheFile}"; then
             log "DEBUG :: Using cached Deezer artist album list for ${artistId}"
             artistJson="$(<"${artistCacheFile}")"
         else
@@ -522,7 +522,7 @@ CallMusicBrainzAPI() {
 
         case "${httpCode}" in
         200)
-            if safe_jq --optional '.' <<<"${body}" >/dev/null 2>&1; then
+            if safe_jq --validate --optional '.' <<<"${body}"; then
                 set_state "musicBrainzApiResponse" "${body}"
                 return 0
             else

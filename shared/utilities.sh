@@ -621,13 +621,25 @@ remove_whitespace() {
 # Safe jq wrapper that logs parse errors
 safe_jq() {
     local optional=false
+    local validate=false
     local filter
 
-    # Optional flag
-    if [[ "$1" == "--optional" ]]; then
-        optional=true
-        shift
-    fi
+    # Parse flags
+    while [[ "$1" == --* ]]; do
+        case "$1" in
+        --optional)
+            optional=true
+            shift
+            ;;
+        --validate)
+            validate=true
+            shift
+            ;;
+        *)
+            break
+            ;;
+        esac
+    done
 
     filter="$1"
     shift # now "$@" contains jq extra args (--arg, --argjson, etc.)
@@ -638,6 +650,11 @@ safe_jq() {
 
     # Validate minimal JSON structure
     if [[ -z "$input" || ("$input" != *"{"* && "$input" != *"["*) ]]; then
+        if $validate; then
+            log "WARNING :: safe_jq received invalid JSON input"
+            log "WARNING :: JSON input: $input"
+            return 1
+        fi
         log "ERROR :: safe_jq received invalid JSON input"
         log "ERROR :: JSON input: $input"
         setUnhealthy
@@ -647,6 +664,10 @@ safe_jq() {
     # Run jq and forward extra arguments
     local result
     if ! result=$(jq -r "$filter" "$@" <<<"$input"); then
+        if $validate; then
+            log "WARNING :: jq command failed for filter: $filter"
+            return 1
+        fi
         log "ERROR :: jq command failed for filter: $filter"
         setUnhealthy
         exit 1
@@ -657,13 +678,21 @@ safe_jq() {
         result=$(awk '{if($0=="null") print ""; else print $0}' <<<"$result")
     else
         if [[ "$result" == "null" || -z "$result" ]]; then
+            if $validate; then
+                log "WARNING :: safe_jq extracted null or empty result for filter: $filter"
+                return 1
+            fi
             log "ERROR :: safe_jq extracted null or empty result for filter: $filter"
             setUnhealthy
             exit 1
         fi
     fi
 
-    echo "$result"
+    if $validate; then
+        log "TRACE :: safe_jq successfully validated JSON for filter: $filter"
+    else
+        echo "$result"
+    fi
 }
 
 # Cleans a string for safe use in file or folder names
