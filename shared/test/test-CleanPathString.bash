@@ -121,6 +121,16 @@ else
     ((fail++))
 fi
 
+# Test 12: Non-printable characters removed
+result=$(CleanPathString $'bad\x01charsØË')
+if [[ "$result" == "badchars" ]]; then
+    echo "✅ PASS: Non-printable characters removed"
+    ((pass++))
+else
+    echo "❌ FAIL: Non-printable chars (got '$result')"
+    ((fail++))
+fi
+
 echo "----------------------------------------------"
 echo "Passed: $pass, Failed: $fail"
 

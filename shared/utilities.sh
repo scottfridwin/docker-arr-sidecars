@@ -723,6 +723,9 @@ CleanPathString() {
     # Replace consecutive spaces with a single underscore
     input="$(echo "$input" | tr -s ' ' '_')"
 
+    # Replace non-printable characters
+    input="$(echo "$input" | tr -cd '[:print:]')"
+
     # Optionally limit the length (safe for most filesystems)
     echo "${input:0:150}"
 }
