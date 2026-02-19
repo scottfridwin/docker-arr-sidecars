@@ -120,6 +120,21 @@ run_test \
     "Song Title — feat. Drake" \
     "Song Title"
 
+run_test \
+    "with feature" \
+    "My Song (with John Doe)" \
+    "My Song"
+
+run_test \
+    "with feature and following" \
+    "My Song (with John Doe) Abc" \
+    "My Song Abc"
+
+run_test \
+    "with feature without parentheses" \
+    "My Song with John Doe" \
+    "My Song"
+
 # --- Negative cases (should NOT strip) ---
 
 run_test \

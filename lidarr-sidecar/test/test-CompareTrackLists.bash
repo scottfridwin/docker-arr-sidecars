@@ -396,6 +396,38 @@ deezer_tracks=(
 )
 run_test "Real Example 3" lidarr_tracks deezer_tracks "0" "0.00" "0"
 
+# Test 23: Real Example 4
+reset_state
+lidarr_tracks=(
+    "Strangers by Nature"
+    "Easy on Me"
+    "My Little Love"
+    "Cry Your Heart Out"
+    "Oh My God"
+    "Can I Get It"
+    "I Drink Wine"
+    "All Night Parking (interlude)"
+    "Woman Like Me"
+    "Hold On"
+    "To Be Loved"
+    "Love Is a Game"
+)
+deezer_tracks=(
+    "Strangers by Nature"
+    "Easy on Me"
+    "My Little Love"
+    "Cry Your Heart Out"
+    "Oh My God"
+    "Can I Get It"
+    "I Drink Wine"
+    "All Night Parking (with Erroll Garner) Interlude"
+    "Woman Like Me"
+    "Hold On"
+    "To Be Loved"
+    "Love Is a Game"
+)
+run_test "Real Example 4" lidarr_tracks deezer_tracks "0" "0.00" "0"
+
 echo "----------------------------------------------"
 echo "Passed: $pass, Failed: $fail"
 
