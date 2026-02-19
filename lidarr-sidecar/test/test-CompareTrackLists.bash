@@ -186,7 +186,7 @@ lidarr_tracks=(
 )
 deezer_tracks=(
     "overture"
-    "Movement I."
+    "Movement. I"
 )
 run_test "Case and punctuation differences" lidarr_tracks deezer_tracks "0" "0.00" "0"
 

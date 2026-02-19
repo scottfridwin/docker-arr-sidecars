@@ -553,6 +553,7 @@ updateArrConfig() {
 # Normalizes a string for comparison
 normalize_string() {
     # $1 -> the string to normalize
+    local input="$1"
 
     # Converts smart quotes → plain quotes
     # Converts en dashes → hyphens
@@ -569,24 +570,45 @@ normalize_string() {
     # Replace & with "and"
     # Replace … with ...
     # Remove "\udcb3" characters
-    echo "$1" |
-        sed -e "s/’/'/g" \
-            -e "s/‘/'/g" \
-            -e 's/“/"/g' \
-            -e 's/”/"/g' \
-            -e 's/–/-/g' \
-            -e 's/‐/-/g' \
-            -e 's/º/°/g' \
-            -e 's/&/and/g' \
-            -e 's/\xA0/ /g' \
-            -e 's/[[:space:]]\+/ /g' \
-            -e 's/^ *//; s/ *$//' \
-            -e 's/[()]//g' \
-            -e 's/[?]//g' \
-            -e 's/[!]//g' \
-            -e 's/[,]//g' \
-            -e 's/[:]//g' \
-            -e 's/…/.../g'
+    input="$(
+        echo "$input" |
+            sed -e "s/’/'/g" \
+                -e "s/‘/'/g" \
+                -e 's/“/"/g' \
+                -e 's/”/"/g' \
+                -e 's/–/-/g' \
+                -e 's/‐/-/g' \
+                -e 's/º/°/g' \
+                -e 's/&/and/g' \
+                -e 's/\xA0/ /g' \
+                -e 's/[[:space:]]\+/ /g' \
+                -e 's/^ *//; s/ *$//' \
+                -e 's/[()]//g' \
+                -e 's/[?]//g' \
+                -e 's/[!]//g' \
+                -e 's/[,]//g' \
+                -e 's/[:]//g' \
+                -e 's/…/.../g'
+    )"
+
+    # Pad with spaces so start/end count as whitespace
+    input=" $input "
+
+    # Replace Roman numerals
+    input="$(
+        echo "$input" | sed -E \
+            's/([[:space:]])([IVXLCDM]+)([[:space:]]|$)/\1__ROMAN__\2__\3/gI'
+    )"
+
+    # Convert placeholders using bash
+    while [[ "$input" =~ __ROMAN__([IVXLCDM]+)__ ]]; do
+        roman="${BASH_REMATCH[1]}"
+        number="$(roman_to_int "$roman")" || break
+        input="${input/__ROMAN__${roman}__/$number}"
+    done
+
+    # Final trim
+    echo "$input" | sed -e 's/^ *//; s/ *$//'
 }
 
 # Checks if a string is a numeric value
@@ -616,6 +638,30 @@ remove_whitespace() {
 
     # Remove whitespace
     printf '%s' "${1//[[:space:]]/}"
+}
+
+roman_to_int() {
+    local roman="${1^^}" # uppercase
+    local -A map=(
+        [I]=1 [V]=5 [X]=10 [L]=50
+        [C]=100 [D]=500 [M]=1000
+    )
+
+    local i value prev=0 total=0
+
+    for ((i = ${#roman} - 1; i >= 0; i--)); do
+        value=${map[${roman:i:1}]}
+        [[ -z "$value" ]] && return 1
+
+        if ((value < prev)); then
+            ((total -= value))
+        else
+            ((total += value))
+        fi
+        prev=$value
+    done
+
+    echo "$total"
 }
 
 # Safe jq wrapper that logs parse errors

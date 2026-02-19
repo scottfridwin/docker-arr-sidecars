@@ -17,11 +17,15 @@ declare -A TESTS=(
     ["Nº 1"]="N° 1"
     ["Don't (test) this, okay?"]="Don't test this okay"
     ["This & that"]="This and that"
-    ["This: Part II"]="This Part II"
+    ["This: Part II"]="This Part 2"
     ["…oh my"]="...oh my"
     ["...oh my"]="...oh my"
     ["2020‐2021"]="2020-2021"
     ["Peace “☮︎” Sign"]="Peace \"☮︎\" Sign"
+    ["This: Part VI"]="This Part 6"
+    ["This: Part IV"]="This Part 4"
+    ["This: Part MVI"]="This Part 1006"
+    ["This: Part CL"]="This Part 150"
 )
 
 # --- Run tests ---
