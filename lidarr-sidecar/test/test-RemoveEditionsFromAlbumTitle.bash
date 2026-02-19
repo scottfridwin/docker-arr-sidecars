@@ -54,6 +54,8 @@ declare -A TESTS=(
     ["My Everything (Tenth Anniversary Edition)"]="My Everything"
     ["My Everything (TENTH Anniversary Edition)"]="My Everything"
     ["My Everything TENTH Anniversary Edition"]="My Everything"
+    ["Musical: Deluxe Edition Soundtrack"]="Musical"
+    ["Musical Deluxe Edition Soundtrack"]="Musical"
 )
 
 # --- Run tests ---

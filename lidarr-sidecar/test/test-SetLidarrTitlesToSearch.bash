@@ -151,6 +151,10 @@ run_test "All uppercase title" "DARK SIDE OF THE MOON" "" "" expected
 expected=("Album  Name" "AlbumName")
 run_test "Multiple spaces and punctuation" "Album  -  Name..." "" "" expected
 
+# Test 2: Musical with multiple editions
+expected=("Musical Deluxe Edition Soundtrack" "Musical" "MusicalDeluxeEditionSoundtrack")
+run_test "Musical with multiple editions" "Musical: Deluxe Edition Soundtrack" "" ""
+
 echo "----------------------------------------------"
 echo "Passed: $pass, Failed: $fail"
 

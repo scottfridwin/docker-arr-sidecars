@@ -92,7 +92,7 @@ export AUDIO_WORK_PATH="$SCRIPT_DIR/work"
 
 # --- Define test cases ---
 #TESTS=({1..250})
-TESTS=(112)
+TESTS=(88)
 
 # --- Run tests ---
 pass=0

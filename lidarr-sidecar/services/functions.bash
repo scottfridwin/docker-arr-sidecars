@@ -1674,6 +1674,7 @@ RemoveEditionsFromAlbumTitle() {
         "anniversary edition"
         "original motion picture soundtrack"
         "soundtrack from the motion picture"
+        "soundtrack"
     )
 
     # Handle numeric Anniversary or Remaster patterns FIRST
