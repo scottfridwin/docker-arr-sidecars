@@ -1654,7 +1654,7 @@ NormalizeDeezerAlbumTitle() {
 
     # Get editionless version and minimal version
     local titleEditionless="$(RemoveEditionsFromAlbumTitle "${titleClean}")"
-    local titleMinimal="$(remove_whitespace "${titleEditionless}")"
+    local titleMinimal="$(remove_whitespace "$(StripTrackFeature "${titleEditionless}")")"
 
     # Apply replacements
     titleClean="$(ApplyTitleReplacements "${titleClean}")"
@@ -2077,7 +2077,6 @@ SkipReleaseCandidate() {
     return 1
 }
 
-# Strips artist feature / parody tags from a track name
 # Strips artist feature / parody tags from a track name
 StripTrackFeature() {
     sed -E '
