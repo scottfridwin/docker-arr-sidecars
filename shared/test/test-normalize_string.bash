@@ -26,6 +26,10 @@ declare -A TESTS=(
     ["This: Part IV"]="This Part 4"
     ["This: Part MVI"]="This Part 1006"
     ["This: Part CL"]="This Part 150"
+    ["What Did You Do"]="What Did You Do"
+    ["WHAT DID YOU DO"]="WHAT DID YOU DO"
+    ["Good roman IV VI CMXXII"]="Good roman 4 6 922"
+    ["Bad roman VIV VIX ICMXXII"]="Bad roman VIV VIX ICMXXII"
 )
 
 # --- Run tests ---

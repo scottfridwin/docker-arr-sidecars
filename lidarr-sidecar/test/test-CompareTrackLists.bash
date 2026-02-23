@@ -428,6 +428,24 @@ deezer_tracks=(
 )
 run_test "Real Example 4" lidarr_tracks deezer_tracks "0" "0.00" "0"
 
+# Test 24: Real Example 5
+reset_state
+lidarr_tracks=(
+    "Could Have Been Me (live acoustic)"
+    "Kiss This (acoustic)"
+    "Put Your Money on Me (live acoustic)"
+    "Where Did She Go (live acoustic)"
+    "I Always Knew / Hotline Bling (live acoustic)"
+)
+deezer_tracks=(
+    "Could Have Been Me (Live / Acoustic)"
+    "Kiss This (Acoustic)"
+    "Put Your Money On Me (Live / Acoustic)"
+    "Where Did She Go (Live / Acoustic)"
+    "I Always Knew/Hotline Bling (Live / Acoustic)"
+)
+run_test "Real Example 5" lidarr_tracks deezer_tracks "0" "0.00" "0"
+
 echo "----------------------------------------------"
 echo "Passed: $pass, Failed: $fail"
 

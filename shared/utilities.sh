@@ -594,18 +594,17 @@ normalize_string() {
     # Pad with spaces so start/end count as whitespace
     input=" $input "
 
-    # Replace Roman numerals
-    input="$(
-        echo "$input" | sed -E \
-            's/([[:space:]])([IVXLCDM]+)([[:space:]]|$)/\1__ROMAN__\2__\3/gI'
-    )"
+    # Replace Roman numerals safely
+    input=" $input "
 
-    # Convert placeholders using bash
-    while [[ "$input" =~ __ROMAN__([IVXLCDM]+)__ ]]; do
-        roman="${BASH_REMATCH[1]}"
-        number="$(roman_to_int "$roman")" || break
-        input="${input/__ROMAN__${roman}__/$number}"
-    done
+    while read -r word; do
+        # only check uppercase letters as possible Roman numerals
+        if [[ "$word" =~ ^[MDCLXVI]+$ ]]; then
+            if number=$(roman_to_int "$word"); then
+                input="${input// $word / $number }"
+            fi
+        fi
+    done < <(echo "$input" | tr ' ' '\n')
 
     # Final trim
     echo "$input" | sed -e 's/^ *//; s/ *$//'
@@ -642,22 +641,17 @@ remove_whitespace() {
 
 roman_to_int() {
     local roman="${1^^}" # uppercase
-    local -A map=(
-        [I]=1 [V]=5 [X]=10 [L]=50
-        [C]=100 [D]=500 [M]=1000
-    )
+    # validate strict Roman numeral
+    if ! [[ "$roman" =~ ^M{0,3}(CM|CD|D?C{0,3})(XC|XL|L?X{0,3})(IX|IV|V?I{0,3})$ ]]; then
+        return 1 # invalid numeral
+    fi
 
+    local -A map=([I]=1 [V]=5 [X]=10 [L]=50 [C]=100 [D]=500 [M]=1000)
     local i value prev=0 total=0
 
     for ((i = ${#roman} - 1; i >= 0; i--)); do
         value=${map[${roman:i:1}]}
-        [[ -z "$value" ]] && return 1
-
-        if ((value < prev)); then
-            ((total -= value))
-        else
-            ((total += value))
-        fi
+        ((value < prev)) && ((total -= value)) || ((total += value))
         prev=$value
     done
 

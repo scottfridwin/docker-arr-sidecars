@@ -595,53 +595,73 @@ CompareTrack() {
     deezerTrackTitleNorm="$(normalize_string "${deezerTrackTitle}")"
     deezerLongTrackTitleNorm="$(normalize_string "${deezerLongTrackTitle}")"
 
-    # First-pass comparison: plain titles
+    # First pass comparison: plain titles
     local d="$(LevenshteinDistance "${lidarrTrackTitleNorm,,}" "${deezerTrackTitleNorm,,}")"
     log "DEBUG :: Calculated distance \"$lidarrTrackTitleNorm\" to \"$deezerTrackTitleNorm\": $d"
 
     if [[ "$d" =~ ^[0-9]+$ ]]; then
 
-        # Second-pass comparison: strip feature annotations from Deezer title
+        # Second pass comparison: strip feature annotations from Deezer title
         if ((d > 0)); then
             local deezerTrackTitleStripped
             deezerTrackTitleStripped="$(normalize_string "$(StripTrackFeature "$deezerTrackTitle")")"
 
             if [[ -n "$deezerTrackTitleStripped" && "$deezerTrackTitleStripped" != "$deezerTrackTitle" ]]; then
-                local d2
-                d2="$(LevenshteinDistance "${lidarrTrackTitleNorm,,}" "${deezerTrackTitleStripped,,}")"
-                log "DEBUG :: Recalculated distance \"$lidarrTrackTitle\" to \"$deezerTrackTitleStripped\" (feature stripped): $d2"
+                local d_feature_stripped
+                d_feature_stripped="$(LevenshteinDistance "${lidarrTrackTitleNorm,,}" "${deezerTrackTitleStripped,,}")"
+                log "DEBUG :: Recalculated distance \"$lidarrTrackTitleNorm\" to \"$deezerTrackTitleStripped\" (feature stripped): $d_feature_stripped"
 
-                ((d2 < d)) && d="$d2"
+                ((d_feature_stripped < d)) && d="$d_feature_stripped"
             fi
         fi
 
-        # Third-pass comparison: use long Deezer title
+        # Third pass comparison: use long Deezer title
         if ((d > 0)); then
             if [[ -n "$deezerLongTrackTitle" && "$deezerLongTrackTitle" != "$deezerTrackTitle" ]]; then
-                local d3
-                d3="$(LevenshteinDistance "${lidarrTrackTitleNorm,,}" "${deezerLongTrackTitleNorm,,}")"
-                log "DEBUG :: Recalculated distance \"$lidarrTrackTitle\" to \"$deezerLongTrackTitle\" (long title): $d3"
+                local d_longtitle
+                d_longtitle="$(LevenshteinDistance "${lidarrTrackTitleNorm,,}" "${deezerLongTrackTitleNorm,,}")"
+                log "DEBUG :: Recalculated distance \"$lidarrTrackTitleNorm\" to \"$deezerLongTrackTitleNorm\" (long title): $d_longtitle"
 
-                ((d3 < d)) && d="$d3"
+                ((d_longtitle < d)) && d="$d_longtitle"
             fi
         fi
 
-        # Fourth-pass comparison: remove album title from track title (niche case)
+        # Fourth pass comparison: strip common track modifiers like "Remastered", "Live", "Acoustic", etc from both titles
+        if ((d > 0)); then
+            local lidarrStripped
+            local deezerStripped
+
+            lidarrStripped="$(normalize_string "$(RemoveModifiersFromTrackTitle "$lidarrTrackTitle")")"
+            deezerStripped="$(normalize_string "$(RemoveModifiersFromTrackTitle "$deezerTrackTitle")")"
+
+            if [[ "$lidarrStripped" != "$lidarrTrackTitleNorm" ]] ||
+                [[ "$deezerStripped" != "$deezerTrackTitleNorm" ]]; then
+
+                local d_modifiers
+                d_modifiers="$(LevenshteinDistance "${lidarrStripped,,}" "${deezerStripped,,}")"
+
+                log "DEBUG :: Recalculated distance \"$lidarrStripped\" to \"$deezerStripped\" (modifiers stripped): $d_modifiers"
+
+                ((d_modifiers < d)) && d="$d_modifiers"
+            fi
+        fi
+
+        # Fifth pass comparison: remove album title from track title (niche case)
         if ((d > 0)); then
             local deezerTrackTitleStripped
             local searchReleaseTitleClean="$(get_state "searchReleaseTitleClean")"
             deezerTrackTitleStripped="$(normalize_string "$(RemovePatternFromString "$deezerTrackTitle" "${searchReleaseTitleClean}")")"
 
             if [[ -n "$deezerTrackTitleStripped" && "$deezerTrackTitleStripped" != "$deezerTrackTitle" ]]; then
-                local d4
-                d4="$(LevenshteinDistance "${lidarrTrackTitleNorm,,}" "${deezerTrackTitleStripped,,}")"
-                log "DEBUG :: Recalculated distance \"$lidarrTrackTitle\" to \"$deezerTrackTitleStripped\" (album title stripped): $d4"
+                local d_album_stripped
+                d_album_stripped="$(LevenshteinDistance "${lidarrTrackTitleNorm,,}" "${deezerTrackTitleStripped,,}")"
+                log "DEBUG :: Recalculated distance \"$lidarrTrackTitleNorm\" to \"$deezerTrackTitleStripped\" (album title stripped): $d_album_stripped"
 
-                ((d4 < d)) && d="$d4"
+                ((d_album_stripped < d)) && d="$d_album_stripped"
             fi
         fi
 
-        # Fifth-pass comparison: remove spaces and punctuation from track titles (niche case)
+        # Sixth pass comparison: remove spaces and punctuation from track titles (niche case)
         if ((d > 0)); then
             local deezerTrackTitleStripped
             local searchReleaseTitleClean="$(get_state "searchReleaseTitleClean")"
@@ -651,22 +671,22 @@ CompareTrack() {
 
             if [[ -n "$deezerTrackTitleStripped" && "$deezerTrackTitleStripped" != "$deezerTrackTitle" ]] ||
                 [[ -n "$lidarrTrackTitleStripped" && "$lidarrTrackTitleStripped" != "$lidarrTrackTitle" ]]; then
-                local d5
-                d5="$(LevenshteinDistance "${lidarrTrackTitleStripped,,}" "${deezerTrackTitleStripped,,}")"
-                log "DEBUG :: Recalculated distance \"$lidarrTrackTitleStripped\" to \"$deezerTrackTitleStripped\" (no spaces): $d5"
+                local d_nopunct_nospace
+                d_nopunct_nospace="$(LevenshteinDistance "${lidarrTrackTitleStripped,,}" "${deezerTrackTitleStripped,,}")"
+                log "DEBUG :: Recalculated distance \"$lidarrTrackTitleStripped\" to \"$deezerTrackTitleStripped\" (no spaces): $d_nopunct_nospace"
 
-                ((d5 < d)) && d="$d5"
+                ((d_nopunct_nospace < d)) && d="$d_nopunct_nospace"
             fi
         fi
 
-        # Sixth-pass comparison: substring containment (Deezer ⊆ Lidarr or Lidarr ⊆ Deezer)
+        # Seventh pass comparison: substring containment (Deezer ⊆ Lidarr or Lidarr ⊆ Deezer)
         if ((d > 0)); then
             if [[ " ${deezerTrackTitle,,} " == *" ${lidarrTrackTitle,,} "* ]] ||
                 [[ " ${lidarrTrackTitle,,} " == *" ${deezerTrackTitle,,} "* ]]; then
                 # Treat as a close match (but not quite exact)
-                local d6=1
-                log "DEBUG :: Recalculated distance \"$lidarrTrackTitle\" to \"$deezerTrackTitle\" (contains check): $d6"
-                ((d6 < d)) && d="$d6"
+                local d_contains=1
+                log "DEBUG :: Recalculated distance \"$lidarrTrackTitle\" to \"$deezerTrackTitle\" (contains check): $d_contains"
+                ((d_contains < d)) && d="$d_contains"
             fi
         fi
 
@@ -1700,6 +1720,35 @@ RemoveEditionsFromAlbumTitle() {
     for p in "${patterns[@]}"; do
         if [[ "$lower" == *"$p"* ]]; then
             # Call your existing complex logic
+            title=$(RemovePatternFromString "$title" "$p")
+        fi
+    done
+
+    printf '%s\n' "$title"
+}
+
+# Remove common modifiers from a track title
+RemoveModifiersFromTrackTitle() {
+    local title="$1"
+    local lower="${title,,}"
+
+    local patterns=(
+        "live acoustic"
+        "live"
+        "acoustic"
+        "remix"
+        "radio edit"
+        "edit"
+        "version"
+        "instrumental"
+        "demo"
+        "explicit"
+        "clean"
+    )
+
+    local p
+    for p in "${patterns[@]}"; do
+        if [[ "$lower" == *"$p"* ]]; then
             title=$(RemovePatternFromString "$title" "$p")
         fi
     done
