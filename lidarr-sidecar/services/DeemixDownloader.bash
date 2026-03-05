@@ -17,6 +17,68 @@ readonly DEEMIX_CONFIG_PATH="${DEEMIX_DIR}/config/config.json"
 readonly BEETS_DIR="/tmp/beets"
 readonly BEETS_CONFIG_PATH="${BEETS_DIR}/beets.yaml"
 
+# Daily download limit state functions
+DailyStateFile() {
+    echo "${AUDIO_WORK_PATH:-/tmp}/daily_download_state"
+}
+
+LoadDailyDownloadState() {
+    local stateFile
+    stateFile="$(DailyStateFile)"
+    mkdir -p "${AUDIO_WORK_PATH:-/tmp}"
+
+    local today
+    today=$(date +%F)
+
+    if [ -f "${stateFile}" ]; then
+        read -r stateDate stateCount <"${stateFile}" || true
+        if [ "${stateDate}" != "${today}" ]; then
+            # reset for new day
+            stateDate="${today}"
+            stateCount=0
+            printf "%s %d" "${stateDate}" "${stateCount}" >"${stateFile}.tmp" && mv "${stateFile}.tmp" "${stateFile}"
+        fi
+    else
+        stateDate="${today}"
+        stateCount=0
+        printf "%s %d" "${stateDate}" "${stateCount}" >"${stateFile}.tmp" && mv "${stateFile}.tmp" "${stateFile}"
+    fi
+
+    export AUDIO_DAILY_STATE_DATE="${stateDate}"
+    export AUDIO_DAILY_STATE_COUNT="${stateCount}"
+}
+
+SaveDailyDownloadState() {
+    local stateFile
+    stateFile="$(DailyStateFile)"
+    mkdir -p "${AUDIO_WORK_PATH:-/tmp}"
+    local stateDate stateCount
+    stateDate="$(date +%F)"
+    stateCount="${AUDIO_DAILY_STATE_COUNT:-0}"
+    printf "%s %d" "${stateDate}" "${stateCount}" >"${stateFile}.tmp" && mv "${stateFile}.tmp" "${stateFile}"
+}
+
+IncrementDailyDownloadCount() {
+    if [[ -z "${AUDIO_DAILY_DOWNLOAD_LIMIT:-}" ]] || ((AUDIO_DAILY_DOWNLOAD_LIMIT <= 0)); then
+        return 0
+    fi
+    LoadDailyDownloadState
+    AUDIO_DAILY_STATE_COUNT=$((AUDIO_DAILY_STATE_COUNT + 1))
+    export AUDIO_DAILY_STATE_COUNT
+    SaveDailyDownloadState
+}
+
+DailyLimitReached() {
+    if [[ -z "${AUDIO_DAILY_DOWNLOAD_LIMIT:-}" ]] || ((AUDIO_DAILY_DOWNLOAD_LIMIT <= 0)); then
+        return 1
+    fi
+    LoadDailyDownloadState
+    if ((AUDIO_DAILY_STATE_COUNT >= AUDIO_DAILY_DOWNLOAD_LIMIT)); then
+        return 0
+    fi
+    return 1
+}
+
 # Add custom download client if it doesn't already exist
 AddDownloadClient() {
     log "TRACE :: Entering AddDownloadClient..."
@@ -266,6 +328,10 @@ ProcessLidarrWantedList() {
         if ((recordCount > 0)); then
             log "INFO :: Starting search for ${recordCount} ${listType} albums"
             for lidarrRecordId in "${toProcess[@]}"; do
+                if DailyLimitReached; then
+                    log "INFO :: Daily download limit reached; stopping processing of ${listType} albums for today"
+                    return
+                fi
                 SearchProcess "$lidarrRecordId"
             done
         fi
@@ -613,6 +679,11 @@ DownloadProcess() {
         find "${AUDIO_WORK_PATH}/staging" -type f -regex ".*/.*\.\(flac\|m4a\|mp3\|flac\|opus\)" -exec mv {} "${AUDIO_SHARED_LIDARR_PATH}/${downloadedAlbumFolder}"/ \;
 
         NotifyLidarrForImport "${AUDIO_SHARED_LIDARR_PATH}/${downloadedAlbumFolder}"
+        # Increment the persisted daily download counter and log if limit reached
+        IncrementDailyDownloadCount
+        if DailyLimitReached; then
+            log "INFO :: Reached daily download limit (${AUDIO_DAILY_STATE_COUNT}/${AUDIO_DAILY_DOWNLOAD_LIMIT})"
+        fi
     else
         log "WARNING :: Album \"${deezerAlbumTitle}\" failed post-processing and was skipped"
     fi
@@ -782,6 +853,7 @@ log "DEBUG :: AUDIO_RETRY_DOWNLOADED_DAYS=${AUDIO_RETRY_DOWNLOADED_DAYS}"
 log "DEBUG :: AUDIO_RETRY_FAILED_DAYS=${AUDIO_RETRY_FAILED_DAYS}"
 log "DEBUG :: AUDIO_RETRY_NOTFOUND_DAYS=${AUDIO_RETRY_NOTFOUND_DAYS}"
 log "DEBUG :: AUDIO_SHARED_LIDARR_PATH=${AUDIO_SHARED_LIDARR_PATH}"
+log "DEBUG :: AUDIO_DAILY_DOWNLOAD_LIMIT=${AUDIO_DAILY_DOWNLOAD_LIMIT:-}"
 log "DEBUG :: AUDIO_TIEBREAKER_COUNTRIES=${AUDIO_TIEBREAKER_COUNTRIES}"
 log "DEBUG :: AUDIO_TITLE_REPLACEMENTS_FILE=${AUDIO_TITLE_REPLACEMENTS_FILE}"
 log "DEBUG :: AUDIO_WORK_PATH=${AUDIO_WORK_PATH}"
@@ -827,8 +899,13 @@ while true; do
         mkdir -p "${AUDIO_DATA_PATH}"/notfound
     fi
 
-    ProcessLidarrWantedList "missing"
-    ProcessLidarrWantedList "cutoff"
+    LoadDailyDownloadState
+    if DailyLimitReached; then
+        log "INFO :: Daily download limit reached; skip processing of wanted lists"
+    else
+        ProcessLidarrWantedList "missing"
+        ProcessLidarrWantedList "cutoff"
+    fi
 
     # If AUDIO_INTERVAL is "none", run only once
     if [[ "${AUDIO_INTERVAL}" == "none" ]]; then

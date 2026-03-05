@@ -100,6 +100,7 @@ Services:
 | AUDIO_SHARED_LIDARR_PATH | /sidecar-import | Shared import path watched by Lidarr (Blackhole) |
 | AUDIO_TITLE_REPLACEMENTS_FILE | /app/config/album_title_replacements.json | Title normalization map (JSON) |
 | AUDIO_WORK_PATH | /work | Working directory for temporary files |
+| AUDIO_DAILY_DOWNLOAD_LIMIT | (unset) | Maximum number of albums to download per day. Set to a positive integer to enable daily limiting; 0 or unset = unlimited |
 |---|---|---|
 | AUTOCONFIG_DELAY | 10 | Initial delay before running `AutoConfig` service after container start |
 | AUTOCONFIG_CUSTOMFORMAT | false | Configure settings at the `customformat` api endpoint. |
