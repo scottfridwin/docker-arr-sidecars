@@ -291,20 +291,7 @@ ProcessLidarrWantedList() {
         return
     fi
 
-    # Preload title replacement file
-    LoadTitleReplacements
-
-    # Preload all notfound/downloaded IDs into memory (only once)
-    mapfile -t notfound < <(
-        find "${AUDIO_DATA_PATH}/notfound/" -type f 2>/dev/null | while read -r f; do
-            basename "$f"
-        done | sed 's/--.*//' | sort
-    ) 2>/dev/null
-    mapfile -t downloaded < <(
-        find "${AUDIO_DATA_PATH}/downloaded/" -type f 2>/dev/null | while read -r f; do
-            basename "$f"
-        done | sed 's/--.*//' | sort
-    ) 2>/dev/null
+    PreloadCommonData
 
     local totalPages=$(((totalRecords + pageSize - 1) / pageSize))
 
@@ -339,6 +326,99 @@ ProcessLidarrWantedList() {
 
     log "INFO :: Completed processing ${listType} albums"
     log "TRACE :: Exiting ProcessLidarrWantedList..."
+}
+
+# Load and process a user-provided priority file containing Lidarr album IDs (one per line)
+ProcessPriorityList() {
+    log "TRACE :: Entering ProcessPriorityList..."
+    if [[ -z "${AUDIO_PRIORITY_FILE:-}" ]]; then
+        log "DEBUG :: No priority file configured"
+        return
+    fi
+
+    if [[ ! -f "${AUDIO_PRIORITY_FILE}" ]]; then
+        log "WARNING :: Priority file configured but not found: ${AUDIO_PRIORITY_FILE}"
+        return
+    fi
+
+    # Ensure common data (title replacements, notfound/downloaded lists) are loaded
+    PreloadCommonData
+
+    log "DEBUG :: Loading priority file: ${AUDIO_PRIORITY_FILE}"
+
+    # Read file, ignore blank lines and comments, trim whitespace
+    mapfile -t priorityIds < <(
+        sed -e 's/\r$//' "${AUDIO_PRIORITY_FILE}" | sed 's/^\s*//;s/\s*$//' | grep -v '^\s*$' | grep -v '^\s*#' || true
+    )
+
+    if [ ${#priorityIds[@]} -eq 0 ]; then
+        log "DEBUG :: Priority file empty"
+        return
+    fi
+
+    log "INFO :: Processing ${#priorityIds[@]} priority album(s)"
+
+    for lidarrAlbumId in "${priorityIds[@]}"; do
+        if DailyLimitReached; then
+            log "INFO :: Daily download limit reached; pausing priority processing"
+            break
+        fi
+        # Skip empty entries
+        if [[ -z "${lidarrAlbumId}" ]]; then
+            continue
+        fi
+
+        # Skip if already downloaded
+        if compgen -G "${AUDIO_DATA_PATH}/downloaded/${lidarrAlbumId}--*" >/dev/null; then
+            log "DEBUG :: Priority album ${lidarrAlbumId} already marked as downloaded; skipping"
+            continue
+        fi
+        # Skip if previously failed
+        if [[ -f "${AUDIO_DATA_PATH}/failed/${lidarrAlbumId}" ]]; then
+            log "DEBUG :: Priority album ${lidarrAlbumId} previously failed; skipping"
+            continue
+        fi
+
+        SearchProcess "${lidarrAlbumId}"
+    done
+
+    log "TRACE :: Exiting ProcessPriorityList..."
+}
+
+# Preload data used by multiple processing routines
+PreloadCommonData() {
+    log "TRACE :: Entering PreloadCommonData..."
+    # Preload title replacement file
+    LoadTitleReplacements
+
+    # Preload all notfound/downloaded IDs into memory (only once)
+    mapfile -t notfound < <(
+        find "${AUDIO_DATA_PATH}/notfound/" -type f 2>/dev/null | while read -r f; do
+            basename "$f"
+        done | sed 's/--.*//' | sort
+    ) 2>/dev/null
+    mapfile -t downloaded < <(
+        find "${AUDIO_DATA_PATH}/downloaded/" -type f 2>/dev/null | while read -r f; do
+            basename "$f"
+        done | sed 's/--.*//' | sort
+    ) 2>/dev/null
+
+    log "TRACE :: Exiting PreloadCommonData..."
+}
+
+# Remove a Lidarr album id from the priority file (if present)
+RemoveFromPriorityFile() {
+    local albumId="$1"
+    if [[ -z "${AUDIO_PRIORITY_FILE:-}" || ! -f "${AUDIO_PRIORITY_FILE}" || -z "${albumId}" ]]; then
+        return
+    fi
+
+    # Use a safe temp file edit
+    local tmpfile
+    tmpfile="${AUDIO_PRIORITY_FILE}.tmp"
+    grep -v -x -F "${albumId}" "${AUDIO_PRIORITY_FILE}" >"${tmpfile}" || true
+    mv "${tmpfile}" "${AUDIO_PRIORITY_FILE}"
+    log "DEBUG :: Removed album ${albumId} from priority file ${AUDIO_PRIORITY_FILE}"
 }
 
 # Given a Lidarr album ID, search for and attempt to download the album
@@ -673,6 +753,8 @@ DownloadProcess() {
     if [ "$returnCode" -eq 0 ]; then
         log "DEBUG :: Album \"${deezerAlbumTitle}\" successfully downloaded"
         touch "${AUDIO_DATA_PATH}/downloaded/${lidarrAlbumId}--${lidarrArtistForeignArtistId}--${lidarrAlbumForeignAlbumId}"
+        # If this album was present in the user-provided priority file, remove it
+        RemoveFromPriorityFile "${lidarrAlbumId}" || true
 
         local downloadedAlbumFolder="$(CleanPathString "${lidarrArtistName:0:100}")-$(CleanPathString "${lidarrAlbumTitle:0:100}") (${downloadedReleaseYear})"
         mkdir -p "${AUDIO_SHARED_LIDARR_PATH}/${downloadedAlbumFolder}"
@@ -846,6 +928,8 @@ log "DEBUG :: AUDIO_MATCH_THRESHOLD_TRACK_DIFF_AVG=${AUDIO_MATCH_THRESHOLD_TRACK
 log "DEBUG :: AUDIO_MATCH_THRESHOLD_TRACK_DIFF_MAX=${AUDIO_MATCH_THRESHOLD_TRACK_DIFF_MAX}"
 log "DEBUG :: AUDIO_PREFERRED_COUNTRIES=${AUDIO_PREFERRED_COUNTRIES}"
 log "DEBUG :: AUDIO_PREFERRED_FORMATS=${AUDIO_PREFERRED_FORMATS}"
+log "DEBUG :: AUDIO_PRIORITY_FILE=${AUDIO_PRIORITY_FILE}"
+log "DEBUG :: AUDIO_PRIORITY_ONLY=${AUDIO_PRIORITY_ONLY}"
 log "DEBUG :: AUDIO_REQUIRE_MUSICBRAINZ_REL=${AUDIO_REQUIRE_MUSICBRAINZ_REL}"
 log "DEBUG :: AUDIO_REQUIRE_QUALITY=${AUDIO_REQUIRE_QUALITY}"
 log "DEBUG :: AUDIO_RESULT_FILE_NAME=${AUDIO_RESULT_FILE_NAME}"
@@ -903,8 +987,11 @@ while true; do
     if DailyLimitReached; then
         log "INFO :: Daily download limit reached; skip processing of wanted lists"
     else
-        ProcessLidarrWantedList "missing"
-        ProcessLidarrWantedList "cutoff"
+        ProcessPriorityList
+        if [[ "${AUDIO_PRIORITY_ONLY}" == "false" ]]; then
+            ProcessLidarrWantedList "missing"
+            ProcessLidarrWantedList "cutoff"
+        fi
     fi
 
     # If AUDIO_INTERVAL is "none", run only once
