@@ -1011,6 +1011,7 @@ ExtractAlbumInfo() {
     set_state "lidarrAlbumReleaseDate" "${albumReleaseDate}"
     set_state "lidarrAlbumReleaseDateClean" "${releaseDateClean}"
     set_state "lidarrAlbumReleaseYear" "${albumReleaseYear}"
+    set_state "lidarrAlbumIsNewRelease" "false" # Default to false; will be updated later if applicable
 
     log "TRACE :: Exiting ExtractAlbumInfo..."
 }
