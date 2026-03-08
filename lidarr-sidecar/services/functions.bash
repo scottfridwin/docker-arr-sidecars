@@ -225,16 +225,23 @@ GetDeezerAlbumInfo() {
             return 1
         fi
 
+        # Remap album ID if Deezer returned a different one (e.g., for outdated musicbrainz links)
+        local newAlbumId="${albumId}"
+        if [[ "$(safe_jq --optional '.id' <<<"$albumJson")" != "$albumId" ]]; then
+            newAlbumId="$(safe_jq --optional '.id' <<<"$albumJson")"
+            log "DEBUG :: Deezer album ID ${albumId} has been remapped to ${newAlbumId}"
+        fi
+
         # Determine if track pagination is needed
         local nb_tracks embedded_tracks
         nb_tracks="$(safe_jq '.nb_tracks' <<<"$albumJson")"
         embedded_tracks="$(safe_jq '.tracks.data | length' <<<"$albumJson")"
 
         if ((embedded_tracks < nb_tracks)); then
-            log "DEBUG :: Album ${albumId} has ${nb_tracks} tracks, fetching remaining pages"
+            log "DEBUG :: Album ${newAlbumId} has ${nb_tracks} tracks, fetching remaining pages"
 
             local all_tracks=()
-            local nextUrl="https://api.deezer.com/album/${albumId}/tracks"
+            local nextUrl="https://api.deezer.com/album/${newAlbumId}/tracks"
 
             while [[ -n "$nextUrl" ]]; do
                 if ! CallDeezerAPI "$nextUrl"; then

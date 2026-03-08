@@ -496,6 +496,7 @@ DownloadProcess() {
     deezerAlbumJson=$(cat) # read JSON object from stdin
 
     local deezerAlbumId deezerAlbumTitle deezerAlbumTrackCount downloadedReleaseDate downloadedReleaseYear
+    # Important: This reads from the json, which always has the correct id. If this is replaced with state variables, it may not reflect the remapped Deezer album ID.
     deezerAlbumId=$(jq -r ".id" <<<"${deezerAlbumJson}")
     deezerAlbumTitle=$(jq -r ".title" <<<"${deezerAlbumJson}" | head -n1)
     deezerAlbumTrackCount="$(jq -r .nb_tracks <<<"${deezerAlbumJson}")"
