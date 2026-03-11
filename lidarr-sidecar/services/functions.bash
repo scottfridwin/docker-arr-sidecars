@@ -809,7 +809,12 @@ ComputeMatchMetrics() {
         if [[ "${searchReleaseTitleClean,,}" == "${deezerCandidateTitleVariant,,}" ]]; then
             set_state "candidateNameDiff" "0"
         else
-            set_state "candidateNameDiff" "999"
+            # Allow for one title to contain the other (e.g., "Album" vs "Album (Deluxe Edition)")
+            if [[ "${searchReleaseTitleClean,,}" == *"${deezerCandidateTitleVariant,,}"* ]] || [[ "${deezerCandidateTitleVariant,,}" == *"${searchReleaseTitleClean,,}"* ]]; then
+                set_state "candidateNameDiff" "0"
+            else
+                set_state "candidateNameDiff" "999"
+            fi
         fi
     else
         set_state "candidateNameDiff" "$(LevenshteinDistance "${searchReleaseTitleClean,,}" "${deezerCandidateTitleVariant,,}")"
