@@ -1,5 +1,5 @@
 # ===== Final Stage =====
-FROM debian:13.3-slim
+FROM debian:13.4-slim
 
 # Install runtime dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
