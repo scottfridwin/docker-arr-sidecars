@@ -64,6 +64,22 @@ AddDownloadClient() {
     log "TRACE :: Exiting AddDownloadClient..."
 }
 
+# Creates NZB stub so Sonarr tracks the download
+CreateNzbStub() {
+    local importPath="$1"
+    local name
+    name="$(basename "$importPath")"
+
+    local nzbFile="${AUTOIMPORT_SHARED_PATH}/${name}.nzb"
+
+    if [[ ! -f "$nzbFile" ]]; then
+        log "DEBUG :: Creating NZB stub: $nzbFile"
+        echo "<nzb></nzb>" > "$nzbFile"
+    else
+        log "DEBUG :: NZB stub already exists: $nzbFile"
+    fi
+}
+
 # Gets the list of series in the Sonarr database and caches it to a file
 GetSeries() {
     log "TRACE :: Entering GetSeries..."
@@ -127,15 +143,14 @@ GetSeries() {
 # Notify *arr to import the specified path
 NotifyArrForImport() {
     log "TRACE :: Entering NotifyArrForImport..."
-    # $1 -> folder path containing audio files for *arr to import
-    local importPath="${1}"
+    local importPath="$1"
 
-    # Remove the import status file if it exists
     rm -rf "${importPath}/IMPORT_STATUS.txt"
 
-    ArrApiRequest "POST" "command" "{\"name\":\"DownloadedSeriesScan\", \"path\":\"${importPath}\"}"
+    # Trigger Sonarr's monitored download processing
+    ArrApiRequest "POST" "command" '{"name":"ProcessMonitoredDownloads"}'
 
-    log "INFO :: Sent notification to ${ARR_NAME} to import from path: ${importPath}"
+    log "INFO :: Triggered ProcessMonitoredDownloads for ${ARR_NAME}"
     log "TRACE :: Exiting NotifyArrForImport..."
 }
 
@@ -193,37 +208,47 @@ CheckPermissions() {
 
 # Processes a specified file for import
 ProcessImport() {
-    local importDir="${1}"
+    local importDir="$1"
     local dirName
     dirName="$(basename "$importDir")"
-    local targetName="${dirName#${AUTOIMPORT_IMPORT_MARKER}}" # remove import tag prefix
-    targetName="${targetName#" "}"                            # trim leading space if any
+    local targetName="${dirName#${AUTOIMPORT_IMPORT_MARKER}}"
+    targetName="${targetName#" "}"
 
     log "INFO :: Processing flagged import folder: ${dirName}"
     GetSeries
     local seriesPaths="$(get_state "seriesPaths")"
 
-    # Try to find exact match
     local matchPath
     matchPath="$(echo "$seriesPaths" | grep -F "/$targetName" || true)"
 
     if [[ -n "$matchPath" ]]; then
         log "DEBUG :: Match found: ${targetName} -> ${matchPath}"
+
         if ! CheckPermissions "${importDir}"; then
             local issues
             issues="$(get_state "permissionIssues")"
             echo -e "Permission or ownership issues detected:\n${issues}" >"${importDir}/IMPORT_STATUS.txt"
         else
             local destDir="${AUTOIMPORT_SHARED_PATH}/${targetName}"
+
+            # Move files first
+            log "DEBUG :: Moving '${importDir}' to '${destDir}'"
             mv "${importDir}" "${destDir}" 2>/dev/null
-            log "DEBUG :: Moved '${importDir}' to '${destDir}'"
+            log "DEBUG :: Finished moving '${importDir}' to '${destDir}'"
+
+            # 🔥 NEW: Create NZB stub so Sonarr tracks this
+            CreateNzbStub "${destDir}"
+
+            # 🔥 Give Sonarr a moment to pick up NZB (optional but helps reliability)
+            sleep 2
+
+            # 🔥 Trigger monitored download processing
             NotifyArrForImport "${destDir}"
         fi
     else
         log "DEBUG :: No match found for '${targetName}'"
-        echo "No matching series directory found in Radarr for '$targetName'." >"${importDir}/IMPORT_STATUS.txt"
+        echo "No matching series directory found in Sonarr for '$targetName'." >"${importDir}/IMPORT_STATUS.txt"
 
-        # rename to remove import tag so it's not retried
         local newDir="${AUTOIMPORT_DROP_DIR}/${targetName}"
         mv "${importDir}" "${newDir}"
         log "DEBUG :: Removed import tag from '${importDir}'"
