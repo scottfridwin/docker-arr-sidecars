@@ -236,13 +236,8 @@ ProcessImport() {
             mv "${importDir}" "${destDir}" 2>/dev/null
             log "DEBUG :: Finished moving '${importDir}' to '${destDir}'"
 
-            # 🔥 NEW: Create NZB stub so Sonarr tracks this
-            CreateNzbStub "${destDir}"
-
-            # 🔥 Give Sonarr a moment to pick up NZB (optional but helps reliability)
-            sleep 2
-
-            # 🔥 Trigger monitored download processing
+            # Push the release into the queue and notify
+            PushReleaseToSonarr "${targetName}"
             NotifyArrForImport "${destDir}"
         fi
     else
@@ -253,6 +248,27 @@ ProcessImport() {
         mv "${importDir}" "${newDir}"
         log "DEBUG :: Removed import tag from '${importDir}'"
     fi
+}
+
+# Pushes a download item into Sonarr's queue
+PushReleaseToSonarr() {
+    local title="$1"
+
+    log "DEBUG :: Pushing release to Sonarr: $title"
+
+    payload=$(jq -n \
+        --arg title "$title" \
+        --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+        '{
+            title: $title,
+            downloadUrl: "http://localhost/fake.nzb",
+            protocol: "usenet",
+            publishDate: $now,
+            indexer: "sidecar",
+            downloadClient: "sonarr-sidecar"
+        }')
+
+    ArrApiRequest "POST" "release/push" "$payload"
 }
 
 # Loops over all directories in the drop directory to process for import
