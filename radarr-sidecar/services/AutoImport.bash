@@ -133,9 +133,13 @@ NotifyArrForImport() {
     # Remove the import status file if it exists
     rm -rf "${importPath}/IMPORT_STATUS.txt"
 
-    ArrApiRequest "POST" "command" "{\"name\":\"DownloadedMoviesScan\", \"path\":\"${importPath}\"}"
+    if [[ "${AUTOIMPORT_SKIP_NOTIFY:-}" == "true" ]]; then
+        log "INFO :: AUTOIMPORT_SKIP_NOTIFY is true, skipping notification to ${ARR_NAME} for import at path: ${importPath}"
+    else
+        ArrApiRequest "POST" "command" "{\"name\":\"DownloadedMoviesScan\", \"path\":\"${importPath}\"}"
+        log "INFO :: Sent notification to ${ARR_NAME} to import from path: ${importPath}"
+    fi
 
-    log "INFO :: Sent notification to ${ARR_NAME} to import from path: ${importPath}"
     log "TRACE :: Exiting NotifyArrForImport..."
 }
 
@@ -253,6 +257,7 @@ log "DEBUG :: AUTOIMPORT_GROUP=${AUTOIMPORT_GROUP:-}"
 log "DEBUG :: AUTOIMPORT_IMPORT_MARKER=${AUTOIMPORT_IMPORT_MARKER}"
 log "DEBUG :: AUTOIMPORT_INTERVAL=${AUTOIMPORT_INTERVAL}"
 log "DEBUG :: AUTOIMPORT_SHARED_PATH=${AUTOIMPORT_SHARED_PATH}"
+log "DEBUG :: AUTOIMPORT_SKIP_NOTIFY=${AUTOIMPORT_SKIP_NOTIFY}"
 log "DEBUG :: AUTOIMPORT_WORK_DIR=${AUTOIMPORT_WORK_DIR}"
 
 ### Validation ###

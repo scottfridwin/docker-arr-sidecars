@@ -74,7 +74,7 @@ CreateNzbStub() {
 
     if [[ ! -f "$nzbFile" ]]; then
         log "DEBUG :: Creating NZB stub: $nzbFile"
-        echo "<nzb></nzb>" > "$nzbFile"
+        echo "<nzb></nzb>" >"$nzbFile"
     else
         log "DEBUG :: NZB stub already exists: $nzbFile"
     fi
@@ -147,10 +147,13 @@ NotifyArrForImport() {
 
     rm -rf "${importPath}/IMPORT_STATUS.txt"
 
-    # Trigger Sonarr's monitored download processing
-    ArrApiRequest "POST" "command" '{"name":"ProcessMonitoredDownloads"}'
+    if [[ "${AUTOIMPORT_SKIP_NOTIFY:-}" == "true" ]]; then
+        log "INFO :: AUTOIMPORT_SKIP_NOTIFY is true, skipping notification to ${ARR_NAME} for import at path: ${importPath}"
+    else
+        ArrApiRequest "POST" "command" '{"name":"ProcessMonitoredDownloads"}'
+        log "INFO :: Triggered ProcessMonitoredDownloads for ${ARR_NAME}"
+    fi
 
-    log "INFO :: Triggered ProcessMonitoredDownloads for ${ARR_NAME}"
     log "TRACE :: Exiting NotifyArrForImport..."
 }
 
@@ -294,6 +297,7 @@ log "DEBUG :: AUTOIMPORT_GROUP=${AUTOIMPORT_GROUP:-}"
 log "DEBUG :: AUTOIMPORT_IMPORT_MARKER=${AUTOIMPORT_IMPORT_MARKER}"
 log "DEBUG :: AUTOIMPORT_INTERVAL=${AUTOIMPORT_INTERVAL}"
 log "DEBUG :: AUTOIMPORT_SHARED_PATH=${AUTOIMPORT_SHARED_PATH}"
+log "DEBUG :: AUTOIMPORT_SKIP_NOTIFY=${AUTOIMPORT_SKIP_NOTIFY}"
 log "DEBUG :: AUTOIMPORT_WORK_DIR=${AUTOIMPORT_WORK_DIR}"
 
 ### Validation ###
