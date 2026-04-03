@@ -257,12 +257,15 @@ ProcessImport() {
 PushReleaseToSonarr() {
     local title="$1"
 
-    log "DEBUG :: Pushing release to Sonarr: $title"
+    if [[ "${AUTOIMPORT_SKIP_NOTIFY:-}" == "true" ]]; then
+        log "INFO :: AUTOIMPORT_SKIP_NOTIFY is true, skipping push to Sonarr for release: $title"
+    else
+        log "DEBUG :: Pushing release to Sonarr: $title"
 
-    payload=$(jq -n \
-        --arg title "$title" \
-        --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-        '{
+        payload=$(jq -n \
+            --arg title "$title" \
+            --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            '{
             title: $title,
             downloadUrl: "http://localhost/fake.nzb",
             protocol: "usenet",
@@ -271,7 +274,9 @@ PushReleaseToSonarr() {
             downloadClient: "sonarr-sidecar"
         }')
 
-    ArrApiRequest "POST" "release/push" "$payload"
+        ArrApiRequest "POST" "release/push" "$payload"
+        log "INFO :: Successfully pushed release to Sonarr: $title"
+    fi
 }
 
 # Loops over all directories in the drop directory to process for import
