@@ -193,8 +193,14 @@ ArrApiRequest() {
         log "TRACE :: httpCode: ${httpCode}"
         log "TRACE :: body: ${body}"
         case "${httpCode}" in
-        200 | 201 | 202 | 204)
-            # Successful request
+        200 | 201 | 202)
+            if [[ -n "${body}" ]] && ! safe_jq --validate --optional '.' <<<"${body}" >/dev/null 2>&1; then
+                log "ERROR :: ${ARR_NAME} returned invalid JSON for ${method} ${path}"
+                return 1
+            fi
+            break
+            ;;
+        204)
             break
             ;;
         000)

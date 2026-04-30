@@ -1072,6 +1072,12 @@ CreateReleaseJson() {
     log "TRACE :: Entering CreateReleaseJson..."
 
     local release_json="$1"
+    if ! safe_jq --validate '.' <<<"${release_json}" >/dev/null 2>&1; then
+        log "WARNING :: CreateReleaseJson received invalid JSON release object"
+        log "WARNING :: release_json: ${release_json}"
+        return 1
+    fi
+
     local lidarrReleaseTitle="$(safe_jq ".title" <<<"${release_json}")"
     local lidarrReleaseDisambiguation="$(safe_jq --optional ".disambiguation" <<<"${release_json}")"
     local lidarrReleaseTrackCount="$(safe_jq ".trackCount" <<<"${release_json}")"
@@ -1320,10 +1326,25 @@ FindDeezerMatch() {
 
     # Fetch album data from Lidarr
     local lidarrAlbumData
-    ArrApiRequest "GET" "album/${lidarrAlbumId}"
+    if ! ArrApiRequest "GET" "album/${lidarrAlbumId}"; then
+        log "WARNING :: Lidarr API response invalid for album ID ${lidarrAlbumId}, skipping search"
+        return
+    fi
     lidarrAlbumData="$(get_state "arrApiResponse")"
     if [ -z "$lidarrAlbumData" ]; then
         log "WARNING :: Lidarr returned no data for album ID ${lidarrAlbumId}"
+        return
+    fi
+    if ! safe_jq --validate '.' <<<"${lidarrAlbumData}" >/dev/null 2>&1; then
+        log "WARNING :: Lidarr returned malformed JSON for album ID ${lidarrAlbumId}"
+        return
+    fi
+    if ! safe_jq --validate '.artist | objects' <<<"${lidarrAlbumData}" >/dev/null 2>&1; then
+        log "WARNING :: Lidarr album JSON missing artist object for album ID ${lidarrAlbumId}"
+        return
+    fi
+    if ! safe_jq --validate '.releases | arrays' <<<"${lidarrAlbumData}" >/dev/null 2>&1; then
+        log "WARNING :: Lidarr album JSON missing releases array for album ID ${lidarrAlbumId}"
         return
     fi
     set_state "lidarrAlbumData" "${lidarrAlbumData}" # Cache response in state object
@@ -1378,11 +1399,16 @@ FindDeezerMatch() {
     local lidarrAlbumInfo="$(get_state "lidarrAlbumInfo")"
     mapfile -t inputReleases < <(jq -c '.releases[]' <<<"$lidarrAlbumInfo")
     for inputRelease in "${inputReleases[@]}"; do
-        local releaseJson=$(CreateReleaseJson "$inputRelease")
+        local releaseJson
+        if ! releaseJson=$(CreateReleaseJson "$inputRelease"); then
+            log "WARNING :: Skipping invalid release object from Lidarr album JSON"
+            continue
+        fi
         log "TRACE :: Created Lidarr release JSON: ${releaseJson}"
-        releaseJsonArray="$(
-            jq -c --argjson r "$releaseJson" '. + [$r]' <<<"$releaseJsonArray"
-        )"
+        if ! releaseJsonArray="$(jq -c --argjson r "$releaseJson" '. + [$r]' <<<"$releaseJsonArray")"; then
+            log "WARNING :: Failed to append release JSON; skipping invalid release"
+            continue
+        fi
     done
     releaseJsonArray="$(jq -c 'sort_by(.deezer_album_id == "" , - .track_count)' <<<"$releaseJsonArray")"
 
