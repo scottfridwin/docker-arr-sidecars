@@ -4,7 +4,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 from shared.python import entrypoint
 
@@ -67,10 +67,20 @@ class TestEntrypoint(unittest.TestCase):
             ) as popen_mock:
                 processes = entrypoint._start_services(service_base_dir)
 
-            mock_run.assert_called_once_with([sys.executable, str(auto_config)])
+            mock_run.assert_called_once_with(
+                [sys.executable, str(auto_config)], env=ANY
+            )
+            self.assertEqual(
+                mock_run.call_args.kwargs["env"]["SCRIPT_NAME"], "AutoConfig"
+            )
             self.assertIn(1234, processes)
             popen_mock.assert_called_once()
-            popen_mock.assert_called_once_with([sys.executable, str(auto_import)])
+            popen_mock.assert_called_once_with(
+                [sys.executable, str(auto_import)], env=ANY
+            )
+            self.assertEqual(
+                popen_mock.call_args.kwargs["env"]["SCRIPT_NAME"], "AutoImport"
+            )
 
     def test_start_services_runs_one_time_service_before_long_running(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -99,6 +109,17 @@ class TestEntrypoint(unittest.TestCase):
             ) as popen_mock:
                 processes = entrypoint._start_services(service_base_dir)
 
-            mock_run.assert_called_once_with([sys.executable, str(auto_config)])
+            mock_run.assert_called_once_with(
+                [sys.executable, str(auto_config)], env=ANY
+            )
+            self.assertEqual(
+                mock_run.call_args.kwargs["env"]["SCRIPT_NAME"], "AutoConfig"
+            )
             self.assertIn(4321, processes)
-            popen_mock.assert_called_once_with([sys.executable, str(auto_import)])
+            popen_mock.assert_called_once()
+            popen_mock.assert_called_once_with(
+                [sys.executable, str(auto_import)], env=ANY
+            )
+            self.assertEqual(
+                popen_mock.call_args.kwargs["env"]["SCRIPT_NAME"], "AutoImport"
+            )

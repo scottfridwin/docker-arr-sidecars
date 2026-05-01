@@ -59,6 +59,8 @@ def _log_startup() -> None:
     debug(f"AUTOIMPORT_INTERVAL={env('AUTOIMPORT_INTERVAL')}")
     debug(f"AUTOIMPORT_SHARED_PATH={env('AUTOIMPORT_SHARED_PATH')}")
     debug(f"AUTOIMPORT_WORK_DIR={env('AUTOIMPORT_WORK_DIR')}")
+    debug(f"AUTOIMPORT_API_PAGE_SIZE={env('AUTOIMPORT_API_PAGE_SIZE', '100')}")
+    debug(f"ARR_API_TIMEOUT={env('ARR_API_TIMEOUT', '60')}")
 
 
 def main(strategy: ImportStrategy) -> None:

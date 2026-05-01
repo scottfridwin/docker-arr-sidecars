@@ -82,7 +82,9 @@ def _run_one_time_services(service_dir: Path) -> None:
     services = sorted(service_dir.glob("*.py"))
     for service in services:
         info(f"Running one-time service {service.name}")
-        result = subprocess.run([sys.executable, str(service)])
+        child_env = os.environ.copy()
+        child_env["SCRIPT_NAME"] = service.stem
+        result = subprocess.run([sys.executable, str(service)], env=child_env)
         if result.returncode != 0:
             error(f"One-time service failed: {service.name} code={result.returncode}")
             set_unhealthy(result.returncode)
@@ -111,7 +113,9 @@ def _start_services(
     processes: dict[int, subprocess.Popen] = {}
     for service in services:
         info(f"Starting service {service.name}")
-        process = subprocess.Popen([sys.executable, str(service)])
+        child_env = os.environ.copy()
+        child_env["SCRIPT_NAME"] = service.stem
+        process = subprocess.Popen([sys.executable, str(service)], env=child_env)
         processes[process.pid] = process
         debug(f"Started PID {process.pid} for {service.name}")
 

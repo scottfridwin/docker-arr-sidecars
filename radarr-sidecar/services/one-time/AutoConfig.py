@@ -6,7 +6,7 @@ import sys
 
 # Ensure /app is on the Python path so shared modules can be imported
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-os.environ.setdefault("SCRIPT_NAME", "AutoConfig")
+os.environ["SCRIPT_NAME"] = "AutoConfig"
 
 from shared.python.autoconfig import main
 

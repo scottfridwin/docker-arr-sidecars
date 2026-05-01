@@ -65,14 +65,21 @@ def http_request(method: str, url: str, payload: str | None = None):
 
     timeout = int(env("ARR_API_TIMEOUT", "60"))
     request_obj = Request(url, data=data, headers=headers, method=method)
+    debug(
+        f"TRACE :: HTTP request method='{method}', url='{url}', timeout={timeout}"
+    )
     try:
         with urlopen(request_obj, timeout=timeout) as response:
             body = response.read().decode("utf-8", errors="replace")
             return response.getcode(), body
     except HTTPError as exc:
         body = exc.read().decode("utf-8", errors="replace")
+        debug(
+            f"TRACE :: HTTPError for {method} {url} status={exc.code} message={exc.reason}"
+        )
         return exc.code, body
-    except URLError:
+    except URLError as exc:
+        debug(f"TRACE :: URLError for {method} {url}: {exc}")
         raise
 
 

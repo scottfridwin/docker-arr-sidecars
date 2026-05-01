@@ -49,15 +49,19 @@ def _fetch_paginated_resource_paths(strategy, cache_file: Path) -> list[str]:
     page_size = int(env("AUTOIMPORT_API_PAGE_SIZE", "100"))
     page = 1
     resource_paths: list[str] = []
+    debug(
+        f"TRACE :: Fetching paginated {strategy.resource_endpoint} (pageSize={page_size})"
+    )
 
     while True:
         query = f"{strategy.resource_endpoint}?page={page}&pageSize={page_size}"
+        debug(f"TRACE :: Requesting page {page} for {strategy.resource_endpoint}")
         try:
             arr_api_request("GET", query)
         except SystemExit:
             if page == 1:
                 debug(
-                    "DEBUG :: Pagination unavailable or failed; falling back to unpaged resource fetch"
+                    "TRACE :: Pagination unavailable or failed; falling back to unpaged resource fetch"
                 )
                 return _fetch_unpaged_resource_paths(strategy, cache_file)
             fatal(f"Failed to paginate {strategy.resource_endpoint} after page {page}")
@@ -67,8 +71,10 @@ def _fetch_paginated_resource_paths(strategy, cache_file: Path) -> list[str]:
             fatal(f"Failed to fetch resource list from {env('ARR_NAME')} API")
 
         if not response:
+            debug(f"TRACE :: Page {page} returned no results")
             break
 
+        debug(f"TRACE :: Page {page} returned {len(response)} results")
         resource_paths.extend(
             item.get("path")
             for item in response
