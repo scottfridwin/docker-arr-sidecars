@@ -75,6 +75,22 @@ def _fetch_paginated_resource_paths(strategy, cache_file: Path) -> list[str]:
             break
 
         debug(f"TRACE :: Page {page} returned {len(response)} results")
+        if len(response) > page_size:
+            debug(
+                "TRACE :: API returned more results than requested pageSize; "
+                "pagination appears unsupported; treating current response as full resource list"
+            )
+            resource_paths.extend(
+                item.get("path")
+                for item in response
+                if isinstance(item, dict) and item.get("path")
+            )
+            _save_cached_paths(cache_file, [str(path) for path in resource_paths])
+            info(
+                f"{strategy.resource_endpoint.capitalize()} cache refreshed with {len(resource_paths)} entries"
+            )
+            return resource_paths
+
         resource_paths.extend(
             item.get("path")
             for item in response

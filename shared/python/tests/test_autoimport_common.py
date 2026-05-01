@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from shared.python.autoimport import common
+from shared.python.autoimport.strategy import ImportStrategy
 
 
 def _load_sonarr_strategy():
@@ -23,6 +24,12 @@ def _load_sonarr_strategy():
 
 
 sonarr_strategy = _load_sonarr_strategy()
+
+radarr_strategy = ImportStrategy(
+    resource_endpoint="movie",
+    cache_filename="moviepaths",
+    state_key="moviePaths",
+)
 
 
 class TestAutoImportCommon(unittest.TestCase):
@@ -151,3 +158,61 @@ class TestAutoImportCommon(unittest.TestCase):
                     os.path.join(drop_dir, "UniqueSeries", "IMPORT_STATUS.txt")
                 )
             )
+
+    def test_fetch_paginated_resource_paths_falls_back_when_page_size_ignored(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env_vars = {
+                "AUTOIMPORT_API_PAGE_SIZE": "100",
+                "AUTOIMPORT_WORK_DIR": tmpdir,
+                "ARR_NAME": "Radarr",
+            }
+            with patch.dict(os.environ, env_vars, clear=False):
+                cache_file = Path(tmpdir) / "moviepaths"
+                large_page = [{"path": f"/movies/movie{i}"} for i in range(11633)]
+
+                call_sequence = []
+
+                def fake_arr_api_request(method, endpoint, payload=None):
+                    call_sequence.append((method, endpoint, payload))
+                    common.set_state("arrApiResponse", large_page)
+
+                with patch.object(
+                    common, "arr_api_request", side_effect=fake_arr_api_request
+                ):
+                    paths = common._fetch_paginated_resource_paths(
+                        radarr_strategy, cache_file
+                    )
+
+                self.assertEqual(paths, [item["path"] for item in large_page])
+                self.assertEqual(
+                    call_sequence, [("GET", "movie?page=1&pageSize=100", None)]
+                )
+
+    def test_fetch_paginated_resource_paths_falls_back_for_sonarr_series_endpoint(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env_vars = {
+                "AUTOIMPORT_API_PAGE_SIZE": "100",
+                "AUTOIMPORT_WORK_DIR": tmpdir,
+                "ARR_NAME": "Sonarr",
+            }
+            with patch.dict(os.environ, env_vars, clear=False):
+                cache_file = Path(tmpdir) / "seriespaths"
+                large_page = [{"path": f"/series/series{i}"} for i in range(11633)]
+
+                call_sequence = []
+
+                def fake_arr_api_request(method, endpoint, payload=None):
+                    call_sequence.append((method, endpoint, payload))
+                    common.set_state("arrApiResponse", large_page)
+
+                with patch.object(
+                    common, "arr_api_request", side_effect=fake_arr_api_request
+                ):
+                    paths = common._fetch_paginated_resource_paths(
+                        sonarr_strategy(), cache_file
+                    )
+
+                self.assertEqual(paths, [item["path"] for item in large_page])
+                self.assertEqual(
+                    call_sequence, [("GET", "series?page=1&pageSize=100", None)]
+                )

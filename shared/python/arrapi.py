@@ -70,13 +70,13 @@ def http_request(method: str, url: str, payload: str | None = None):
     )
     try:
         with urlopen(request_obj, timeout=timeout) as response:
-            body = response.read().decode("utf-8", errors="replace")
+            body = response.read()
             debug(
                 f"TRACE :: HTTP response from {url}: status={response.getcode()} body_length={len(body)}"
             )
             return response.getcode(), body
     except HTTPError as exc:
-        body = exc.read().decode("utf-8", errors="replace")
+        body = exc.read()
         debug(
             f"TRACE :: HTTPError for {method} {url} status={exc.code} message={exc.reason}"
         )
@@ -216,6 +216,8 @@ def arr_api_request(method: str, path: str, payload: str | None = None) -> None:
             f"Skipping actual API request in functional testing mode for {method} {path}"
         )
         status_code, body = get_functional_test_response(method, path)
+        if isinstance(body, str):
+            body = body.encode("utf-8")
     else:
         if payload is not None:
             debug(
@@ -254,11 +256,12 @@ def arr_api_request(method: str, path: str, payload: str | None = None) -> None:
         parsed_body = load_json_text(body, f"API response for {method} {path}")
     set_state("arrApiResponse", parsed_body)
     log("TRACE", f"httpCode: {status_code}")
-    body_summary = (
-        body
-        if len(body) <= 512
-        else f"{body[:512]}... [truncated {len(body)} bytes]"
-    )
+    if isinstance(body, bytes):
+        body_summary = body[:512].decode("utf-8", errors="replace")
+        if len(body) > 512:
+            body_summary += f"... [truncated {len(body)} bytes]"
+    else:
+        body_summary = body if len(body) <= 512 else f"{body[:512]}... [truncated {len(body)} bytes]"
     log("TRACE", f"body: {body_summary}")
 
     if status_code in (200, 201, 202, 204):

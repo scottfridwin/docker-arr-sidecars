@@ -8,8 +8,8 @@ import xml.etree.ElementTree as ET
 from .logging_utils import fatal
 
 
-def load_json_text(text: str, source: str = "input"):
-    if text is None or text == "":
+def load_json_text(text: str | bytes, source: str = "input"):
+    if text is None or text == "" or text == b"":
         return None
     try:
         return json.loads(text)
