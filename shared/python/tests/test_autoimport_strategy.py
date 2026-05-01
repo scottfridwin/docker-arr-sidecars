@@ -25,14 +25,14 @@ class TestAutoImportStrategy(unittest.TestCase):
             "radarr_autoimport_strategy",
         ).radarr_strategy
 
-    def test_sonarr_strategy_payload_contains_title_and_timestamp(self):
-        payload = self.sonarr_strategy().push_release_payload("MySeries")
-        self.assertIn('"title":"MySeries"', payload)
-        self.assertRegex(
-            payload, r'"publishDate":"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z"'
-        )
+    def test_sonarr_strategy_has_series_resource_settings(self):
+        strategy = self.sonarr_strategy()
+        self.assertEqual(strategy.resource_endpoint, "series")
+        self.assertEqual(strategy.cache_filename, "seriepaths")
+        self.assertEqual(strategy.state_key, "seriesPaths")
 
-    def test_radarr_strategy_payload_is_valid_json_string(self):
-        payload = self.radarr_strategy().notify_payload("/tmp/import")
-        self.assertIn('"DownloadedMoviesScan"', payload)
-        self.assertIn('"path":"/tmp/import"', payload)
+    def test_radarr_strategy_has_movie_resource_settings(self):
+        strategy = self.radarr_strategy()
+        self.assertEqual(strategy.resource_endpoint, "movie")
+        self.assertEqual(strategy.cache_filename, "moviepaths")
+        self.assertEqual(strategy.state_key, "moviePaths")

@@ -11,9 +11,6 @@ class ImportStrategy:
     resource_endpoint: str
     cache_filename: str
     state_key: str
-    push_release_enabled: bool
-    push_release_payload: Callable[[str], str]
-    notify_payload: Callable[[str], str]
 
     def cache_path(self, work_dir: str) -> Path:
         return Path(work_dir) / self.cache_filename

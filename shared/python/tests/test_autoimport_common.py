@@ -95,7 +95,6 @@ class TestAutoImportCommon(unittest.TestCase):
                 "AUTOIMPORT_CACHE_HOURS": "1",
                 "AUTOIMPORT_WORK_DIR": tmpdir,
                 "AUTOIMPORT_GROUP": str(os.getgid()),
-                "AUTOIMPORT_SKIP_NOTIFY": "false",
                 "ARR_NAME": "Sonarr",
             }
 
@@ -116,9 +115,7 @@ class TestAutoImportCommon(unittest.TestCase):
 
             self.assertFalse(os.path.exists(import_dir))
             self.assertTrue(os.path.isdir(os.path.join(shared_dir, "MySeries")))
-            self.assertEqual(arr_calls[0][0], "POST")
-            self.assertEqual(arr_calls[0][1], "release/push")
-            self.assertEqual(arr_calls[-1][1], "command")
+            self.assertEqual(arr_calls, [])
 
     def test_process_import_writes_status_on_no_match(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -136,7 +133,6 @@ class TestAutoImportCommon(unittest.TestCase):
                 "AUTOIMPORT_CACHE_HOURS": "1",
                 "AUTOIMPORT_WORK_DIR": tmpdir,
                 "AUTOIMPORT_GROUP": str(os.getgid()),
-                "AUTOIMPORT_SKIP_NOTIFY": "true",
                 "ARR_NAME": "Sonarr",
             }
 

@@ -8,7 +8,7 @@ from pathlib import Path
 from shutil import move
 
 from shared.python.arrapi import arr_api_request
-from shared.python.config import env, env_bool
+from shared.python.config import env
 from shared.python.logging_utils import debug, error, fatal, info, warning
 from shared.python.state import get_state, set_state
 
@@ -218,16 +218,9 @@ def process_import(import_dir: str, strategy) -> None:
             dest_dir = Path(env("AUTOIMPORT_SHARED_PATH")) / target_name
             debug(f"DEBUG :: Moving '{import_dir}' to '{dest_dir}'")
             _move_directory(Path(import_dir), dest_dir)
-            if strategy.push_release_enabled and not env_bool("AUTOIMPORT_SKIP_NOTIFY"):
-                arr_api_request(
-                    "POST", "release/push", strategy.push_release_payload(target_name)
-                )
-                info(f"Successfully pushed release to {env('ARR_NAME')}: {target_name}")
-            if not env_bool("AUTOIMPORT_SKIP_NOTIFY"):
-                arr_api_request(
-                    "POST", "command", strategy.notify_payload(str(dest_dir))
-                )
-                info(f"Triggered import notification for {env('ARR_NAME')}")
+            debug(
+                "DEBUG :: No notification behavior configured; import move is complete"
+            )
     else:
         debug(f"DEBUG :: No match found for '{target_name}'")
         _write_status(
