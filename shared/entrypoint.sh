@@ -47,8 +47,23 @@ validateEnvironment
 
 umask "$UMASK"
 # Run all services
-for script in /app/services/*.bash; do
-    bash "$script" &
+for script in /app/services/*; do
+    [ -e "$script" ] || continue
+    case "$script" in
+    *.py)
+        python3 "$script" &
+        ;;
+    *.bash)
+        if [[ -f "${script%.bash}.py" ]]; then
+            log "INFO :: Skipping legacy script ${script} because Python implementation exists"
+            continue
+        fi
+        bash "$script" &
+        ;;
+    *)
+        log "DEBUG :: Ignoring unsupported service file ${script}"
+        ;;
+    esac
 done
 wait
 

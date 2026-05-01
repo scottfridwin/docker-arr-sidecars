@@ -3,24 +3,16 @@ FROM alpine:3.23
 
 # Install system dependencies
 RUN apk add --no-cache \
-    bash \
-    curl \
-    jq \
     python3 \
-    python3-dev \
-    py3-pip \
     tzdata
-
-# Install uv + Python tools
-RUN pip install --no-cache-dir --break-system-packages uv yq
 
 # Copy all scripts and config files
 COPY sonarr-sidecar/ /app/
-COPY shared/ /app/
-RUN chmod +x /app/entrypoint.sh
+COPY shared/python /app/shared/python/
 
 # Set working directory
 WORKDIR /app
+ENV PYTHONPATH=/app
 
 ### Variable defaults ###
 
@@ -65,4 +57,4 @@ ENV AUTOIMPORT_SHARED_PATH=/sidecar-import
 ENV AUTOIMPORT_WORK_DIR=/work
 
 # Entrypoint
-CMD ["bash", "/app/entrypoint.sh"]
+CMD ["python3", "/app/shared/python/entrypoint.py"]

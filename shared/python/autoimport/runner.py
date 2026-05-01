@@ -1,0 +1,82 @@
+# SPDX-License-Identifier: GPL-3.0-only
+
+import os
+import re
+import time
+from pathlib import Path
+
+from shared.python.autoimport.common import create_download_client, scan_drop_directory
+from shared.python.autoimport.strategy import ImportStrategy
+from shared.python.arrapi import verify_arr_api_access
+from shared.python.config import env
+from shared.python.logging_utils import debug, error, fatal, info
+from shared.python.state import init_state
+
+
+def _parse_interval(value: str) -> float:
+    if value is None or value == "":
+        return 5.0
+    value = value.strip()
+    if re.match(r"^[0-9]+$", value):
+        return float(value)
+    match = re.match(r"^(?P<num>[0-9]+)(?P<unit>[smh])$", value, re.IGNORECASE)
+    if not match:
+        fatal(f"Invalid AUTOIMPORT_INTERVAL value: '{value}'")
+    num = float(match.group("num"))
+    unit = match.group("unit").lower()
+    if unit == "s":
+        return num
+    if unit == "m":
+        return num * 60
+    if unit == "h":
+        return num * 3600
+    fatal(f"Invalid AUTOIMPORT_INTERVAL unit: '{unit}'")
+
+
+def _validate_environment() -> None:
+    missing = []
+    if not env("AUTOIMPORT_GROUP"):
+        missing.append("AUTOIMPORT_GROUP")
+    for key in ["AUTOIMPORT_DROP_DIR", "AUTOIMPORT_SHARED_PATH", "AUTOIMPORT_WORK_DIR"]:
+        value = env(key)
+        if not value:
+            missing.append(key)
+        elif not Path(value).is_dir():
+            fatal(f"{key} '{value}' does not exist")
+    if missing:
+        fatal(
+            f"Missing required environment variables: {', '.join(sorted(set(missing)))}"
+        )
+
+
+def _log_startup() -> None:
+    info(f"Starting AutoImport")
+    debug(f"DEBUG :: AUTOIMPORT_CACHE_HOURS={env('AUTOIMPORT_CACHE_HOURS')}")
+    debug(f"DEBUG :: AUTOIMPORT_DROP_DIR={env('AUTOIMPORT_DROP_DIR')}")
+    debug(
+        f"DEBUG :: AUTOIMPORT_DOWNLOADCLIENT_NAME={env('AUTOIMPORT_DOWNLOADCLIENT_NAME')}"
+    )
+    debug(f"DEBUG :: AUTOIMPORT_GROUP={env('AUTOIMPORT_GROUP')}")
+    debug(f"DEBUG :: AUTOIMPORT_IMPORT_MARKER={env('AUTOIMPORT_IMPORT_MARKER')}")
+    debug(f"DEBUG :: AUTOIMPORT_INTERVAL={env('AUTOIMPORT_INTERVAL')}")
+    debug(f"DEBUG :: AUTOIMPORT_SHARED_PATH={env('AUTOIMPORT_SHARED_PATH')}")
+    debug(f"DEBUG :: AUTOIMPORT_SKIP_NOTIFY={env('AUTOIMPORT_SKIP_NOTIFY')}")
+    debug(f"DEBUG :: AUTOIMPORT_WORK_DIR={env('AUTOIMPORT_WORK_DIR')}")
+
+
+def main(strategy: ImportStrategy) -> None:
+    _log_startup()
+    _validate_environment()
+    init_state()
+    verify_arr_api_access()
+    create_download_client()
+
+    interval = _parse_interval(env("AUTOIMPORT_INTERVAL", "5m"))
+    while True:
+        scan_drop_directory(strategy)
+        debug(f"DEBUG :: Script sleeping for {env('AUTOIMPORT_INTERVAL')}...")
+        time.sleep(interval)
+
+
+if __name__ == "__main__":
+    fatal("This module is not intended to be executed directly")

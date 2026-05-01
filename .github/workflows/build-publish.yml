@@ -14,7 +14,7 @@ env:
 
 jobs:
   # ----------------------------------------------------------
-  # Test job: runs all tests before building
+  # Legacy test job: runs all existing tests for lidarr-sidecar
   # ----------------------------------------------------------
   test:
     name: Test ${{ matrix.service }}
@@ -23,7 +23,7 @@ jobs:
 
     strategy:
       matrix:
-        service: [lidarr-sidecar, radarr-sidecar, sonarr-sidecar]
+        service: [ lidarr-sidecar ]
 
     steps:
       - name: Checkout repository
@@ -60,7 +60,7 @@ jobs:
           fi
 
   # ----------------------------------------------------------
-  # Build job: runs on every push to main (after tests pass)
+  # Legacy build job: builds lidarr-sidecar after tests pass
   # ----------------------------------------------------------
   build:
     name: Build and publish ${{ matrix.service }} (main build)
@@ -74,7 +74,90 @@ jobs:
 
     strategy:
       matrix:
-        service: [lidarr-sidecar, radarr-sidecar, sonarr-sidecar]
+        service: [ lidarr-sidecar ]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up variables
+        id: vars
+        run: |
+          echo "IMAGE_REPOSITORY=${{ env.REGISTRY }}/${{ env.OWNER }}/${{ matrix.service }}" >> $GITHUB_ENV
+          echo "SHORT_SHA=$(echo $GITHUB_SHA | cut -c1-7)" >> $GITHUB_ENV
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build and push multi-arch image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ${{ matrix.service }}/Dockerfile
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: |
+            ${{ env.IMAGE_REPOSITORY }}:main
+            ${{ env.IMAGE_REPOSITORY }}:sha-${{ env.SHORT_SHA }}
+
+  # ----------------------------------------------------------
+  # Python test job: runs shared and service Python tests for Radarr and Sonarr
+  # ----------------------------------------------------------
+  test-py:
+    name: Test Python service ${{ matrix.service }}
+    if: github.ref_type == 'branch'
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        service: [ radarr-sidecar, sonarr-sidecar ]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Run shared Python tests
+        run: |
+          echo "Running shared Python unit tests for ${{ matrix.service }}"
+          python3 -m unittest discover -s shared/python/tests -p 'test_*.py'
+
+      - name: Run service Python tests for ${{ matrix.service }}
+        run: |
+          if [ -d "${{ matrix.service }}/test" ] && find "${{ matrix.service }}/test" -maxdepth 1 -name 'test_*.py' | grep -q .; then
+            echo "Running Python tests for ${{ matrix.service }}"
+            python3 -m unittest discover -s "${{ matrix.service }}/test" -p 'test_*.py'
+          else
+            echo "No Python tests found for ${{ matrix.service }}, skipping."
+          fi
+
+  # ----------------------------------------------------------
+  # Python build job: builds Radarr and Sonarr Python containers after tests pass
+  # ----------------------------------------------------------
+  build-py:
+    name: Build and publish Python ${{ matrix.service }} (main build)
+    if: github.ref_type == 'branch'
+    needs: test-py
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+
+    strategy:
+      matrix:
+        service: [ radarr-sidecar, sonarr-sidecar ]
 
     steps:
       - name: Checkout repository
@@ -121,7 +204,7 @@ jobs:
 
     strategy:
       matrix:
-        service: [lidarr-sidecar, radarr-sidecar, sonarr-sidecar]
+        service: [ lidarr-sidecar, radarr-sidecar, sonarr-sidecar ]
 
     steps:
       - name: Set up variables
