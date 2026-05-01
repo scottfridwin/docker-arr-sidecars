@@ -46,7 +46,8 @@ validateEnvironment
 ### Main ###
 
 umask "$UMASK"
-# Run all services
+# Run all services in the legacy shell-based sidecar layout.
+# Python-based sidecars now use /app/services/one-time and /app/services/persistent.
 for script in /app/services/*; do
     [ -e "$script" ] || continue
     case "$script" in

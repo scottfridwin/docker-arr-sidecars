@@ -43,21 +43,62 @@ class TestEntrypoint(unittest.TestCase):
 
     def test_start_services_spawns_python_files(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            service_dir = Path(tmpdir) / "services"
-            service_dir.mkdir()
-            service_file = service_dir / "AutoConfig.py"
-            service_file.write_text("print('ok')\n", encoding="utf-8")
+            service_base_dir = Path(tmpdir) / "services"
+            one_time_dir = service_base_dir / "one-time"
+            persistent_dir = service_base_dir / "persistent"
+            one_time_dir.mkdir(parents=True)
+            persistent_dir.mkdir(parents=True)
 
-            with patch.object(
-                entrypoint.Path, "is_dir", return_value=True
-            ), patch.object(entrypoint.Path, "glob", return_value=[service_file]):
-                mock_popen = MagicMock()
-                mock_popen.pid = 1234
-                with patch(
-                    "shared.python.entrypoint.subprocess.Popen", return_value=mock_popen
-                ) as popen_mock:
-                    processes = entrypoint._start_services()
+            auto_config = one_time_dir / "AutoConfig.py"
+            auto_config.write_text("print('ok')\n", encoding="utf-8")
+            auto_import = persistent_dir / "AutoImport.py"
+            auto_import.write_text("print('ok')\n", encoding="utf-8")
 
-                self.assertIn(1234, processes)
-                popen_mock.assert_called_once()
-                popen_mock.assert_called_once_with([sys.executable, str(service_file)])
+            mock_run = MagicMock()
+            mock_run.return_value.returncode = 0
+            mock_popen = MagicMock()
+            mock_popen.pid = 1234
+            with patch(
+                "shared.python.entrypoint.subprocess.run",
+                mock_run,
+            ), patch(
+                "shared.python.entrypoint.subprocess.Popen",
+                return_value=mock_popen,
+            ) as popen_mock:
+                processes = entrypoint._start_services(service_base_dir)
+
+            mock_run.assert_called_once_with([sys.executable, str(auto_config)])
+            self.assertIn(1234, processes)
+            popen_mock.assert_called_once()
+            popen_mock.assert_called_once_with([sys.executable, str(auto_import)])
+
+    def test_start_services_runs_one_time_service_before_long_running(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            service_base_dir = Path(tmpdir) / "services"
+            one_time_dir = service_base_dir / "one-time"
+            persistent_dir = service_base_dir / "persistent"
+            one_time_dir.mkdir(parents=True)
+            persistent_dir.mkdir(parents=True)
+
+            auto_config = one_time_dir / "AutoConfig.py"
+            auto_config.write_text("print('config')\n", encoding="utf-8")
+            auto_import = persistent_dir / "AutoImport.py"
+            auto_import.write_text("print('import')\n", encoding="utf-8")
+
+            mock_run = MagicMock()
+            mock_run.return_value.returncode = 0
+            mock_popen = MagicMock()
+            mock_popen.pid = 4321
+
+            with patch(
+                "shared.python.entrypoint.subprocess.run",
+                mock_run,
+            ), patch(
+                "shared.python.entrypoint.subprocess.Popen",
+                return_value=mock_popen,
+            ) as popen_mock:
+                processes = entrypoint._start_services(service_base_dir)
+
+            mock_run.assert_called_once_with([sys.executable, str(auto_config)])
+            self.assertIn(4321, processes)
+            popen_mock.assert_called_once_with([sys.executable, str(auto_import)])

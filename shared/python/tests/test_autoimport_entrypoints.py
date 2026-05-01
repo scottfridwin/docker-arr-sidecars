@@ -44,10 +44,14 @@ class TestAutoImportEntrypoints(unittest.TestCase):
 
     def test_sonarr_autimport_wrapper_invokes_runner(self):
         workspace = Path(__file__).resolve().parents[3]
-        wrapper = workspace / "sonarr-sidecar" / "services" / "AutoImport.py"
+        wrapper = (
+            workspace / "sonarr-sidecar" / "services" / "persistent" / "AutoImport.py"
+        )
         self._run_wrapper_with_fake_main(wrapper, "series")
 
     def test_radarr_autimport_wrapper_invokes_runner(self):
         workspace = Path(__file__).resolve().parents[3]
-        wrapper = workspace / "radarr-sidecar" / "services" / "AutoImport.py"
+        wrapper = (
+            workspace / "radarr-sidecar" / "services" / "persistent" / "AutoImport.py"
+        )
         self._run_wrapper_with_fake_main(wrapper, "movie")

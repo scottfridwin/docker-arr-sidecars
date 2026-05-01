@@ -11,7 +11,7 @@ from shared.python.autoimport import common
 
 def _load_sonarr_strategy():
     workspace = Path(__file__).resolve().parents[3]
-    path = workspace / "sonarr-sidecar" / "services" / "AutoImport.py"
+    path = workspace / "sonarr-sidecar" / "services" / "persistent" / "AutoImport.py"
     spec = importlib.util.spec_from_file_location(
         "sonarr_autoimport_strategy", str(path)
     )

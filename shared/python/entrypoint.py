@@ -16,6 +16,13 @@ from shared.python.logging_utils import debug, error, info, warning
 
 VALID_LOG_LEVELS = ("TRACE", "DEBUG", "INFO", "WARNING", "ERROR")
 
+# Python service entrypoint layout
+# - /app/services/one-time: setup services that run once on startup
+# - /app/services/persistent: long-running services that are supervised
+SERVICE_BASE_DIR = Path("/app/services")
+ONE_TIME_DIR = SERVICE_BASE_DIR / "one-time"
+PERSISTENT_DIR = SERVICE_BASE_DIR / "persistent"
+
 
 def set_healthy() -> None:
     try:
@@ -64,15 +71,41 @@ def _apply_timezone() -> None:
         warning(f"TZ='{tz}' not found in /usr/share/zoneinfo")
 
 
-def _start_services() -> dict[int, subprocess.Popen]:
-    service_dir = Path("/app/services")
+def _run_one_time_services(service_dir: Path) -> None:
+    if not service_dir.exists():
+        debug(f"No one-time service directory found at {service_dir}")
+        return
     if not service_dir.is_dir():
-        error(f"Service directory not found: {service_dir}")
+        error(f"One-time service path is not a directory: {service_dir}")
         set_unhealthy()
 
     services = sorted(service_dir.glob("*.py"))
+    for service in services:
+        info(f"Running one-time service {service.name}")
+        result = subprocess.run([sys.executable, str(service)])
+        if result.returncode != 0:
+            error(f"One-time service failed: {service.name} code={result.returncode}")
+            set_unhealthy(result.returncode)
+        debug(f"One-time service completed: {service.name}")
+
+
+def _start_services(
+    service_base_dir: Path = SERVICE_BASE_DIR,
+) -> dict[int, subprocess.Popen]:
+    if not service_base_dir.is_dir():
+        error(f"Service directory not found: {service_base_dir}")
+        set_unhealthy()
+
+    _run_one_time_services(service_base_dir / "one-time")
+
+    persistent_dir = service_base_dir / "persistent"
+    if not persistent_dir.is_dir():
+        error(f"Persistent service directory not found: {persistent_dir}")
+        set_unhealthy()
+
+    services = sorted(persistent_dir.glob("*.py"))
     if not services:
-        error(f"No Python service files found in {service_dir}")
+        error(f"No Python persistent service files found in {persistent_dir}")
         set_unhealthy()
 
     processes: dict[int, subprocess.Popen] = {}
