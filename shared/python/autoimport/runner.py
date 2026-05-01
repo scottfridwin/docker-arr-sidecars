@@ -3,6 +3,7 @@
 import os
 import re
 import time
+import traceback
 from pathlib import Path
 
 from shared.python.autoimport.common import create_download_client, scan_drop_directory
@@ -64,17 +65,27 @@ def _log_startup() -> None:
 
 
 def main(strategy: ImportStrategy) -> None:
-    _log_startup()
-    _validate_environment()
-    init_state()
-    verify_arr_api_access()
-    create_download_client()
+    try:
+        _log_startup()
+        _validate_environment()
+        init_state()
+        verify_arr_api_access()
+        create_download_client()
 
-    interval = _parse_interval(env("AUTOIMPORT_INTERVAL", "5m"))
-    while True:
-        scan_drop_directory(strategy)
-        debug(f"Script sleeping for {env('AUTOIMPORT_INTERVAL')}...")
-        time.sleep(interval)
+        interval = _parse_interval(env("AUTOIMPORT_INTERVAL", "5m"))
+        iteration = 0
+        while True:
+            iteration += 1
+            debug(f"TRACE :: Starting scan iteration {iteration}")
+            scan_drop_directory(strategy)
+            debug(
+                f"TRACE :: Scan iteration {iteration} complete; sleeping for {interval} seconds"
+            )
+            time.sleep(interval)
+    except Exception as exc:
+        error(f"Unhandled exception in AutoImport: {exc}")
+        debug("TRACE :: " + traceback.format_exc())
+        raise
 
 
 if __name__ == "__main__":

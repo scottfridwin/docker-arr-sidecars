@@ -71,6 +71,9 @@ def http_request(method: str, url: str, payload: str | None = None):
     try:
         with urlopen(request_obj, timeout=timeout) as response:
             body = response.read().decode("utf-8", errors="replace")
+            debug(
+                f"TRACE :: HTTP response from {url}: status={response.getcode()} body_length={len(body)}"
+            )
             return response.getcode(), body
     except HTTPError as exc:
         body = exc.read().decode("utf-8", errors="replace")
@@ -80,6 +83,9 @@ def http_request(method: str, url: str, payload: str | None = None):
         return exc.code, body
     except URLError as exc:
         debug(f"TRACE :: URLError for {method} {url}: {exc}")
+        raise
+    except OSError as exc:
+        debug(f"TRACE :: OSError during HTTP request for {method} {url}: {exc}")
         raise
 
 
@@ -248,7 +254,12 @@ def arr_api_request(method: str, path: str, payload: str | None = None) -> None:
         parsed_body = load_json_text(body, f"API response for {method} {path}")
     set_state("arrApiResponse", parsed_body)
     log("TRACE", f"httpCode: {status_code}")
-    log("TRACE", f"body: {body}")
+    body_summary = (
+        body
+        if len(body) <= 512
+        else f"{body[:512]}... [truncated {len(body)} bytes]"
+    )
+    log("TRACE", f"body: {body_summary}")
 
     if status_code in (200, 201, 202, 204):
         return

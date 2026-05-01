@@ -290,7 +290,10 @@ def scan_drop_directory(strategy) -> None:
     )
     drop_dir = Path(env("AUTOIMPORT_DROP_DIR"))
     marker = env("AUTOIMPORT_IMPORT_MARKER")
-    for entry in sorted(drop_dir.iterdir()):
+    entries = sorted(drop_dir.iterdir())
+    debug(f"TRACE :: Found {len(entries)} entries in drop directory")
+    for entry in entries:
         if entry.is_dir() and entry.name.startswith(marker):
+            debug(f"TRACE :: Found candidate import folder: {entry.name}")
             process_import(str(entry), strategy)
     info("Scan complete")
