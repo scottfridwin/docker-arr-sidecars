@@ -1,11 +1,28 @@
 #!/usr/bin/env python3
+import importlib.util
 import os
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from shared.python.autoimport import common
-from shared.python.autoimport.strategy import sonarr_strategy
+
+
+def _load_sonarr_strategy():
+    workspace = Path(__file__).resolve().parents[3]
+    path = workspace / "sonarr-sidecar" / "services" / "autoimport_strategy.py"
+    spec = importlib.util.spec_from_file_location(
+        "sonarr_autoimport_strategy", str(path)
+    )
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Cannot import Sonarr strategy from {path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.sonarr_strategy
+
+
+sonarr_strategy = _load_sonarr_strategy()
 
 
 class TestAutoImportCommon(unittest.TestCase):

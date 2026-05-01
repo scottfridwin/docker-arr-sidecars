@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
@@ -25,38 +24,3 @@ class ImportStrategy:
             if needle in path:
                 return path
         return None
-
-
-def sonarr_strategy() -> ImportStrategy:
-    return ImportStrategy(
-        resource_endpoint="series",
-        cache_filename="seriepaths",
-        state_key="seriesPaths",
-        push_release_enabled=True,
-        push_release_payload=lambda title: (
-            "{"
-            '"title":"' + title + '",'
-            '"downloadUrl":"http://localhost/fake.nzb",'
-            '"protocol":"usenet",'
-            '"publishDate":"'
-            + datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-            + '",'
-            '"indexer":"sidecar",'
-            '"downloadClient":"sonarr-sidecar"'
-            "}"
-        ),
-        notify_payload=lambda import_path: '{"name":"ProcessMonitoredDownloads"}',
-    )
-
-
-def radarr_strategy() -> ImportStrategy:
-    return ImportStrategy(
-        resource_endpoint="movie",
-        cache_filename="moviepaths",
-        state_key="moviePaths",
-        push_release_enabled=False,
-        push_release_payload=lambda title: "{}",
-        notify_payload=lambda import_path: (
-            '{"name":"DownloadedMoviesScan", "path":"' + import_path + '"}'
-        ),
-    )
