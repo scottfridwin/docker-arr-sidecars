@@ -17,11 +17,11 @@ class TestAutoImportStrategy(unittest.TestCase):
     def setUp(self):
         workspace = Path(__file__).resolve().parents[3]
         self.sonarr_strategy = _load_strategy_module(
-            workspace / "sonarr-sidecar" / "services" / "autoimport_strategy.py",
+            workspace / "sonarr-sidecar" / "services" / "AutoImport.py",
             "sonarr_autoimport_strategy",
         ).sonarr_strategy
         self.radarr_strategy = _load_strategy_module(
-            workspace / "radarr-sidecar" / "services" / "autoimport_strategy.py",
+            workspace / "radarr-sidecar" / "services" / "AutoImport.py",
             "radarr_autoimport_strategy",
         ).radarr_strategy
 

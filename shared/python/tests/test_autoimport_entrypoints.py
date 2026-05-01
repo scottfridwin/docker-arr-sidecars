@@ -10,9 +10,8 @@ from unittest.mock import patch
 
 class TestAutoImportEntrypoints(unittest.TestCase):
     def _run_wrapper_with_fake_main(
-        self, wrapper_path: Path, strategy_name: str
+        self, wrapper_path: Path, expected_resource: str
     ) -> None:
-        fake_strategy_obj = object()
 
         def fake_main(strategy):
             fake_main.called = True
@@ -22,9 +21,6 @@ class TestAutoImportEntrypoints(unittest.TestCase):
         fake_runner = ModuleType("shared.python.autoimport.runner")
         fake_runner.main = fake_main
 
-        fake_strategy = ModuleType("autoimport_strategy")
-        setattr(fake_strategy, strategy_name, lambda: fake_strategy_obj)
-
         fake_shared = ModuleType("shared")
         fake_shared_python = ModuleType("shared.python")
         fake_shared_autoimport = ModuleType("shared.python.autoimport")
@@ -33,7 +29,6 @@ class TestAutoImportEntrypoints(unittest.TestCase):
             "shared": fake_shared,
             "shared.python": fake_shared_python,
             "shared.python.autoimport": fake_shared_autoimport,
-            "autoimport_strategy": fake_strategy,
             "shared.python.autoimport.runner": fake_runner,
         }
 
@@ -44,15 +39,15 @@ class TestAutoImportEntrypoints(unittest.TestCase):
                     runpy.run_path(str(wrapper_path), run_name="__main__")
                 self.assertEqual(exc.exception.code, 0)
                 self.assertTrue(getattr(fake_main, "called", False))
-                self.assertIs(fake_main.arg, fake_strategy_obj)
+                self.assertEqual(fake_main.arg.resource_endpoint, expected_resource)
                 self.assertEqual(os.environ.get("SCRIPT_NAME"), "AutoImport")
 
     def test_sonarr_autimport_wrapper_invokes_runner(self):
         workspace = Path(__file__).resolve().parents[3]
         wrapper = workspace / "sonarr-sidecar" / "services" / "AutoImport.py"
-        self._run_wrapper_with_fake_main(wrapper, "sonarr_strategy")
+        self._run_wrapper_with_fake_main(wrapper, "series")
 
     def test_radarr_autimport_wrapper_invokes_runner(self):
         workspace = Path(__file__).resolve().parents[3]
         wrapper = workspace / "radarr-sidecar" / "services" / "AutoImport.py"
-        self._run_wrapper_with_fake_main(wrapper, "radarr_strategy")
+        self._run_wrapper_with_fake_main(wrapper, "movie")

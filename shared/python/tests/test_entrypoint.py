@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import os
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -59,3 +60,4 @@ class TestEntrypoint(unittest.TestCase):
 
                 self.assertIn(1234, processes)
                 popen_mock.assert_called_once()
+                popen_mock.assert_called_once_with([sys.executable, str(service_file)])
