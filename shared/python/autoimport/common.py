@@ -38,14 +38,54 @@ def _save_cached_paths(cache_file: Path, paths: list[str]) -> None:
 def _resource_paths(strategy) -> list[str]:
     cache_file = _cache_path(strategy.cache_filename)
     if cache_file.exists():
-        debug(f"DEBUG :: Loading cached paths from {cache_file}")
+        debug(f"Loading cached paths from {cache_file}")
         return _load_cached_paths(cache_file)
 
-    debug(f"DEBUG :: {strategy.cache_filename} cache not found, refreshing...")
+    debug(f"{strategy.cache_filename} cache not found, refreshing...")
     return _refresh_resource_cache(strategy, cache_file)
 
 
-def _refresh_resource_cache(strategy, cache_file: Path) -> list[str]:
+def _fetch_paginated_resource_paths(strategy, cache_file: Path) -> list[str]:
+    page_size = int(env("AUTOIMPORT_API_PAGE_SIZE", "100"))
+    page = 1
+    resource_paths: list[str] = []
+
+    while True:
+        query = f"{strategy.resource_endpoint}?page={page}&pageSize={page_size}"
+        try:
+            arr_api_request("GET", query)
+        except SystemExit:
+            if page == 1:
+                debug(
+                    "DEBUG :: Pagination unavailable or failed; falling back to unpaged resource fetch"
+                )
+                return _fetch_unpaged_resource_paths(strategy, cache_file)
+            fatal(f"Failed to paginate {strategy.resource_endpoint} after page {page}")
+
+        response = get_state("arrApiResponse")
+        if not isinstance(response, list):
+            fatal(f"Failed to fetch resource list from {env('ARR_NAME')} API")
+
+        if not response:
+            break
+
+        resource_paths.extend(
+            item.get("path")
+            for item in response
+            if isinstance(item, dict) and item.get("path")
+        )
+        if len(response) < page_size:
+            break
+        page += 1
+
+    _save_cached_paths(cache_file, [str(path) for path in resource_paths])
+    info(
+        f"{strategy.resource_endpoint.capitalize()} cache refreshed with {len(resource_paths)} entries"
+    )
+    return resource_paths
+
+
+def _fetch_unpaged_resource_paths(strategy, cache_file: Path) -> list[str]:
     arr_api_request("GET", strategy.resource_endpoint)
     response = get_state("arrApiResponse")
     if not isinstance(response, list):
@@ -61,6 +101,10 @@ def _refresh_resource_cache(strategy, cache_file: Path) -> list[str]:
         f"{strategy.resource_endpoint.capitalize()} cache refreshed with {len(resource_paths)} entries"
     )
     return resource_paths
+
+
+def _refresh_resource_cache(strategy, cache_file: Path) -> list[str]:
+    return _fetch_paginated_resource_paths(strategy, cache_file)
 
 
 def create_download_client() -> None:
@@ -177,7 +221,7 @@ def ensure_resource_paths(strategy) -> list[str]:
     cache_file = _cache_path(strategy.cache_filename)
     cache_hours = int(env("AUTOIMPORT_CACHE_HOURS", "1"))
     if not cache_file.exists():
-        debug(f"DEBUG :: {strategy.cache_filename} cache not found, refreshing...")
+        debug(f"{strategy.cache_filename} cache not found, refreshing...")
         return _refresh_resource_cache(strategy, cache_file)
 
     current_time = os.path.getmtime(cache_file)
@@ -208,7 +252,7 @@ def process_import(import_dir: str, strategy) -> None:
     match_path = _find_match(target_name, paths)
 
     if match_path:
-        debug(f"DEBUG :: Match found: {target_name} -> {match_path}")
+        debug(f"Match found: {target_name} -> {match_path}")
         if not check_permissions(import_dir):
             issues = get_state("permissionIssues")
             _write_status(
@@ -216,20 +260,20 @@ def process_import(import_dir: str, strategy) -> None:
             )
         else:
             dest_dir = Path(env("AUTOIMPORT_SHARED_PATH")) / target_name
-            debug(f"DEBUG :: Moving '{import_dir}' to '{dest_dir}'")
+            debug(f"Moving '{import_dir}' to '{dest_dir}'")
             _move_directory(Path(import_dir), dest_dir)
             debug(
                 "DEBUG :: No notification behavior configured; import move is complete"
             )
     else:
-        debug(f"DEBUG :: No match found for '{target_name}'")
+        debug(f"No match found for '{target_name}'")
         _write_status(
             Path(import_dir),
             f"No matching {env('ARR_NAME')} directory found for '{target_name}'.",
         )
         new_dir = Path(env("AUTOIMPORT_DROP_DIR")) / target_name
         _move_directory(Path(import_dir), new_dir)
-        debug(f"DEBUG :: Removed import tag from '{import_dir}'")
+        debug(f"Removed import tag from '{import_dir}'")
 
     debug("TRACE :: Exiting process_import...")
 

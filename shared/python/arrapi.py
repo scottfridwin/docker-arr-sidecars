@@ -63,9 +63,10 @@ def http_request(method: str, url: str, payload: str | None = None):
         headers["Content-Type"] = "application/json"
         data = payload.encode("utf-8")
 
+    timeout = int(env("ARR_API_TIMEOUT", "60"))
     request_obj = Request(url, data=data, headers=headers, method=method)
     try:
-        with urlopen(request_obj, timeout=10) as response:
+        with urlopen(request_obj, timeout=timeout) as response:
             body = response.read().decode("utf-8", errors="replace")
             return response.getcode(), body
     except HTTPError as exc:
@@ -186,7 +187,7 @@ def arr_api_request(method: str, path: str, payload: str | None = None) -> None:
         or not get_state("arrApiVersion")
     ):
         debug(
-            "DEBUG :: Need to retrieve arr connection details in order to perform API requests"
+            "Need to retrieve arr connection details in order to perform API requests"
         )
         verify_arr_api_access()
 
@@ -224,11 +225,11 @@ def arr_api_request(method: str, path: str, payload: str | None = None) -> None:
                     except URLError:
                         continue
                     debug(
-                        f"DEBUG :: {env('ARR_NAME')} status request ({recovery_url}) returned {recovery_code} with body {recovery_body}"
+                        f"{env('ARR_NAME')} status request ({recovery_url}) returned {recovery_code} with body {recovery_body}"
                     )
                     if recovery_code == 200:
                         debug(
-                            f"DEBUG :: {env('ARR_NAME')} connectivity restored, retrying previous request..."
+                            f"{env('ARR_NAME')} connectivity restored, retrying previous request..."
                         )
                         break
                 continue
@@ -345,9 +346,7 @@ def arr_api_attempt(method: str, url: str, payload: str) -> None:
                 break
         else:
             if method.upper() == "PUT":
-                debug(
-                    f"DEBUG :: Empty or invalid response to PUT; fetching {url} to verify..."
-                )
+                debug(f"Empty or invalid response to PUT; fetching {url} to verify...")
                 arr_api_request("GET", url)
                 resp = get_state("arrApiResponse")
                 if not isinstance(resp, (dict, list)):
@@ -356,7 +355,7 @@ def arr_api_attempt(method: str, url: str, payload: str) -> None:
                     break
             else:
                 debug(
-                    f"DEBUG :: Empty or invalid response to {method} at {url}; skipping verification for this attempt."
+                    f"Empty or invalid response to {method} at {url}; skipping verification for this attempt."
                 )
                 break
 
@@ -374,10 +373,10 @@ def arr_api_attempt(method: str, url: str, payload: str) -> None:
 
 def update_arr_config(json_file: str, api_path: str, setting_name: str) -> None:
     json_data = read_json_file(json_file)
-    debug(f"DEBUG :: Configuring {env('ARR_NAME')} {setting_name} Settings")
+    debug(f"Configuring {env('ARR_NAME')} {setting_name} Settings")
 
     if isinstance(json_data, list):
-        debug("DEBUG :: Detected JSON array, sending one PUT/POST per element...")
+        debug("Detected JSON array, sending one PUT/POST per element...")
         arr_api_request("GET", api_path)
         response = get_state("arrApiResponse")
 
@@ -414,6 +413,6 @@ def update_arr_config(json_file: str, api_path: str, setting_name: str) -> None:
                 debug(f"TRACE :: Payload: {payload}")
                 arr_api_attempt("POST", api_path, payload)
     else:
-        debug("DEBUG :: Detected JSON object, sending single PUT...")
+        debug("Detected JSON object, sending single PUT...")
         payload = json.dumps(json_data)
         arr_api_attempt("PUT", api_path, payload)

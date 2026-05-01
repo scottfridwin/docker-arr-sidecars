@@ -51,16 +51,14 @@ def _validate_environment() -> None:
 
 def _log_startup() -> None:
     info(f"Starting AutoImport")
-    debug(f"DEBUG :: AUTOIMPORT_CACHE_HOURS={env('AUTOIMPORT_CACHE_HOURS')}")
-    debug(f"DEBUG :: AUTOIMPORT_DROP_DIR={env('AUTOIMPORT_DROP_DIR')}")
-    debug(
-        f"DEBUG :: AUTOIMPORT_DOWNLOADCLIENT_NAME={env('AUTOIMPORT_DOWNLOADCLIENT_NAME')}"
-    )
-    debug(f"DEBUG :: AUTOIMPORT_GROUP={env('AUTOIMPORT_GROUP')}")
-    debug(f"DEBUG :: AUTOIMPORT_IMPORT_MARKER={env('AUTOIMPORT_IMPORT_MARKER')}")
-    debug(f"DEBUG :: AUTOIMPORT_INTERVAL={env('AUTOIMPORT_INTERVAL')}")
-    debug(f"DEBUG :: AUTOIMPORT_SHARED_PATH={env('AUTOIMPORT_SHARED_PATH')}")
-    debug(f"DEBUG :: AUTOIMPORT_WORK_DIR={env('AUTOIMPORT_WORK_DIR')}")
+    debug(f"AUTOIMPORT_CACHE_HOURS={env('AUTOIMPORT_CACHE_HOURS')}")
+    debug(f"AUTOIMPORT_DROP_DIR={env('AUTOIMPORT_DROP_DIR')}")
+    debug(f"AUTOIMPORT_DOWNLOADCLIENT_NAME={env('AUTOIMPORT_DOWNLOADCLIENT_NAME')}")
+    debug(f"AUTOIMPORT_GROUP={env('AUTOIMPORT_GROUP')}")
+    debug(f"AUTOIMPORT_IMPORT_MARKER={env('AUTOIMPORT_IMPORT_MARKER')}")
+    debug(f"AUTOIMPORT_INTERVAL={env('AUTOIMPORT_INTERVAL')}")
+    debug(f"AUTOIMPORT_SHARED_PATH={env('AUTOIMPORT_SHARED_PATH')}")
+    debug(f"AUTOIMPORT_WORK_DIR={env('AUTOIMPORT_WORK_DIR')}")
 
 
 def main(strategy: ImportStrategy) -> None:
@@ -73,7 +71,7 @@ def main(strategy: ImportStrategy) -> None:
     interval = _parse_interval(env("AUTOIMPORT_INTERVAL", "5m"))
     while True:
         scan_drop_directory(strategy)
-        debug(f"DEBUG :: Script sleeping for {env('AUTOIMPORT_INTERVAL')}...")
+        debug(f"Script sleeping for {env('AUTOIMPORT_INTERVAL')}...")
         time.sleep(interval)
 
 
