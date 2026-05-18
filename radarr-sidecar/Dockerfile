@@ -1,6 +1,10 @@
 # Use Alpine as base
 FROM alpine:3.23
 
+LABEL org.opencontainers.image.version="2.0.0"
+LABEL org.opencontainers.image.description="Radarr sidecar - auto-config and import orchestration"
+LABEL org.opencontainers.image.licenses="GPL-3.0-only"
+
 # Install system dependencies
 RUN apk add --no-cache \
     python3 \

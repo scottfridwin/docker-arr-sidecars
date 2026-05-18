@@ -1,6 +1,10 @@
 # ===== Final Stage =====
 FROM debian:13.4-slim
 
+LABEL org.opencontainers.image.version="2.0.0"
+LABEL org.opencontainers.image.description="Lidarr sidecar - automated Deezer downloads via MusicBrainz links"
+LABEL org.opencontainers.image.licenses="GPL-3.0-only"
+
 # Install runtime dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     beets \

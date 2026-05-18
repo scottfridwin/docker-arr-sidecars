@@ -3,10 +3,16 @@ name: Build and Publish Docker Images
 on:
   push:
     branches:
+      - "**"
+  pull_request:
+    branches:
       - main
-    tags:
-      - "v*"
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Version tag to release (e.g., v2.0.0). Promotes the current main image."
+        required: true
+        type: string
 
 env:
   REGISTRY: ghcr.io
@@ -14,224 +20,209 @@ env:
 
 jobs:
   # ----------------------------------------------------------
-  # Legacy test job: runs all existing tests for lidarr-sidecar
+  # Test: Run Python unit tests for all sidecars
   # ----------------------------------------------------------
   test:
     name: Test ${{ matrix.service }}
-    if: github.ref_type == 'branch'
     runs-on: ubuntu-latest
 
     strategy:
+      fail-fast: false
       matrix:
-        service: [ lidarr-sidecar ]
+        service: [lidarr-sidecar, radarr-sidecar, sonarr-sidecar]
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
-
-      - name: Run shared tests
-        run: |
-          if [ -f "shared/test/test_all.bash" ]; then
-            echo "Running shared tests using test_all.bash for ${{ matrix.service }}"
-            bash "shared/test/test_all.bash"
-            result=$?
-            if [ $result -ne 0 ]; then
-              echo "❌ Some shared tests failed in test_all.bash for ${{ matrix.service }}"
-              exit $result
-            else
-              echo "✅ All shared tests passed in test_all.bash for ${{ matrix.service }}"
-              exit 0
-            fi
-          fi
-
-      - name: Run tests for ${{ matrix.service }}
-        run: |
-          if [ -f "${{ matrix.service }}/test/test_all.bash" ]; then
-            echo "Running tests using test_all.bash for ${{ matrix.service }}"
-            bash "${{ matrix.service }}/test/test_all.bash"
-            result=$?
-            if [ $result -ne 0 ]; then
-              echo "❌ Some tests failed in test_all.bash for ${{ matrix.service }}"
-              exit $result
-            else
-              echo "✅ All tests passed in test_all.bash for ${{ matrix.service }}"
-              exit 0
-            fi
-          fi
-
-  # ----------------------------------------------------------
-  # Legacy build job: builds lidarr-sidecar after tests pass
-  # ----------------------------------------------------------
-  build:
-    name: Build and publish ${{ matrix.service }} (main build)
-    if: github.ref_type == 'branch'
-    needs: test
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-      id-token: write
-
-    strategy:
-      matrix:
-        service: [ lidarr-sidecar ]
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-
-      - name: Set up variables
-        id: vars
-        run: |
-          echo "IMAGE_REPOSITORY=${{ env.REGISTRY }}/${{ env.OWNER }}/${{ matrix.service }}" >> $GITHUB_ENV
-          echo "SHORT_SHA=$(echo $GITHUB_SHA | cut -c1-7)" >> $GITHUB_ENV
-
-      - name: Log in to GHCR
-        uses: docker/login-action@v4
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
-
-      - name: Build and push multi-arch image
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          file: ${{ matrix.service }}/Dockerfile
-          push: true
-          platforms: linux/amd64,linux/arm64
-          tags: |
-            ${{ env.IMAGE_REPOSITORY }}:main
-            ${{ env.IMAGE_REPOSITORY }}:sha-${{ env.SHORT_SHA }}
-
-  # ----------------------------------------------------------
-  # Python test job: runs shared and service Python tests for Radarr and Sonarr
-  # ----------------------------------------------------------
-  test-py:
-    name: Test Python service ${{ matrix.service }}
-    if: github.ref_type == 'branch'
-    runs-on: ubuntu-latest
-
-    strategy:
-      matrix:
-        service: [ radarr-sidecar, sonarr-sidecar ]
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v5
         with:
-          python-version: "3.x"
+          python-version: "3.12"
+
+      - name: Install test dependencies
+        run: |
+          pip install --quiet requests mutagen
 
       - name: Run shared Python tests
+        env:
+          PYTHONPATH: ${{ github.workspace }}
         run: |
-          echo "Running shared Python unit tests for ${{ matrix.service }}"
-          python3 -m unittest discover -s shared/python/tests -p 'test_*.py'
+          python3 -m unittest discover -s shared/python/tests -p 'test_*.py' -v
 
-      - name: Run service Python tests for ${{ matrix.service }}
+      - name: Run service-specific tests
+        env:
+          PYTHONPATH: ${{ github.workspace }}
         run: |
-          if [ -d "${{ matrix.service }}/test" ] && find "${{ matrix.service }}/test" -maxdepth 1 -name 'test_*.py' | grep -q .; then
-            echo "Running Python tests for ${{ matrix.service }}"
-            python3 -m unittest discover -s "${{ matrix.service }}/test" -p 'test_*.py'
+          if find "${{ matrix.service }}" -path '*/test*' -name 'test_*.py' 2>/dev/null | grep -q .; then
+            echo "Running tests for ${{ matrix.service }}"
+            find "${{ matrix.service }}" -path '*/test*' -name 'test_*.py' -exec dirname {} \; | sort -u | while read dir; do
+              python3 -m unittest discover -s "$dir" -p 'test_*.py' -v
+            done
           else
-            echo "No Python tests found for ${{ matrix.service }}, skipping."
+            echo "No service-specific tests found for ${{ matrix.service }}, skipping."
           fi
 
+      - name: Verify Python files compile
+        run: |
+          find "${{ matrix.service }}" -name '*.py' -exec python3 -c "
+          import ast, sys
+          for f in sys.argv[1:]:
+              try:
+                  ast.parse(open(f).read())
+              except SyntaxError as e:
+                  print(f'FAIL: {f}: {e}')
+                  sys.exit(1)
+          print(f'All {len(sys.argv)-1} files compile OK')
+          " {} +
+
   # ----------------------------------------------------------
-  # Python build job: builds Radarr and Sonarr Python containers after tests pass
+  # Build: Build and push Docker images
   # ----------------------------------------------------------
-  build-py:
-    name: Build and publish Python ${{ matrix.service }} (main build)
-    if: github.ref_type == 'branch'
-    needs: test-py
+  build:
+    name: Build ${{ matrix.service }}
+    needs: test
     runs-on: ubuntu-latest
+    # Skip build on PRs and release dispatches (just test / promote)
+    if: github.event_name == 'push'
     permissions:
       contents: read
       packages: write
-      id-token: write
 
     strategy:
+      fail-fast: false
       matrix:
-        service: [ radarr-sidecar, sonarr-sidecar ]
+        service: [lidarr-sidecar, radarr-sidecar, sonarr-sidecar]
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
-      - name: Set up variables
-        id: vars
+      - name: Compute image tags
+        id: tags
         run: |
-          echo "IMAGE_REPOSITORY=${{ env.REGISTRY }}/${{ env.OWNER }}/${{ matrix.service }}" >> $GITHUB_ENV
-          echo "SHORT_SHA=$(echo $GITHUB_SHA | cut -c1-7)" >> $GITHUB_ENV
+          IMAGE="${{ env.REGISTRY }}/${{ env.OWNER }}/${{ matrix.service }}"
+          SHORT_SHA=$(echo "$GITHUB_SHA" | cut -c1-7)
+          TAGS="${IMAGE}:sha-${SHORT_SHA}"
+
+          # Main branch: also tag as "main"
+          if [[ "$GITHUB_REF" == "refs/heads/main" ]]; then
+            TAGS="${TAGS},${IMAGE}:main"
+          fi
+
+          echo "tags=${TAGS}" >> "$GITHUB_OUTPUT"
+          echo "Generated tags: ${TAGS}"
 
       - name: Log in to GHCR
-        uses: docker/login-action@v4
+        uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
+      - name: Set up QEMU (for multi-arch)
+        uses: docker/setup-qemu-action@v3
 
-      - name: Build and push multi-arch image
-        uses: docker/build-push-action@v7
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
         with:
           context: .
           file: ${{ matrix.service }}/Dockerfile
           push: true
           platforms: linux/amd64,linux/arm64
-          tags: |
-            ${{ env.IMAGE_REPOSITORY }}:main
-            ${{ env.IMAGE_REPOSITORY }}:sha-${{ env.SHORT_SHA }}
+          tags: ${{ steps.tags.outputs.tags }}
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
 
   # ----------------------------------------------------------
-  # Release job: runs only when a tag (v*) is created
+  # Release: Promote existing main image with version tags
+  # Triggered via workflow_dispatch with a version tag input.
+  # This re-tags the multi-arch manifest — no rebuild needed.
   # ----------------------------------------------------------
   release:
-    name: Tag release ${{ matrix.service }} image
-    if: github.ref_type == 'tag' && startsWith(github.ref_name, 'v')
+    name: Release ${{ matrix.service }} as ${{ github.event.inputs.release_tag }}
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.release_tag != ''
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
       packages: write
-      id-token: write
 
     strategy:
+      fail-fast: false
       matrix:
-        service: [ lidarr-sidecar, radarr-sidecar, sonarr-sidecar ]
+        service: [lidarr-sidecar, radarr-sidecar, sonarr-sidecar]
 
     steps:
-      - name: Set up variables
-        id: vars
-        run: |
-          echo "IMAGE_REPOSITORY=${{ env.REGISTRY }}/${{ env.OWNER }}/${{ matrix.service }}" >> $GITHUB_ENV
-          echo "SHORT_SHA=$(echo $GITHUB_SHA | cut -c1-7)" >> $GITHUB_ENV
-          echo "VERSION_TAG=${GITHUB_REF_NAME}" >> $GITHUB_ENV
-          echo "VERSION_NO_V=$(echo ${GITHUB_REF_NAME#v})" >> $GITHUB_ENV
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install crane
+        uses: imjasonh/setup-crane@v0.4
 
       - name: Log in to GHCR
-        uses: docker/login-action@v4
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | crane auth login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin
+
+      - name: Promote image
+        run: |
+          IMAGE="${{ env.REGISTRY }}/${{ env.OWNER }}/${{ matrix.service }}"
+          VERSION_TAG="${{ github.event.inputs.release_tag }}"
+          VERSION_NO_V="${VERSION_TAG#v}"
+
+          echo "Promoting ${IMAGE}:main → ${VERSION_TAG}, ${VERSION_NO_V}, latest"
+
+          crane copy "${IMAGE}:main" "${IMAGE}:${VERSION_TAG}"
+          crane copy "${IMAGE}:main" "${IMAGE}:${VERSION_NO_V}"
+          crane copy "${IMAGE}:main" "${IMAGE}:latest"
+
+      - name: Create git tag
+        run: |
+          VERSION_TAG="${{ github.event.inputs.release_tag }}"
+          git tag "$VERSION_TAG" || true
+          git push origin "$VERSION_TAG" || true
+
+  # ----------------------------------------------------------
+  # Release notes: Create GitHub Release after promotion
+  # ----------------------------------------------------------
+  release-notes:
+    name: Create GitHub Release
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
         with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
 
-      - name: Pull existing image by SHA
+      - name: Generate release notes
         run: |
-          docker pull ${{ env.IMAGE_REPOSITORY }}:sha-${{ env.SHORT_SHA }}
+          VERSION_TAG="${{ github.event.inputs.release_tag }}"
+          PREV_TAG=$(git tag --sort=-version:refname | grep '^v' | grep -v "^${VERSION_TAG}$" | head -1)
+          if [ -n "$PREV_TAG" ]; then
+            NOTES=$(git log --pretty=format:"- %s (%h)" "${PREV_TAG}..HEAD" | head -50)
+          else
+            NOTES="Initial release"
+          fi
+          echo "$NOTES" > /tmp/release-notes.md
+          echo "" >> /tmp/release-notes.md
+          echo "## Docker Images" >> /tmp/release-notes.md
+          echo "" >> /tmp/release-notes.md
+          echo '```' >> /tmp/release-notes.md
+          echo "docker pull ${{ env.REGISTRY }}/${{ env.OWNER }}/lidarr-sidecar:${VERSION_TAG}" >> /tmp/release-notes.md
+          echo "docker pull ${{ env.REGISTRY }}/${{ env.OWNER }}/radarr-sidecar:${VERSION_TAG}" >> /tmp/release-notes.md
+          echo "docker pull ${{ env.REGISTRY }}/${{ env.OWNER }}/sonarr-sidecar:${VERSION_TAG}" >> /tmp/release-notes.md
+          echo '```' >> /tmp/release-notes.md
 
-      - name: Re-tag and push versioned image
-        run: |
-          docker tag ${{ env.IMAGE_REPOSITORY }}:sha-${{ env.SHORT_SHA }} ${{ env.IMAGE_REPOSITORY }}:${{ env.VERSION_TAG }}
-          docker tag ${{ env.IMAGE_REPOSITORY }}:sha-${{ env.SHORT_SHA }} ${{ env.IMAGE_REPOSITORY }}:${{ env.VERSION_NO_V }}
-          docker tag ${{ env.IMAGE_REPOSITORY }}:sha-${{ env.SHORT_SHA }} ${{ env.IMAGE_REPOSITORY }}:latest
-
-          docker push ${{ env.IMAGE_REPOSITORY }}:${{ env.VERSION_NO_V }}
-          docker push ${{ env.IMAGE_REPOSITORY }}:${{ env.VERSION_TAG }}
-          docker push ${{ env.IMAGE_REPOSITORY }}:latest
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.release_tag }}
+          body_path: /tmp/release-notes.md
+          generate_release_notes: false
