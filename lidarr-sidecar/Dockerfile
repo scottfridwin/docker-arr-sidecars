@@ -5,19 +5,16 @@ FROM debian:13.4-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
     beets \
     flac \
-    jq \
     ffmpeg \
     python3 \
     python3-pip \
-    curl \
     bash \
     rsgain \
     tzdata
 RUN rm -rf /var/lib/apt/lists/*
 
-# Install Python packages into a custom prefix
+# Install Python packages
 RUN pip install --no-cache-dir --prefer-binary --break-system-packages \
-    yq \
     beautifulsoup4 \
     jellyfish \
     pyacoustid \
@@ -29,12 +26,13 @@ RUN pip install --no-cache-dir --prefer-binary --break-system-packages \
 
 # Copy scripts and config
 COPY lidarr-sidecar/ /app/
-COPY shared/ /app/
-RUN chmod +x /app/entrypoint.sh
+COPY shared/python /app/shared/python/
 
 WORKDIR /app
+ENV PYTHONPATH=/app
 
 # General settings
+ENV UMASK=0002
 ENV LOG_LEVEL=INFO
 
 # Application details
@@ -112,4 +110,4 @@ ENV AUTOCONFIG_QUALITYPROFILE_JSON=/app/config/qualityprofile.json
 ENV AUTOCONFIG_UI=false
 ENV AUTOCONFIG_UI_JSON=/app/config/ui.json
 
-CMD ["bash", "/app/entrypoint.sh"]
+CMD ["python3", "/app/shared/python/entrypoint.py"]
