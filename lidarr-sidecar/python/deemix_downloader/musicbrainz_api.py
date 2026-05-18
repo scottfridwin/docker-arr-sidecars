@@ -104,9 +104,20 @@ def fetch_musicbrainz_release(mbid: str) -> dict | None:
     data = call_musicbrainz_api(url)
 
     if data is not None:
+        # Use shorter cache for releases without Deezer links (they may get updated)
+        has_deezer = any(
+            "deezer.com" in (r.get("url", {}).get("resource", ""))
+            for r in data.get("relations", [])
+        )
         try:
             cache_file.parent.mkdir(parents=True, exist_ok=True)
             cache_file.write_text(json.dumps(data), encoding="utf-8")
+            if not has_deezer:
+                # Set mtime to be 23 days old so it expires in ~7 days instead of 30
+                import os as _os
+                age_offset = (cfg.cache_max_age_musicbrainz - 7) * 86400
+                now = time.time()
+                _os.utime(cache_file, (now - age_offset, now - age_offset))
         except OSError:
             pass
 

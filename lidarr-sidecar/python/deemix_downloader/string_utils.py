@@ -143,11 +143,6 @@ def remove_punctuation(s: str) -> str:
     return re.sub(r"[.,:;!?*'''\u2018\u2019\u201c\u201d\"\u0027\u2014-]", "", s)
 
 
-def remove_quotes(s: str) -> str:
-    """Remove quote characters."""
-    return re.sub(r"['''\u2018\u2019\u201c\u201d\"]", "", s)
-
-
 def clean_path_string(s: str) -> str:
     """Clean a string for safe use in file/folder names.
 

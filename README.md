@@ -44,13 +44,16 @@ Services:
   - Enforces: file exists, owned by the running user, and mode 0600
   - Runs at `ARLUPDATE_INTERVAL` (e.g., `24h`)
 - DeemixDownloader
-  - Periodically scans the Lidarr wanted queue and fetches candidate releases from the Deezer API with caching and retry logic
-  - Scores title matches with Levenshtein distance and rules (prefer special editions, deprioritize commentary, ignore instrumentals by keywords)
-  - Downloads via Deemix using the ARL token
-  - Optional: apply ReplayGain (`r128gain`) and Beets tagging
-  - Adds a Usenet Blackhole download client in Lidarr pointing to a shared import folder if missing
+  - Periodically scans the Lidarr wanted queue and finds matching Deezer albums via MusicBrainz release links (no fuzzy searching — requires a Deezer URL in MusicBrainz relations)
+  - Applies sanity checks (title similarity, track count, lyric type) to validate links
+  - Ranks multiple release candidates by country/format preference and content type (deprioritizes commentary/instrumental)
+  - Handles Deezer album redirects transparently (stale MusicBrainz links to removed albums)
+  - Downloads via Deemix using the ARL token with automatic retry and quality fallback
+  - Optional post-processing: ReplayGain (rsgain) and Beets tagging
+  - Adds a Usenet Blackhole download client in Lidarr pointing to a shared import folder
+  - Import folder includes MusicBrainz Release Group ID for reliable matching even with special characters
   - Triggers Lidarr's `DownloadedAlbumsScan` for immediate import
-  - Maintains working dirs (`/work/staging`, `/work/complete`, `/work/cache`) and a simple `notfound/` retry mechanism
+  - Maintains working dirs (`/work/staging`, `/work/cache`) and retry state (`notfound/`, `downloaded/`, `failed/`)
 
 #### Environment variables
 
@@ -67,12 +70,12 @@ Services:
 | ARLUPDATE_INTERVAL | 24h | Interval between ARL token checks |
 |---|---|---|
 | AUDIO_APPLY_BEETS | true | Apply Beets tagging to downloads |
-| AUDIO_APPLY_REPLAYGAIN | true | Apply ReplayGain tags via r128gain |
-| AUDIO_CACHE_MAX_AGE_DAYS_DEEZER | 30 | Prune Deezer cache entries older than this many days. Set to negative to disable automatic cache pruning for Deezer data |
-| AUDIO_CACHE_MAX_AGE_DAYS_LIDARR | 7 | Prune Lidarr cache entries older than this many days. Set to negative to disable automatic cache pruning for Lidarr data |
-| AUDIO_CACHE_MAX_AGE_DAYS_MUSICBRAINZ | 30 | Prune MusicBrainz cache entries older than this many days. Set to negative to disable automatic cache pruning for MusicBrainz data |
+| AUDIO_APPLY_REPLAYGAIN | true | Apply ReplayGain tags via rsgain |
+| AUDIO_CACHE_MAX_AGE_DAYS_DEEZER | 30 | Prune Deezer cache entries older than this many days. Set to negative to disable |
+| AUDIO_CACHE_MAX_AGE_DAYS_MUSICBRAINZ | 30 | Prune MusicBrainz cache entries older than this many days. Set to negative to disable |
 | AUDIO_BEETS_CUSTOM_CONFIG | (unset) | Beets YAML custom config (path or inline YAML) |
 | AUDIO_COMMENTARY_KEYWORDS | commentary,commentaries,directors commentary,audio commentary,with commentary,track by track | Keywords that mark commentary releases |
+| AUDIO_DAILY_DOWNLOAD_LIMIT | 0 | Maximum albums to download per day. 0 = unlimited |
 | AUDIO_DATA_PATH | /data | State path for `notfound/`, `downloaded/`, `failed/` |
 | AUDIO_DEEMIX_CUSTOM_CONFIG | (unset) | Deemix JSON custom config (path or inline JSON) |
 | AUDIO_DEEZER_API_RETRIES | 3 | Max retries for Deezer API calls |
@@ -80,29 +83,22 @@ Services:
 | AUDIO_DEEMIX_ARL_FILE | /deemix_arl_token | Path to Deezer ARL token file (must be owned by container user and chmod 600) |
 | AUDIO_DEPRIORITIZE_COMMENTARY_RELEASES | true | Prefer non-commentary releases when possible |
 | AUDIO_DOWNLOADCLIENT_NAME | lidarr-deemix-sidecar | Name of Blackhole download client created in Lidarr |
-| AUDIO_DOWNLOAD_ATTEMPT_THRESHOLD | 10 | Max attempts per album before skipping |
-| AUDIO_DOWNLOAD_CLIENT_TIMEOUT | 10m | Timeout for Deemix download step |
-| AUDIO_DOWNLOAD_QUALITY_FALLBACK | true | If flac quality download fails, fallback to mp3 |
-| AUDIO_FAILED_ATTEMPT_THRESHOLD | 6 | Fail threshold per album across runs |
+| AUDIO_DOWNLOAD_ATTEMPT_THRESHOLD | 10 | Max download attempts per album before marking failed |
+| AUDIO_DOWNLOAD_QUALITY_FALLBACK | true | If FLAC download fails, fallback to MP3 |
 | AUDIO_IGNORE_INSTRUMENTAL_RELEASES | true | Skip instrumental releases by keyword |
 | AUDIO_INSTRUMENTAL_KEYWORDS | Instrumental,Score | Instrumental keywords list |
 | AUDIO_INTERVAL | 15m | Main loop sleep interval for downloader |
-| AUDIO_LYRIC_TYPE | prefer-explicit | Lyric preference: prefer-explicit, prefer-clean, both |
-| AUDIO_MATCH_THRESHOLD_TITLE | 0 | Maximum album title difference for matching |
-| AUDIO_MATCH_THRESHOLD_TRACKS | 0 | Maximum track count difference for matching |
-| AUDIO_MATCH_THRESHOLD_TRACK_DIFF_AVG | 1.00 | Maximum track name difference (averaged per track) for matching |
-| AUDIO_MATCH_THRESHOLD_TRACK_DIFF_MAX | 10 | Maximum single-track name difference for matching |
-| AUDIO_PREFER_SPECIAL_EDITIONS | true | Prefer deluxe/special editions when tied |
-| AUDIO_PRIORITY_FILE | unset | File path to a file containing album ids to be processed on priority |
-| AUDIO_PRIORITY_ONLY | false | Flag indicating that only priority albums should be processed |
-| AUDIO_REQUIRE_MUSICBRAINZ_REL | true | Require that the musicbrainz release record have a relationship to the Deezer album |
-| AUDIO_REQUIRE_QUALITY | true | Require target quality (vs. accept best-effort) |
-| AUDIO_RESULT_FILE_NAME | results.md | Name for the result file from matching process. This file is written to the work directory. Set to empty to disable result file |
-| AUDIO_RETRY_NOTFOUND_DAYS | 90 | Give up-not-found entries a retry after this many days |
+| AUDIO_LYRIC_TYPE | prefer-explicit | Lyric preference: prefer-explicit, require-explicit, require-clean |
+| AUDIO_PREFERRED_COUNTRIES | [Worldwide]\|United States\|...\|[BLANK] | Pipe-delimited country preference for release ranking |
+| AUDIO_PREFERRED_FORMATS | Digital Media\|CD | Pipe-delimited format preference for release ranking |
+| AUDIO_PRIORITY_FILE | (unset) | File path containing album IDs to process with priority |
+| AUDIO_PRIORITY_ONLY | false | Only process priority albums (skip wanted list) |
+| AUDIO_RESULT_FILE_NAME | results.md | Name for match result file written to work directory. Empty to disable |
+| AUDIO_RETRY_NOTFOUND_DAYS | 90 | Retry not-found albums after this many days |
+| AUDIO_RETRY_DOWNLOADED_DAYS | 180 | Retry downloaded albums after this many days |
+| AUDIO_RETRY_FAILED_DAYS | 90 | Retry failed albums after this many days |
 | AUDIO_SHARED_LIDARR_PATH | /sidecar-import | Shared import path watched by Lidarr (Blackhole) |
-| AUDIO_TITLE_REPLACEMENTS_FILE | /app/config/album_title_replacements.json | Title normalization map (JSON) |
-| AUDIO_WORK_PATH | /work | Working directory for temporary files |
-| AUDIO_DAILY_DOWNLOAD_LIMIT | (unset) | Maximum number of albums to download per day. Set to a positive integer to enable daily limiting; 0 or unset = unlimited |
+| AUDIO_WORK_PATH | /work | Working directory for temporary files and cache |
 |---|---|---|
 | AUTOCONFIG_DELAY | 10 | Initial delay before running `AutoConfig` service after container start |
 | AUTOCONFIG_CUSTOMFORMAT | false | Configure settings at the `customformat` api endpoint. |

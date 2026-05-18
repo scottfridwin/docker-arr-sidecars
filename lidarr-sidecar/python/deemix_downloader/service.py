@@ -28,7 +28,6 @@ from shared.python.arrapi import verify_arr_api_access
 from shared.python.state import init_state
 
 from .config import cfg
-from .deezer_api import get_deezer_album_info
 from .download import (
     AUDIO_EXTENSIONS,
     apply_beets,
@@ -62,6 +61,14 @@ DEEMIX_DIR = Path("/tmp/deemix")
 DEEMIX_CONFIG_PATH = DEEMIX_DIR / "config" / "config.json"
 BEETS_DIR = Path("/tmp/beets")
 BEETS_CONFIG_PATH = BEETS_DIR / "beets.yaml"
+
+# Pre-compiled keyword patterns (built once from config)
+_COMMENTARY_RE = re.compile(
+    "|".join(re.escape(k) for k in cfg.commentary_keywords), re.IGNORECASE
+) if cfg.commentary_keywords else None
+_INSTRUMENTAL_RE = re.compile(
+    "|".join(re.escape(k) for k in cfg.instrumental_keywords), re.IGNORECASE
+) if cfg.instrumental_keywords else None
 
 
 # ─── Daily download limit ──────────────────────────────────────────────
@@ -274,19 +281,17 @@ def _build_candidates(album_data: dict, album_release_year: str) -> list[Release
             year = mb_date[:4] if mb_date else album_release_year
 
         # Check commentary
-        commentary_pattern = re.compile(
-            "|".join(re.escape(k) for k in cfg.commentary_keywords), re.IGNORECASE
-        )
         contains_commentary = bool(
-            commentary_pattern.search(title) or commentary_pattern.search(disambiguation)
+            _COMMENTARY_RE and (
+                _COMMENTARY_RE.search(title) or _COMMENTARY_RE.search(disambiguation)
+            )
         )
 
         # Check instrumental
-        instrumental_pattern = re.compile(
-            "|".join(re.escape(k) for k in cfg.instrumental_keywords), re.IGNORECASE
-        )
         instrumental = bool(
-            instrumental_pattern.search(title) or instrumental_pattern.search(disambiguation)
+            _INSTRUMENTAL_RE and (
+                _INSTRUMENTAL_RE.search(title) or _INSTRUMENTAL_RE.search(disambiguation)
+            )
         )
 
         candidates.append(ReleaseCandidate(
@@ -390,16 +395,9 @@ def _download_album(
 ) -> bool:
     """Download, tag, and import an album. Returns True on success."""
     deezer_album_id = result.deezer_album_id
-
-    # Fetch full album data for track count
-    album_data = get_deezer_album_info(deezer_album_id)
-    if album_data is None:
-        return False
-
-    deezer_title = album_data.get("title", "")
-    deezer_track_count = album_data.get("nb_tracks", 0)
-    release_date = album_data.get("release_date", "")
-    release_year = release_date[:4] if release_date else ""
+    deezer_title = result.deezer_title
+    deezer_track_count = result.deezer_track_count
+    release_year = result.deezer_year
 
     # Check previously failed
     if (cfg.failed_dir / deezer_album_id).exists():
@@ -582,7 +580,9 @@ def process_wanted_list(
             continue
 
         log.info(f"Processing {len(album_ids)} {list_type} albums")
-        for album_id in album_ids:
+        for idx, album_id in enumerate(album_ids, 1):
+            if idx % 25 == 0:
+                log.info(f"Progress: {idx}/{len(album_ids)} {list_type} albums processed")
             if daily_tracker.is_limit_reached():
                 log.info(f"Daily limit reached; stopping {list_type} processing")
                 return
@@ -612,18 +612,24 @@ def main() -> None:
     daily_tracker = DailyLimitTracker()
 
     while True:
-        folder_cleaner()
-        prune_cache()
+        try:
+            # Re-read ARL token in case ARLChecker has refreshed it
+            arl_token = cfg.deemix_arl_file.read_text(encoding="utf-8").strip().strip('\r\n"')
 
-        failed_albums = _get_failed_albums()
+            folder_cleaner()
+            prune_cache()
 
-        if daily_tracker.is_limit_reached():
-            log.info("Daily download limit reached; skipping processing")
-        else:
-            process_priority_list(failed_albums, daily_tracker, arl_token)
-            if not cfg.priority_only:
-                process_wanted_list("missing", failed_albums, daily_tracker, arl_token)
-                process_wanted_list("cutoff", failed_albums, daily_tracker, arl_token)
+            failed_albums = _get_failed_albums()
+
+            if daily_tracker.is_limit_reached():
+                log.info("Daily download limit reached; skipping processing")
+            else:
+                process_priority_list(failed_albums, daily_tracker, arl_token)
+                if not cfg.priority_only:
+                    process_wanted_list("missing", failed_albums, daily_tracker, arl_token)
+                    process_wanted_list("cutoff", failed_albums, daily_tracker, arl_token)
+        except Exception as e:
+            log.error(f"Unexpected error in main loop: {e}")
 
         if cfg.interval.lower() == "none" or cfg.interval_seconds == 0:
             log.info("AUDIO_INTERVAL is 'none', exiting after single run")
