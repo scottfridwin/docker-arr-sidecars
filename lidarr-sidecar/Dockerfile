@@ -1,5 +1,5 @@
 # ===== Final Stage =====
-FROM debian:13.4-slim
+FROM debian:13.5-slim
 
 LABEL org.opencontainers.image.version="2.0.0"
 LABEL org.opencontainers.image.description="Lidarr sidecar - automated Deezer downloads via MusicBrainz links"
