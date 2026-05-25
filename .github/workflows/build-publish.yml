@@ -10,14 +10,9 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: "Version tag to release (e.g., v2.0.0). Promotes the current main image."
+        description: "Version tag to release (e.g., v2.0.0). Promotes the current main image. Leave empty to just build."
         required: false
         type: string
-      build_branch:
-        description: "Set to 'true' to build and push images from the current branch (tagged :sha-XXXXXXX only)."
-        required: false
-        type: boolean
-        default: false
 
 env:
   REGISTRY: ghcr.io
@@ -89,7 +84,7 @@ jobs:
     needs: test
     runs-on: ubuntu-latest
     # Runs on push to main OR manual dispatch with build_branch=true
-    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.event.inputs.build_branch == 'true')
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.event.inputs.release_tag == '')
     permissions:
       contents: read
       packages: write
@@ -161,6 +156,13 @@ jobs:
         service: [lidarr-sidecar, radarr-sidecar, sonarr-sidecar]
 
     steps:
+      - name: Verify main branch
+        run: |
+          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+            echo "::error::Release can only be triggered from the main branch (got $GITHUB_REF)"
+            exit 1
+          fi
+
       - name: Checkout repository
         uses: actions/checkout@v6
         with:
