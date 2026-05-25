@@ -3,7 +3,7 @@ name: Build and Publish Docker Images
 on:
   push:
     branches:
-      - "**"
+      - main
   pull_request:
     branches:
       - main
@@ -11,8 +11,13 @@ on:
     inputs:
       release_tag:
         description: "Version tag to release (e.g., v2.0.0). Promotes the current main image."
-        required: true
+        required: false
         type: string
+      build_branch:
+        description: "Set to 'true' to build and push images from the current branch (tagged :sha-XXXXXXX only)."
+        required: false
+        type: boolean
+        default: false
 
 env:
   REGISTRY: ghcr.io
@@ -83,8 +88,8 @@ jobs:
     name: Build ${{ matrix.service }}
     needs: test
     runs-on: ubuntu-latest
-    # Skip build on PRs and release dispatches (just test / promote)
-    if: github.event_name == 'push'
+    # Runs on push to main OR manual dispatch with build_branch=true
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.event.inputs.build_branch == 'true')
     permissions:
       contents: read
       packages: write
