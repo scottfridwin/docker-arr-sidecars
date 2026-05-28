@@ -591,7 +591,7 @@ def _resolve_priority_entries(entries: list[str]) -> list[tuple[str, str]]:
                         seen.add(aid)
                         results.append((aid, entry))
             else:
-                log.warning(f"Could not resolve {entry} to any wanted albums")
+                log.info(f"No wanted albums found for {entry} (all may already be downloaded)")
         else:
             if entry not in seen:
                 seen.add(entry)
@@ -605,7 +605,12 @@ def process_priority_list(failed_albums: set[str], daily_tracker: DailyLimitTrac
         return
 
     lines = Path(cfg.priority_file).read_text().splitlines()
-    raw_entries = [l.strip() for l in lines if l.strip() and not l.strip().startswith("#")]
+    raw_entries: list[str] = []
+    for l in lines:
+        # Strip inline comments (e.g. "mb_rg:uuid # My Album")
+        entry = l.split("#", 1)[0].strip()
+        if entry:
+            raw_entries.append(entry)
     if not raw_entries:
         return
 
@@ -690,13 +695,17 @@ def main() -> None:
 
             failed_albums = _get_failed_albums()
 
-            if daily_tracker.is_limit_reached():
-                log.info("Daily download limit reached; skipping processing")
-            else:
+            limit_reached = daily_tracker.is_limit_reached()
+
+            # Priority list runs even when limit is reached if exempt
+            if not limit_reached or cfg.priority_exempt_from_limit:
                 process_priority_list(failed_albums, daily_tracker, arl_token)
-                if not cfg.priority_only:
-                    process_wanted_list("missing", failed_albums, daily_tracker, arl_token)
-                    process_wanted_list("cutoff", failed_albums, daily_tracker, arl_token)
+
+            if limit_reached:
+                log.info("Daily download limit reached; skipping wanted list processing")
+            elif not cfg.priority_only:
+                process_wanted_list("missing", failed_albums, daily_tracker, arl_token)
+                process_wanted_list("cutoff", failed_albums, daily_tracker, arl_token)
         except Exception as e:
             log.error(f"Unexpected error in main loop: {e}")
 
