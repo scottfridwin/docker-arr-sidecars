@@ -110,3 +110,40 @@ def get_album_data(album_id: int | str) -> dict | None:
         pass
     log.warning(f"Invalid album data for ID {album_id}")
     return None
+
+
+def get_album_ids_by_release_group(foreign_album_id: str) -> list[str]:
+    """Look up Lidarr album IDs by MusicBrainz release group ID (foreignAlbumId)."""
+    arr_api_request("GET", f"album?foreignAlbumId={foreign_album_id}")
+    response = get_state("arrApiResponse")
+    try:
+        albums = json.loads(response) if isinstance(response, str) else response
+    except (json.JSONDecodeError, TypeError):
+        albums = []
+    if isinstance(albums, dict):
+        # Single result returned as object
+        albums = [albums] if "id" in albums else []
+    if not isinstance(albums, list):
+        return []
+    return [str(a["id"]) for a in albums if a.get("id")]
+
+
+def get_album_ids_by_artist(foreign_artist_id: str) -> list[str]:
+    """Look up Lidarr album IDs for all wanted albums by a given MusicBrainz artist ID.
+
+    Checks both missing and cutoff unmet lists.
+    """
+    album_ids: list[str] = []
+    for list_type in ("missing", "cutoff"):
+        arr_api_request("GET", f"wanted/{list_type}?page=1&pagesize=10000&sortKey=releaseDate&sortDirection=descending")
+        response = get_state("arrApiResponse")
+        try:
+            data = json.loads(response) if isinstance(response, str) else response
+        except (json.JSONDecodeError, TypeError):
+            data = {}
+        records = data.get("records", []) if isinstance(data, dict) else []
+        album_ids.extend(
+            str(r["id"]) for r in records
+            if r.get("artist", {}).get("foreignArtistId") == foreign_artist_id
+        )
+    return album_ids

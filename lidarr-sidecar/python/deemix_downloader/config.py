@@ -92,6 +92,7 @@ class Config:
 
     # Priority
     priority_only: bool = field(default_factory=lambda: _env_bool("AUDIO_PRIORITY_ONLY", False))
+    priority_exempt_from_limit: bool = field(default_factory=lambda: _env_bool("AUDIO_PRIORITY_EXEMPT_FROM_LIMIT", False))
 
     # Result file
     result_file_name: str = field(default_factory=lambda: _env("AUDIO_RESULT_FILE_NAME", "results.md"))
