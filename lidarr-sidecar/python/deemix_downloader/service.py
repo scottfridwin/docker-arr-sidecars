@@ -548,7 +548,7 @@ def process_priority_list(failed_albums: set[str], daily_tracker: DailyLimitTrac
 
     log.info(f"Processing {len(priority_ids)} priority album(s)")
     for album_id in priority_ids:
-        if daily_tracker.is_limit_reached():
+        if not cfg.priority_exempt_from_limit and daily_tracker.is_limit_reached():
             log.info("Daily limit reached; pausing priority processing")
             break
         search_and_download(album_id, failed_albums, daily_tracker, arl_token)
