@@ -110,3 +110,34 @@ def get_album_data(album_id: int | str) -> dict | None:
         pass
     log.warning(f"Invalid album data for ID {album_id}")
     return None
+
+
+def get_album_ids_by_release_group(foreign_album_id: str) -> list[str]:
+    """Look up Lidarr album IDs by MusicBrainz release group ID (foreignAlbumId)."""
+    arr_api_request("GET", "album")
+    response = get_state("arrApiResponse")
+    try:
+        albums = json.loads(response) if isinstance(response, str) else response
+    except (json.JSONDecodeError, TypeError):
+        albums = []
+    if not isinstance(albums, list):
+        return []
+    return [
+        str(a["id"]) for a in albums
+        if a.get("foreignAlbumId") == foreign_album_id
+    ]
+
+
+def get_album_ids_by_artist(foreign_artist_id: str) -> list[str]:
+    """Look up Lidarr album IDs for all wanted albums by a given MusicBrainz artist ID."""
+    arr_api_request("GET", "wanted/missing?page=1&pagesize=10000&sortKey=releaseDate&sortDirection=descending")
+    response = get_state("arrApiResponse")
+    try:
+        data = json.loads(response) if isinstance(response, str) else response
+    except (json.JSONDecodeError, TypeError):
+        data = {}
+    records = data.get("records", []) if isinstance(data, dict) else []
+    return [
+        str(r["id"]) for r in records
+        if r.get("artist", {}).get("foreignArtistId") == foreign_artist_id
+    ]

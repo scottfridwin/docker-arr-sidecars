@@ -47,6 +47,8 @@ from .download import (
 from .lidarr_api import (
     add_download_client,
     get_album_data,
+    get_album_ids_by_artist,
+    get_album_ids_by_release_group,
     get_wanted_albums,
     notify_lidarr_import,
 )
@@ -536,13 +538,48 @@ def _write_result_file(
 # ─── Processing loops ─────────────────────────────────────────────────────
 
 
+def _resolve_priority_entries(entries: list[str]) -> list[str]:
+    """Resolve priority file entries to Lidarr album IDs.
+
+    Supported formats:
+      - Plain numeric Lidarr album ID (e.g. "123")
+      - mb_rg:<uuid>  — MusicBrainz release group ID
+      - mb_artist:<uuid> — All wanted albums for a MusicBrainz artist
+    """
+    album_ids: list[str] = []
+    for entry in entries:
+        if entry.startswith("mb_rg:"):
+            foreign_id = entry[len("mb_rg:"):].strip()
+            resolved = get_album_ids_by_release_group(foreign_id)
+            if resolved:
+                log.debug(f"Resolved mb_rg:{foreign_id} -> album IDs {resolved}")
+                album_ids.extend(resolved)
+            else:
+                log.warning(f"Could not resolve mb_rg:{foreign_id} to any Lidarr album")
+        elif entry.startswith("mb_artist:"):
+            foreign_id = entry[len("mb_artist:"):].strip()
+            resolved = get_album_ids_by_artist(foreign_id)
+            if resolved:
+                log.debug(f"Resolved mb_artist:{foreign_id} -> {len(resolved)} album(s)")
+                album_ids.extend(resolved)
+            else:
+                log.warning(f"Could not resolve mb_artist:{foreign_id} to any wanted albums")
+        else:
+            album_ids.append(entry)
+    return album_ids
+
+
 def process_priority_list(failed_albums: set[str], daily_tracker: DailyLimitTracker, arl_token: str) -> None:
     """Process user-provided priority album list."""
     if not cfg.priority_file or not Path(cfg.priority_file).is_file():
         return
 
     lines = Path(cfg.priority_file).read_text().splitlines()
-    priority_ids = [l.strip() for l in lines if l.strip() and not l.strip().startswith("#")]
+    raw_entries = [l.strip() for l in lines if l.strip() and not l.strip().startswith("#")]
+    if not raw_entries:
+        return
+
+    priority_ids = _resolve_priority_entries(raw_entries)
     if not priority_ids:
         return
 
