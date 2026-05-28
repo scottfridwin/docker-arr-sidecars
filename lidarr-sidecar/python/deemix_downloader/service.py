@@ -321,6 +321,7 @@ def search_and_download(
     failed_albums: set[str],
     daily_tracker: DailyLimitTracker,
     arl_token: str,
+    priority_entry: str = "",
 ) -> None:
     """Search for a Deezer match and download if found."""
     album_data = get_album_data(album_id)
@@ -369,6 +370,7 @@ def search_and_download(
         success = _download_album(
             result, artist_name, artist_foreign_id,
             album_title_raw, album_foreign_id, album_id, arl_token,
+            priority_entry=priority_entry,
         )
         if success:
             daily_tracker.increment()
@@ -394,6 +396,7 @@ def _download_album(
     album_foreign_id: str,
     album_id: str,
     arl_token: str,
+    priority_entry: str = "",
 ) -> bool:
     """Download, tag, and import an album. Returns True on success."""
     deezer_album_id = result.deezer_album_id
@@ -495,21 +498,25 @@ def _download_album(
     cfg.downloaded_dir.mkdir(parents=True, exist_ok=True)
     (cfg.downloaded_dir / marker).touch()
 
-    # Remove from priority file
-    _remove_from_priority_file(album_id)
+    # Remove from priority file (use original entry if from a prefixed source)
+    entry_to_remove = priority_entry if priority_entry else album_id
+    # Don't remove mb_artist: entries since they represent multiple albums
+    if not entry_to_remove.startswith("mb_artist:"):
+        _remove_from_priority_file(entry_to_remove)
 
     log.info(f"Successfully downloaded \"{deezer_title}\"")
     clean_staging()
     return True
 
 
-def _remove_from_priority_file(album_id: str) -> None:
+def _remove_from_priority_file(entry: str) -> None:
+    """Remove a line from the priority file matching the given entry."""
     if not cfg.priority_file or not Path(cfg.priority_file).is_file():
         return
     try:
         path = Path(cfg.priority_file)
         lines = path.read_text().splitlines()
-        path.write_text("\n".join(l for l in lines if l.strip() != album_id) + "\n")
+        path.write_text("\n".join(l for l in lines if l.strip() != entry) + "\n")
     except OSError:
         pass
 
@@ -538,35 +545,58 @@ def _write_result_file(
 # ─── Processing loops ─────────────────────────────────────────────────────
 
 
-def _resolve_priority_entries(entries: list[str]) -> list[str]:
-    """Resolve priority file entries to Lidarr album IDs.
+_UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE)
+
+
+def _is_valid_uuid(value: str) -> bool:
+    """Check if a string is a valid UUID format."""
+    return bool(_UUID_RE.match(value))
+
+
+def _resolve_priority_entries(entries: list[str]) -> list[tuple[str, str]]:
+    """Resolve priority file entries to (album_id, original_entry) tuples.
 
     Supported formats:
       - Plain numeric Lidarr album ID (e.g. "123")
       - mb_rg:<uuid>  — MusicBrainz release group ID
       - mb_artist:<uuid> — All wanted albums for a MusicBrainz artist
     """
-    album_ids: list[str] = []
+    results: list[tuple[str, str]] = []
+    seen: set[str] = set()
     for entry in entries:
         if entry.startswith("mb_rg:"):
             foreign_id = entry[len("mb_rg:"):].strip()
+            if not _is_valid_uuid(foreign_id):
+                log.warning(f"Invalid UUID in priority entry: {entry}")
+                continue
             resolved = get_album_ids_by_release_group(foreign_id)
             if resolved:
-                log.debug(f"Resolved mb_rg:{foreign_id} -> album IDs {resolved}")
-                album_ids.extend(resolved)
+                log.debug(f"Resolved {entry} -> album IDs {resolved}")
+                for aid in resolved:
+                    if aid not in seen:
+                        seen.add(aid)
+                        results.append((aid, entry))
             else:
-                log.warning(f"Could not resolve mb_rg:{foreign_id} to any Lidarr album")
+                log.warning(f"Could not resolve {entry} to any Lidarr album")
         elif entry.startswith("mb_artist:"):
             foreign_id = entry[len("mb_artist:"):].strip()
+            if not _is_valid_uuid(foreign_id):
+                log.warning(f"Invalid UUID in priority entry: {entry}")
+                continue
             resolved = get_album_ids_by_artist(foreign_id)
             if resolved:
-                log.debug(f"Resolved mb_artist:{foreign_id} -> {len(resolved)} album(s)")
-                album_ids.extend(resolved)
+                log.debug(f"Resolved {entry} -> {len(resolved)} album(s)")
+                for aid in resolved:
+                    if aid not in seen:
+                        seen.add(aid)
+                        results.append((aid, entry))
             else:
-                log.warning(f"Could not resolve mb_artist:{foreign_id} to any wanted albums")
+                log.warning(f"Could not resolve {entry} to any wanted albums")
         else:
-            album_ids.append(entry)
-    return album_ids
+            if entry not in seen:
+                seen.add(entry)
+                results.append((entry, entry))
+    return results
 
 
 def process_priority_list(failed_albums: set[str], daily_tracker: DailyLimitTracker, arl_token: str) -> None:
@@ -579,16 +609,18 @@ def process_priority_list(failed_albums: set[str], daily_tracker: DailyLimitTrac
     if not raw_entries:
         return
 
-    priority_ids = _resolve_priority_entries(raw_entries)
-    if not priority_ids:
+    resolved = _resolve_priority_entries(raw_entries)
+    if not resolved:
         return
 
-    log.info(f"Processing {len(priority_ids)} priority album(s)")
-    for album_id in priority_ids:
+    log.info(f"Processing {len(resolved)} priority album(s)")
+    for album_id, original_entry in resolved:
         if not cfg.priority_exempt_from_limit and daily_tracker.is_limit_reached():
             log.info("Daily limit reached; pausing priority processing")
             break
-        search_and_download(album_id, failed_albums, daily_tracker, arl_token)
+        if original_entry != album_id:
+            log.debug(f"Processing album {album_id} (from priority entry: {original_entry})")
+        search_and_download(album_id, failed_albums, daily_tracker, arl_token, priority_entry=original_entry)
 
 
 def process_wanted_list(
