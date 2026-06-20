@@ -229,7 +229,12 @@ def _move_directory(source: Path, destination: Path) -> None:
     if destination.exists():
         fatal(f"Destination already exists: {destination}")
     destination.parent.mkdir(parents=True, exist_ok=True)
-    move(str(source), str(destination))
+    try:
+        os.rename(source, destination)
+        debug("rename() succeeded")
+    except Exception as ex:
+        debug(f"rename() failed: {type(ex).__name__}: {ex}")
+        raise
 
 
 def get_import_target_name(import_dir: str) -> str:
