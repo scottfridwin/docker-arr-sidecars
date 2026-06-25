@@ -2,7 +2,7 @@
     "renameMovies": true,
     "replaceIllegalCharacters": true,
     "colonReplacementFormat": "delete",
-    "standardMovieFormat": "{Movie CleanTitle} {(Release Year)} [imdb-{ImdbId}]{[Quality Full]}{[MediaInfo AudioCodec}{ MediaInfo AudioChannels]}{[MediaInfo VideoDynamicRange]}{[MediaInfo VideoCodec]}{-Release Group}",
+    "standardMovieFormat": "{Movie CleanTitle} {(Release Year)} [imdb-{ImdbId}] - {Quality Title}",
     "movieFolderFormat": "{Movie CleanTitle} {(Release Year)} [imdb-{ImdbId}]",
     "id": 1
 }
