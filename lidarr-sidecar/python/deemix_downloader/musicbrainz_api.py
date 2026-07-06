@@ -122,7 +122,7 @@ def fetch_musicbrainz_release(mbid: str) -> dict | None:
         log.debug(f"Using cached MB release for {mbid}")
         return cached
 
-    url = f"https://musicbrainz.org/ws/2/release/{mbid}?fmt=json&inc=recordings+url-rels"
+    url = f"https://musicbrainz.org/ws/2/release/{mbid}?fmt=json&inc=recordings+release-groups+url-rels"
     data = call_musicbrainz_api(url)
 
     if data is not None:

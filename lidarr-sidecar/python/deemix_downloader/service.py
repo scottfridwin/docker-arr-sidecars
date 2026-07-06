@@ -287,6 +287,7 @@ def _build_candidates(album_data: dict, album_release_year: str) -> list[Release
         if isinstance(release_group, dict):
             release_group_id = release_group.get("id", "")
             if release_group_id:
+                log.debug(f"Fetching MusicBrainz aliases for release-group {release_group_id}")
                 release_group_data = fetch_musicbrainz_release_group(release_group_id)
                 if release_group_data is not None:
                     aliases = release_group_data.get("aliases", [])
@@ -296,6 +297,11 @@ def _build_candidates(album_data: dict, album_release_year: str) -> list[Release
                             for alias in aliases
                             if isinstance(alias, dict) and alias.get("name")
                         ]
+                        if alternate_titles:
+                            log.debug(
+                                f"Found {len(alternate_titles)} release-group aliases for {release_group_id}: "
+                                f"{', '.join(alternate_titles[:5])}"
+                            )
 
         # Check commentary
         contains_commentary = bool(

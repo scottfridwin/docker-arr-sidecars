@@ -1,14 +1,31 @@
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from deemix_downloader import matching
+from deemix_downloader import matching, musicbrainz_api
+from deemix_downloader.config import Config
 
 
 class MatchingTests(unittest.TestCase):
+    def test_fetch_musicbrainz_release_requests_release_group_data(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cfg = Config()
+            cfg.work_path = Path(tmpdir)
+            with patch.object(musicbrainz_api, "cfg", cfg), patch.object(
+                musicbrainz_api,
+                "call_musicbrainz_api",
+                return_value={},
+            ) as mock_call:
+                musicbrainz_api.fetch_musicbrainz_release("example-mbid")
+
+        self.assertTrue(mock_call.called)
+        requested_url = mock_call.call_args.args[0]
+        self.assertIn("inc=recordings+release-groups+url-rels", requested_url)
+
     def test_find_best_match_uses_release_group_aliases(self):
         def fake_get_deezer_album_info(album_id: str):
             return {
