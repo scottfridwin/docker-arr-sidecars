@@ -54,7 +54,7 @@ from .lidarr_api import (
 )
 from .logging import log
 from .matching import MatchResult, ReleaseCandidate, find_best_match
-from .musicbrainz_api import fetch_musicbrainz_release
+from .musicbrainz_api import fetch_musicbrainz_release, fetch_musicbrainz_release_group
 from .string_utils import calculate_priority, normalize_string, remove_punctuation
 
 # ─── Constants ─────────────────────────────────────────────────────────
@@ -282,6 +282,27 @@ def _build_candidates(album_data: dict, album_release_year: str) -> list[Release
             mb_date = mb_data.get("date", "")
             year = mb_date[:4] if mb_date else album_release_year
 
+        alternate_titles: list[str] = []
+        release_group = mb_data.get("release-group", {})
+        if isinstance(release_group, dict):
+            release_group_id = release_group.get("id", "")
+            if release_group_id:
+                log.debug(f"Fetching MusicBrainz aliases for release-group {release_group_id}")
+                release_group_data = fetch_musicbrainz_release_group(release_group_id)
+                if release_group_data is not None:
+                    aliases = release_group_data.get("aliases", [])
+                    if isinstance(aliases, list):
+                        alternate_titles = [
+                            alias.get("name", "")
+                            for alias in aliases
+                            if isinstance(alias, dict) and alias.get("name")
+                        ]
+                        if alternate_titles:
+                            log.debug(
+                                f"Found {len(alternate_titles)} release-group aliases for {release_group_id}: "
+                                f"{', '.join(alternate_titles[:5])}"
+                            )
+
         # Check commentary
         contains_commentary = bool(
             _COMMENTARY_RE and (
@@ -308,6 +329,7 @@ def _build_candidates(album_data: dict, album_release_year: str) -> list[Release
             country_priority=country_priority,
             contains_commentary=contains_commentary,
             instrumental=instrumental,
+            alternate_titles=alternate_titles,
         ))
 
     return candidates
