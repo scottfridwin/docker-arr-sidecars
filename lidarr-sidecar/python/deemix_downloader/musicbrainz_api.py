@@ -80,6 +80,33 @@ def call_musicbrainz_api(url: str) -> dict | None:
     return None
 
 
+def _read_cached_json(cache_file: Path) -> dict | None:
+    if not cache_file.is_file():
+        return None
+
+    try:
+        data = json.loads(cache_file.read_text(encoding="utf-8"))
+        if isinstance(data, dict):
+            return data
+    except (json.JSONDecodeError, OSError):
+        pass
+    return None
+
+
+def _write_cached_json(cache_file: Path, data: dict, *, shorter_cache: bool = False) -> None:
+    try:
+        cache_file.parent.mkdir(parents=True, exist_ok=True)
+        cache_file.write_text(json.dumps(data), encoding="utf-8")
+        if shorter_cache:
+            # Set mtime to be 23 days old so it expires in ~7 days instead of 30
+            import os as _os
+            age_offset = (cfg.cache_max_age_musicbrainz - 7) * 86400
+            now = time.time()
+            _os.utime(cache_file, (now - age_offset, now - age_offset))
+    except OSError:
+        pass
+
+
 def fetch_musicbrainz_release(mbid: str) -> dict | None:
     """
     Fetch MusicBrainz release info with caching.
@@ -90,15 +117,10 @@ def fetch_musicbrainz_release(mbid: str) -> dict | None:
 
     cache_file = cfg.cache_dir / f"mb-release-{mbid}.json"
 
-    # Try cache
-    if cache_file.is_file():
-        try:
-            data = json.loads(cache_file.read_text(encoding="utf-8"))
-            if isinstance(data, dict):
-                log.debug(f"Using cached MB release for {mbid}")
-                return data
-        except (json.JSONDecodeError, OSError):
-            pass
+    cached = _read_cached_json(cache_file)
+    if cached is not None:
+        log.debug(f"Using cached MB release for {mbid}")
+        return cached
 
     url = f"https://musicbrainz.org/ws/2/release/{mbid}?fmt=json&inc=recordings+url-rels"
     data = call_musicbrainz_api(url)
@@ -109,16 +131,27 @@ def fetch_musicbrainz_release(mbid: str) -> dict | None:
             "deezer.com" in (r.get("url", {}).get("resource", ""))
             for r in data.get("relations", [])
         )
-        try:
-            cache_file.parent.mkdir(parents=True, exist_ok=True)
-            cache_file.write_text(json.dumps(data), encoding="utf-8")
-            if not has_deezer:
-                # Set mtime to be 23 days old so it expires in ~7 days instead of 30
-                import os as _os
-                age_offset = (cfg.cache_max_age_musicbrainz - 7) * 86400
-                now = time.time()
-                _os.utime(cache_file, (now - age_offset, now - age_offset))
-        except OSError:
-            pass
+        _write_cached_json(cache_file, data, shorter_cache=not has_deezer)
+
+    return data
+
+
+def fetch_musicbrainz_release_group(mbid: str) -> dict | None:
+    """Fetch MusicBrainz release-group info with caching and alias support."""
+    if not mbid or mbid == "null":
+        return None
+
+    cache_file = cfg.cache_dir / f"mb-release-group-{mbid}.json"
+
+    cached = _read_cached_json(cache_file)
+    if cached is not None:
+        log.debug(f"Using cached MB release group for {mbid}")
+        return cached
+
+    url = f"https://musicbrainz.org/ws/2/release-group/{mbid}?fmt=json&inc=aliases"
+    data = call_musicbrainz_api(url)
+
+    if data is not None:
+        _write_cached_json(cache_file, data)
 
     return data

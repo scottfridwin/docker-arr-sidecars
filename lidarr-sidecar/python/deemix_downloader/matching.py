@@ -54,12 +54,17 @@ class ReleaseCandidate:
     contains_commentary: bool = False
     instrumental: bool = False
     explicit: bool = False
+    alternate_titles: list[str] | None = None
 
 
 # ─── Sanity checks ────────────────────────────────────────────────────
 
 
-def _title_is_reasonable(lidarr_title: str, deezer_title: str) -> bool:
+def _title_is_reasonable(
+    lidarr_title: str,
+    deezer_title: str,
+    alternate_titles: list[str] | None = None,
+) -> bool:
     """
     Check that the Deezer album title is reasonably related to the Lidarr title.
     This is a loose check - we just want to catch completely wrong links
@@ -69,22 +74,39 @@ def _title_is_reasonable(lidarr_title: str, deezer_title: str) -> bool:
     - Exact match (normalized)
     - One title contains the other
     - Levenshtein distance is < 50% of the longer title length
+
+    Alternate titles are treated as additional candidate titles for comparison.
     """
-    norm_lidarr = normalize_string(lidarr_title).lower()
+    titles_to_compare = [lidarr_title]
+    if alternate_titles:
+        titles_to_compare.extend(
+            title for title in alternate_titles if title and title not in titles_to_compare
+        )
+
+    if not deezer_title:
+        return True
+
     norm_deezer = normalize_string(deezer_title).lower()
-
-    if not norm_lidarr or not norm_deezer:
-        return True  # Can't compare, give benefit of doubt
-
-    if norm_lidarr == norm_deezer:
+    if not norm_deezer:
         return True
 
-    if norm_lidarr in norm_deezer or norm_deezer in norm_lidarr:
-        return True
+    for title in titles_to_compare:
+        norm_lidarr = normalize_string(title).lower()
+        if not norm_lidarr:
+            continue
 
-    max_len = max(len(norm_lidarr), len(norm_deezer))
-    distance = levenshtein_distance(norm_lidarr, norm_deezer)
-    return distance <= max_len // 2
+        if norm_lidarr == norm_deezer:
+            return True
+
+        if norm_lidarr in norm_deezer or norm_deezer in norm_lidarr:
+            return True
+
+        max_len = max(len(norm_lidarr), len(norm_deezer))
+        distance = levenshtein_distance(norm_lidarr, norm_deezer)
+        if distance <= max_len // 2:
+            return True
+
+    return False
 
 
 def _track_count_is_reasonable(lidarr_count: int, deezer_count: int) -> bool:
@@ -208,7 +230,11 @@ def find_best_match(
 
         # Sanity check: title reasonableness
         search_title = candidate.title or lidarr_album_title
-        if not _title_is_reasonable(search_title, deezer_title):
+        if not _title_is_reasonable(
+            search_title,
+            deezer_title,
+            candidate.alternate_titles,
+        ):
             log.warning(
                 f"Deezer album {deezer_id} title \"{deezer_title}\" doesn't match "
                 f"expected \"{search_title}\" - possible bad MusicBrainz link"
