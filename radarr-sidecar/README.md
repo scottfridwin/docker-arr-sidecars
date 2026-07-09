@@ -4,7 +4,7 @@ Automates Radarr setup and import orchestration from a drop directory.
 
 ## Container Image
 
-- Package: https://github.com/scottfridwin/docker-arr-sidecars/pkgs/container/radarr-sidecar
+- Package: <https://github.com/scottfridwin/docker-arr-sidecars/pkgs/container/radarr-sidecar>
 - Pull: `docker pull ghcr.io/scottfridwin/radarr-sidecar:latest`
 
 ## Services

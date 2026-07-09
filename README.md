@@ -10,15 +10,15 @@ Sidecar containers for the *Arr ecosystem focused on reducing manual setup and r
 - **Radarr sidecar**: AutoConfig + drop-folder based auto-import
 - **Sonarr sidecar**: AutoConfig + drop-folder based auto-import
 
-Repository: https://github.com/scottfridwin/docker-arr-sidecars
+Repository: <https://github.com/scottfridwin/docker-arr-sidecars>
 
 ## Published Images
 
 | Sidecar | GHCR Package | Pull |
 |---|---|---|
-| Lidarr | https://github.com/scottfridwin/docker-arr-sidecars/pkgs/container/lidarr-sidecar | `docker pull ghcr.io/scottfridwin/lidarr-sidecar:latest` |
-| Radarr | https://github.com/scottfridwin/docker-arr-sidecars/pkgs/container/radarr-sidecar | `docker pull ghcr.io/scottfridwin/radarr-sidecar:latest` |
-| Sonarr | https://github.com/scottfridwin/docker-arr-sidecars/pkgs/container/sonarr-sidecar | `docker pull ghcr.io/scottfridwin/sonarr-sidecar:latest` |
+| Lidarr | <https://github.com/scottfridwin/docker-arr-sidecars/pkgs/container/lidarr-sidecar> | `docker pull ghcr.io/scottfridwin/lidarr-sidecar:latest` |
+| Radarr | <https://github.com/scottfridwin/docker-arr-sidecars/pkgs/container/radarr-sidecar> | `docker pull ghcr.io/scottfridwin/radarr-sidecar:latest` |
+| Sonarr | <https://github.com/scottfridwin/docker-arr-sidecars/pkgs/container/sonarr-sidecar> | `docker pull ghcr.io/scottfridwin/sonarr-sidecar:latest` |
 
 ## What Each Sidecar Does
 

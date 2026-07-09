@@ -4,7 +4,7 @@ Automates Lidarr wanted-album acquisition from Deezer using MusicBrainz-linked r
 
 ## Container Image
 
-- Package: https://github.com/scottfridwin/docker-arr-sidecars/pkgs/container/lidarr-sidecar
+- Package: <https://github.com/scottfridwin/docker-arr-sidecars/pkgs/container/lidarr-sidecar>
 - Pull: `docker pull ghcr.io/scottfridwin/lidarr-sidecar:latest`
 
 ## Services

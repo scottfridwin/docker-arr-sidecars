@@ -4,7 +4,7 @@ Automates Sonarr setup and import orchestration from a drop directory.
 
 ## Container Image
 
-- Package: https://github.com/scottfridwin/docker-arr-sidecars/pkgs/container/sonarr-sidecar
+- Package: <https://github.com/scottfridwin/docker-arr-sidecars/pkgs/container/sonarr-sidecar>
 - Pull: `docker pull ghcr.io/scottfridwin/sonarr-sidecar:latest`
 
 ## Services
