@@ -35,6 +35,7 @@ class MatchResult:
     deezer_track_count: int = 0
     lidarr_release_foreign_id: str = ""
     matched: bool = False
+    was_redirected: bool = False
     reason: str = ""  # Why it was selected or rejected
 
 
@@ -194,6 +195,8 @@ def find_best_match(
     # Sort by ranking criteria
     official.sort(key=_rank_release)
 
+    redirected_fallback: MatchResult | None = None
+
     # Try each candidate in rank order
     for candidate in official:
         deezer_id = candidate.deezer_album_id
@@ -211,6 +214,7 @@ def find_best_match(
 
         # Use the actual ID from the response (handles Deezer redirects/remaps)
         actual_deezer_id = str(album_data.get("id", deezer_id))
+        is_redirected = actual_deezer_id != deezer_id
         if actual_deezer_id != deezer_id:
             log.info(f"Deezer album {deezer_id} redirected to {actual_deezer_id}")
             if actual_deezer_id in failed_albums:
@@ -254,14 +258,33 @@ def find_best_match(
             f"Matched: \"{deezer_title}\" ({actual_deezer_id}) "
             f"[tracks: {deezer_track_count}, year: {deezer_year}]"
         )
-        return MatchResult(
+        match_result = MatchResult(
             deezer_album_id=actual_deezer_id,
             deezer_title=deezer_title,
             deezer_year=deezer_year,
             deezer_track_count=deezer_track_count,
             lidarr_release_foreign_id=candidate.foreign_id,
             matched=True,
-            reason="Matched via MusicBrainz Deezer link",
+            was_redirected=is_redirected,
+            reason=(
+                "Matched via MusicBrainz Deezer link (redirected Deezer ID)"
+                if is_redirected
+                else "Matched via MusicBrainz Deezer link"
+            ),
         )
+
+        # Redirected Deezer IDs are valid but less preferred than direct IDs.
+        if is_redirected:
+            if redirected_fallback is None:
+                redirected_fallback = match_result
+            continue
+
+        return match_result
+
+    if redirected_fallback is not None:
+        log.info(
+            f"Using redirected Deezer album fallback: {redirected_fallback.deezer_album_id}"
+        )
+        return redirected_fallback
 
     return MatchResult(reason="All Deezer links failed sanity checks")

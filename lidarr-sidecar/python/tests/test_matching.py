@@ -49,6 +49,79 @@ class MatchingTests(unittest.TestCase):
 
         self.assertTrue(result.matched)
         self.assertEqual(result.deezer_title, "The Long Sleep of Bob 1200-1532")
+        self.assertFalse(result.was_redirected)
+
+    def test_find_best_match_deprioritizes_redirected_deezer_ids(self):
+        def fake_get_deezer_album_info(album_id: str):
+            if album_id == "100":
+                # Simulate Deezer remap/redirect.
+                return {
+                    "id": "200",
+                    "title": "Example Album",
+                    "nb_tracks": 10,
+                    "explicit_lyrics": False,
+                    "release_date": "2001-01-01",
+                }
+            return {
+                "id": album_id,
+                "title": "Example Album",
+                "nb_tracks": 10,
+                "explicit_lyrics": False,
+                "release_date": "2001-01-01",
+            }
+
+        redirected_candidate = matching.ReleaseCandidate(
+            title="Example Album",
+            track_count=10,
+            deezer_album_id="100",
+            release_status="Official",
+            country_priority=0,
+            format_priority=0,
+        )
+        direct_candidate = matching.ReleaseCandidate(
+            title="Example Album",
+            track_count=10,
+            deezer_album_id="300",
+            release_status="Official",
+            country_priority=1,
+            format_priority=1,
+        )
+
+        with patch.object(matching, "get_deezer_album_info", side_effect=fake_get_deezer_album_info):
+            result = matching.find_best_match(
+                [redirected_candidate, direct_candidate],
+                "Example Album",
+                set(),
+            )
+
+        self.assertTrue(result.matched)
+        self.assertEqual(result.deezer_album_id, "300")
+        self.assertFalse(result.was_redirected)
+
+    def test_find_best_match_uses_redirected_deezer_id_as_fallback(self):
+        def fake_get_deezer_album_info(album_id: str):
+            return {
+                "id": "901",
+                "title": "Fallback Album",
+                "nb_tracks": 8,
+                "explicit_lyrics": False,
+                "release_date": "1998-01-01",
+            }
+
+        candidate = matching.ReleaseCandidate(
+            title="Fallback Album",
+            track_count=8,
+            deezer_album_id="900",
+            release_status="Official",
+        )
+
+        with patch.object(matching, "get_deezer_album_info", side_effect=fake_get_deezer_album_info):
+            result = matching.find_best_match([candidate], "Fallback Album", set())
+
+        self.assertTrue(result.matched)
+        self.assertEqual(result.deezer_album_id, "901")
+        self.assertTrue(result.was_redirected)
+        self.assertIn("redirected Deezer ID", result.reason)
 
 
 if __name__ == "__main__":

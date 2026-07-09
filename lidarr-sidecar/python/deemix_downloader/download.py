@@ -144,20 +144,26 @@ def tag_flac_musicbrainz(
     album_title: str,
     release_id: str,
     release_group_id: str,
+    deezer_album_id: str = "",
 ) -> None:
     """Tag a FLAC file with MusicBrainz IDs."""
     try:
+        cmd = [
+            "metaflac",
+            "--remove-tag=MUSICBRAINZ_ALBUMID",
+            "--remove-tag=MUSICBRAINZ_RELEASEGROUPID",
+            "--remove-tag=DEEZER_ALBUM_ID",
+            "--remove-tag=ALBUM",
+            f"--set-tag=MUSICBRAINZ_ALBUMID={release_id}",
+            f"--set-tag=MUSICBRAINZ_RELEASEGROUPID={release_group_id}",
+            f"--set-tag=ALBUM={album_title}",
+        ]
+        if deezer_album_id:
+            cmd.append(f"--set-tag=DEEZER_ALBUM_ID={deezer_album_id}")
+        cmd.append(str(file_path))
+
         subprocess.run(
-            [
-                "metaflac",
-                "--remove-tag=MUSICBRAINZ_ALBUMID",
-                "--remove-tag=MUSICBRAINZ_RELEASEGROUPID",
-                "--remove-tag=ALBUM",
-                f"--set-tag=MUSICBRAINZ_ALBUMID={release_id}",
-                f"--set-tag=MUSICBRAINZ_RELEASEGROUPID={release_group_id}",
-                f"--set-tag=ALBUM={album_title}",
-                str(file_path),
-            ],
+            cmd,
             capture_output=True,
             timeout=30,
         )
@@ -195,6 +201,7 @@ def tag_mp3_mutagen(
     album_title: str = "",
     release_id: str = "",
     release_group_id: str = "",
+    deezer_album_id: str = "",
     artist_name: str = "",
     artist_foreign_id: str = "",
 ) -> None:
@@ -224,6 +231,10 @@ def tag_mp3_mutagen(
         if release_group_id:
             tags.delall("TXXX:MUSICBRAINZ_RELEASEGROUPID")
             tags.add(TXXX(encoding=3, desc="MUSICBRAINZ_RELEASEGROUPID", text=[release_group_id]))
+
+        if deezer_album_id:
+            tags.delall("TXXX:DEEZER_ALBUM_ID")
+            tags.add(TXXX(encoding=3, desc="DEEZER_ALBUM_ID", text=[deezer_album_id]))
 
         if artist_foreign_id:
             tags.delall("TXXX:MUSICBRAINZ_ARTISTID")

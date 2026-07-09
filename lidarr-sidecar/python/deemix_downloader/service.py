@@ -490,9 +490,21 @@ def _download_album(
         if not f.is_file():
             continue
         if f.suffix.lower() == ".flac":
-            tag_flac_musicbrainz(f, album_title, release_foreign_id, album_foreign_id)
+            tag_flac_musicbrainz(
+                f,
+                album_title,
+                release_foreign_id,
+                album_foreign_id,
+                deezer_album_id=deezer_album_id,
+            )
         elif f.suffix.lower() == ".mp3":
-            tag_mp3_mutagen(f, album_title=album_title, release_id=release_foreign_id, release_group_id=album_foreign_id)
+            tag_mp3_mutagen(
+                f,
+                album_title=album_title,
+                release_id=release_foreign_id,
+                release_group_id=album_foreign_id,
+                deezer_album_id=deezer_album_id,
+            )
 
     # ReplayGain
     if cfg.apply_replaygain:
