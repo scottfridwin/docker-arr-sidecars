@@ -85,6 +85,12 @@ class Config:
     # API settings
     deezer_api_retries: int = field(default_factory=lambda: _env_int("AUDIO_DEEZER_API_RETRIES", 3))
     deezer_api_timeout: int = field(default_factory=lambda: _env_int("AUDIO_DEEZER_API_TIMEOUT", 30))
+    require_non_redirect_deezer: bool = field(
+        default_factory=lambda: _env_bool("AUDIO_REQUIRE_NON_REDIRECT_DEEZER", True)
+    )
+    require_upc_match: bool = field(
+        default_factory=lambda: _env_bool("AUDIO_REQUIRE_UPC_MATCH", True)
+    )
 
     # Deemix/Beets custom configs
     deemix_custom_config: str = field(default_factory=lambda: _env("AUDIO_DEEMIX_CUSTOM_CONFIG", ""))
@@ -96,6 +102,9 @@ class Config:
 
     # Result file
     result_file_name: str = field(default_factory=lambda: _env("AUDIO_RESULT_FILE_NAME", "results.md"))
+    missing_result_file_name: str = field(
+        default_factory=lambda: _env("AUDIO_MISSING_RESULT_FILE_NAME", "missing.md")
+    )
 
     @property
     def cache_dir(self) -> Path:

@@ -145,6 +145,7 @@ def tag_flac_musicbrainz(
     release_id: str,
     release_group_id: str,
     deezer_album_id: str = "",
+    date_downloaded: str = "",
 ) -> None:
     """Tag a FLAC file with MusicBrainz IDs."""
     try:
@@ -153,6 +154,7 @@ def tag_flac_musicbrainz(
             "--remove-tag=MUSICBRAINZ_ALBUMID",
             "--remove-tag=MUSICBRAINZ_RELEASEGROUPID",
             "--remove-tag=DEEZER_ALBUM_ID",
+            "--remove-tag=DATE_DOWNLOADED",
             "--remove-tag=ALBUM",
             f"--set-tag=MUSICBRAINZ_ALBUMID={release_id}",
             f"--set-tag=MUSICBRAINZ_RELEASEGROUPID={release_group_id}",
@@ -160,6 +162,8 @@ def tag_flac_musicbrainz(
         ]
         if deezer_album_id:
             cmd.append(f"--set-tag=DEEZER_ALBUM_ID={deezer_album_id}")
+        if date_downloaded:
+            cmd.append(f"--set-tag=DATE_DOWNLOADED={date_downloaded}")
         cmd.append(str(file_path))
 
         subprocess.run(
@@ -202,6 +206,7 @@ def tag_mp3_mutagen(
     release_id: str = "",
     release_group_id: str = "",
     deezer_album_id: str = "",
+    date_downloaded: str = "",
     artist_name: str = "",
     artist_foreign_id: str = "",
 ) -> None:
@@ -235,6 +240,10 @@ def tag_mp3_mutagen(
         if deezer_album_id:
             tags.delall("TXXX:DEEZER_ALBUM_ID")
             tags.add(TXXX(encoding=3, desc="DEEZER_ALBUM_ID", text=[deezer_album_id]))
+
+        if date_downloaded:
+            tags.delall("TXXX:DATE_DOWNLOADED")
+            tags.add(TXXX(encoding=3, desc="DATE_DOWNLOADED", text=[date_downloaded]))
 
         if artist_foreign_id:
             tags.delall("TXXX:MUSICBRAINZ_ARTISTID")

@@ -262,6 +262,7 @@ def _build_candidates(album_data: dict, album_release_year: str) -> list[Release
             continue
 
         release_status = mb_data.get("status", "")
+        musicbrainz_barcode = str(mb_data.get("barcode", "") or "")
 
         # Extract Deezer album ID from MB relations
         deezer_album_id = ""
@@ -330,6 +331,7 @@ def _build_candidates(album_data: dict, album_release_year: str) -> list[Release
             contains_commentary=contains_commentary,
             instrumental=instrumental,
             alternate_titles=alternate_titles,
+            musicbrainz_barcode=musicbrainz_barcode,
         ))
 
     return candidates
@@ -395,9 +397,11 @@ def search_and_download(
             priority_entry=priority_entry,
         )
         if success:
+            _remove_from_missing_file(album_id)
             daily_tracker.increment()
     else:
         log.info(f"No match: {result.reason}")
+        _upsert_missing_file(album_id, artist_name, album_title, album_foreign_id, result.reason)
         # Mark as not found (unless it's a new release)
         is_new = False
         if album_release_date:
@@ -482,6 +486,7 @@ def _download_album(
 
     # Post-processing
     consolidate_files(cfg.staging_dir)
+    downloaded_timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
     release_foreign_id = result.lidarr_release_foreign_id
 
@@ -496,6 +501,7 @@ def _download_album(
                 release_foreign_id,
                 album_foreign_id,
                 deezer_album_id=deezer_album_id,
+                date_downloaded=downloaded_timestamp,
             )
         elif f.suffix.lower() == ".mp3":
             tag_mp3_mutagen(
@@ -504,6 +510,7 @@ def _download_album(
                 release_id=release_foreign_id,
                 release_group_id=album_foreign_id,
                 deezer_album_id=deezer_album_id,
+                date_downloaded=downloaded_timestamp,
             )
 
     # ReplayGain
@@ -574,6 +581,91 @@ def _write_result_file(
     with open(out_file, "a") as f:
         f.write(f"| {timestamp} | {artist_name} | {album_title} | {album_id} "
                 f"| {album_foreign_id} | {status} | {result.lidarr_release_foreign_id} | {result.deezer_album_id} |\n")
+
+
+def _upsert_missing_file(
+    album_id: str,
+    artist_name: str,
+    album_title: str,
+    album_foreign_id: str,
+    reason: str,
+) -> None:
+    """Write/update a current missing-album reason record."""
+    if not cfg.missing_result_file_name:
+        return
+
+    out_file = cfg.work_path / cfg.missing_result_file_name
+    timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+    header = (
+        "# Missing Album Reasons\n\n"
+        "| Last Checked | Artist | Album | Album Id | Release Group Id | Reason |\n"
+        "|--------------|--------|-------|----------|------------------|--------|\n"
+    )
+
+    rows: list[str] = []
+    if out_file.exists():
+        try:
+            lines = out_file.read_text().splitlines()
+            for line in lines:
+                if not line.startswith("|"):
+                    continue
+                if "| Last Checked |" in line or "|--------------|" in line:
+                    continue
+                parts = [p.strip() for p in line.split("|")]
+                if len(parts) < 7:
+                    continue
+                existing_album_id = parts[4]
+                if existing_album_id and existing_album_id != album_id:
+                    rows.append(line)
+        except OSError:
+            rows = []
+
+    rows.append(
+        f"| {timestamp} | {artist_name} | {album_title} | {album_id} | {album_foreign_id} | {reason} |"
+    )
+
+    try:
+        out_file.parent.mkdir(parents=True, exist_ok=True)
+        content = header + "\n".join(rows) + "\n"
+        out_file.write_text(content)
+    except OSError:
+        pass
+
+
+def _remove_from_missing_file(album_id: str) -> None:
+    """Remove an album from missing reasons after it matches."""
+    if not cfg.missing_result_file_name:
+        return
+
+    out_file = cfg.work_path / cfg.missing_result_file_name
+    if not out_file.exists():
+        return
+
+    try:
+        lines = out_file.read_text().splitlines()
+    except OSError:
+        return
+
+    kept: list[str] = []
+    for line in lines:
+        if not line.startswith("|"):
+            kept.append(line)
+            continue
+        if "| Last Checked |" in line or "|--------------|" in line:
+            kept.append(line)
+            continue
+        parts = [p.strip() for p in line.split("|")]
+        if len(parts) < 7:
+            kept.append(line)
+            continue
+        existing_album_id = parts[4]
+        if existing_album_id != album_id:
+            kept.append(line)
+
+    try:
+        out_file.write_text("\n".join(kept).rstrip() + "\n")
+    except OSError:
+        pass
 
 
 # ─── Processing loops ─────────────────────────────────────────────────────

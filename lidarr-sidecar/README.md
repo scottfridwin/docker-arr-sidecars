@@ -17,9 +17,40 @@ Automates Lidarr wanted-album acquisition from Deezer using MusicBrainz-linked r
   - Polls wanted albums
   - Resolves Deezer album IDs through MusicBrainz release relations
   - Validates candidate links (title, track count, lyric filters)
-  - Deprioritizes redirected Deezer IDs when direct IDs are available
+  - Enforces optional hard gates for Deezer redirect handling and UPC matching
   - Downloads via deemix, applies optional ReplayGain/Beets, and triggers Lidarr import
-  - Writes `DEEZER_ALBUM_ID` metadata to downloaded FLAC/MP3 files
+  - Writes `DEEZER_ALBUM_ID` and `DATE_DOWNLOADED` metadata to downloaded FLAC/MP3 files
+
+## DeemixDownloader
+
+The DeemixDownloader service is responsible for turning Lidarr wanted albums into validated Deezer downloads. It loops on the wanted queue, evaluates candidate releases, downloads accepted matches, applies post-processing, and triggers Lidarr import.
+
+### Matching workflow
+
+1. Pull wanted albums from Lidarr and build candidate releases from MusicBrainz release relations.
+2. Keep only candidates that include a Deezer album link.
+3. Apply ranking and preference logic to choose evaluation order (official status, commentary/instrumental preferences, country/format preference, track count).
+4. For each candidate, call Deezer and apply hard gates:
+   - Deezer album must exist and be fetchable.
+   - Redirect gate: when AUDIO_REQUIRE_NON_REDIRECT_DEEZER is true (default), redirected Deezer IDs are rejected.
+   - UPC gate: when AUDIO_REQUIRE_UPC_MATCH is true (default), MusicBrainz barcode must match Deezer UPC after leading-zero normalization.
+   - Lyric type requirement, title sanity checks, and track-count sanity checks must pass.
+5. First candidate that passes all active gates is selected for download.
+6. Downloaded files are tagged, optionally processed by ReplayGain and Beets, moved to import, and Lidarr is notified.
+
+### results.md and missing.md
+
+The downloader writes two complementary files to AUDIO_WORK_PATH:
+
+- results.md (configured by AUDIO_RESULT_FILE_NAME)
+  - Append-only match history.
+  - Includes timestamp, artist/album identifiers, selected release ID, and Deezer ID.
+  - Useful for auditing what was attempted and what matched over time.
+
+- missing.md (configured by AUDIO_MISSING_RESULT_FILE_NAME)
+  - Current-state view of albums that are still unmatched.
+  - Stores the latest no-match reason per album (for example: no Deezer link, redirect gate rejection, UPC mismatch, fetch failure, title/track sanity failure).
+  - Entries are updated on each no-match attempt and removed automatically once an album is successfully downloaded.
 
 ## Required Mounts
 
@@ -52,6 +83,8 @@ Downloader behavior:
 - `AUDIO_PREFERRED_COUNTRIES` and `AUDIO_PREFERRED_FORMATS`
 - `AUDIO_DEPRIORITIZE_COMMENTARY_RELEASES` (default: `true`)
 - `AUDIO_IGNORE_INSTRUMENTAL_RELEASES` (default: `true`)
+- `AUDIO_REQUIRE_NON_REDIRECT_DEEZER` (default: `true`, reject redirected Deezer IDs)
+- `AUDIO_REQUIRE_UPC_MATCH` (default: `true`, require MusicBrainz barcode and Deezer UPC to match after stripping leading zeros)
 - `AUDIO_DOWNLOAD_ATTEMPT_THRESHOLD` (default: `10`)
 - `AUDIO_DOWNLOAD_QUALITY_FALLBACK` (default: `true`)
 
@@ -62,6 +95,7 @@ Processing and output:
 - `AUDIO_BEETS_CUSTOM_CONFIG` (optional, path or inline YAML)
 - `AUDIO_DEEMIX_CUSTOM_CONFIG` (optional, path or inline JSON)
 - `AUDIO_RESULT_FILE_NAME` (default: `results.md`, empty disables)
+- `AUDIO_MISSING_RESULT_FILE_NAME` (default: `missing.md`, empty disables). Written in the same work path as results with per-album no-match reason summaries.
 
 State and paths:
 
