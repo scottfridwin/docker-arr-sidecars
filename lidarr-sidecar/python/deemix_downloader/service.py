@@ -36,6 +36,7 @@ from .download import (
     consolidate_files,
     count_audio_files,
     download_with_deemix,
+    get_file_disc_track_numbers,
     move_to_import,
     prune_cache,
     setup_working_dirs,
@@ -50,6 +51,7 @@ from .lidarr_api import (
     get_album_ids_by_artist,
     get_album_ids_by_release_group,
     get_wanted_albums,
+    manual_import_release,
     notify_lidarr_import,
 )
 from .logging import log
@@ -247,6 +249,7 @@ def _build_candidates(album_data: dict, album_release_year: str) -> list[Release
     for release_json in album_data.get("releases", []):
         title = release_json.get("title", "")
         disambiguation = release_json.get("disambiguation", "") or ""
+        release_id = str(release_json.get("id", "") or "")
         track_count = release_json.get("trackCount", 0)
         foreign_release_id = release_json.get("foreignReleaseId", "")
         release_format = release_json.get("format", "")
@@ -321,6 +324,7 @@ def _build_candidates(album_data: dict, album_release_year: str) -> list[Release
         candidates.append(ReleaseCandidate(
             title=title,
             disambiguation=disambiguation,
+            release_id=release_id,
             foreign_id=foreign_release_id,
             track_count=track_count,
             deezer_album_id=deezer_album_id,
@@ -392,7 +396,10 @@ def search_and_download(
 
     if result.matched:
         success = _download_album(
-            result, artist_name, artist_foreign_id,
+            result,
+            artist_name,
+            str(artist_data.get("id", "") or ""),
+            artist_foreign_id,
             album_title_raw, album_foreign_id, album_id, arl_token,
             priority_entry=priority_entry,
         )
@@ -417,6 +424,7 @@ def search_and_download(
 def _download_album(
     result: MatchResult,
     artist_name: str,
+    artist_id: str,
     artist_foreign_id: str,
     album_title: str,
     album_foreign_id: str,
@@ -489,26 +497,44 @@ def _download_album(
     downloaded_timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
     release_foreign_id = result.lidarr_release_foreign_id
+    release_lidarr_id = result.lidarr_release_id
+    track_id_map: dict[tuple[int, int], tuple[str, str]] = {}
+
+    release_data = fetch_musicbrainz_release(release_foreign_id)
+    if isinstance(release_data, dict):
+        track_id_map = _build_release_track_id_map(release_data)
 
     # Tag with MusicBrainz info
     for f in cfg.staging_dir.iterdir():
         if not f.is_file():
             continue
         if f.suffix.lower() == ".flac":
+            disc_num, track_num = get_file_disc_track_numbers(f)
+            rec_id, rel_track_id = ("", "")
+            if disc_num is not None and track_num is not None:
+                rec_id, rel_track_id = track_id_map.get((disc_num, track_num), ("", ""))
             tag_flac_musicbrainz(
                 f,
                 album_title,
                 release_foreign_id,
                 album_foreign_id,
+                recording_mb_id=rec_id,
+                release_track_mb_id=rel_track_id,
                 deezer_album_id=deezer_album_id,
                 date_downloaded=downloaded_timestamp,
             )
         elif f.suffix.lower() == ".mp3":
+            disc_num, track_num = get_file_disc_track_numbers(f)
+            rec_id, rel_track_id = ("", "")
+            if disc_num is not None and track_num is not None:
+                rec_id, rel_track_id = track_id_map.get((disc_num, track_num), ("", ""))
             tag_mp3_mutagen(
                 f,
                 album_title=album_title,
                 release_id=release_foreign_id,
                 release_group_id=album_foreign_id,
+                recording_mb_id=rec_id,
+                release_track_mb_id=rel_track_id,
                 deezer_album_id=deezer_album_id,
                 date_downloaded=downloaded_timestamp,
             )
@@ -532,7 +558,33 @@ def _download_album(
 
     # Move and import
     dest = move_to_import(artist_name, album_title, release_year, album_foreign_id)
-    notify_lidarr_import(str(dest))
+    import_ok = True
+    if cfg.import_strategy == "manual":
+        if not (artist_id and album_id and release_lidarr_id):
+            log.warning("Manual import strategy requested but missing internal IDs; using scan import")
+            notify_lidarr_import(str(dest))
+            import_ok = True
+        else:
+            import_ok, rejections = manual_import_release(
+                import_path=str(dest),
+                artist_id=artist_id,
+                album_id=album_id,
+                release_id=release_lidarr_id,
+            )
+        if not import_ok:
+            log.warning("Manual import had rejections:")
+            for rejection in rejections[:20]:
+                log.warning(f"  - {rejection}")
+            if cfg.import_manual_fallback_to_scan:
+                log.warning("Falling back to DownloadedAlbumsScan import")
+                notify_lidarr_import(str(dest))
+                import_ok = True
+    else:
+        notify_lidarr_import(str(dest))
+
+    if not import_ok:
+        log.warning(f"Import failed for \"{deezer_title}\"; leaving files for manual review")
+        return False
 
     # Mark downloaded
     marker = f"{album_id}--{artist_foreign_id}--{album_foreign_id}"
@@ -548,6 +600,47 @@ def _download_album(
     log.info(f"Successfully downloaded \"{deezer_title}\"")
     clean_staging()
     return True
+
+
+def _build_release_track_id_map(release_data: dict) -> dict[tuple[int, int], tuple[str, str]]:
+    """Build mapping of (disc, track_number) -> (recording_mbid, release_track_mbid)."""
+    mapping: dict[tuple[int, int], tuple[str, str]] = {}
+    media = release_data.get("media", [])
+    if not isinstance(media, list):
+        return mapping
+
+    for medium in media:
+        if not isinstance(medium, dict):
+            continue
+        disc_raw = medium.get("position", 1)
+        try:
+            disc_num = int(disc_raw)
+        except (TypeError, ValueError):
+            disc_num = 1
+
+        tracks = medium.get("tracks", [])
+        if not isinstance(tracks, list):
+            continue
+
+        for idx, track in enumerate(tracks, start=1):
+            if not isinstance(track, dict):
+                continue
+            track_raw = track.get("number") or track.get("position") or idx
+            try:
+                track_num = int(str(track_raw).split("/")[0])
+            except (TypeError, ValueError):
+                track_num = idx
+
+            recording_id = ""
+            recording = track.get("recording", {})
+            if isinstance(recording, dict):
+                recording_id = str(recording.get("id", "") or "")
+
+            release_track_id = str(track.get("id", "") or "")
+            if recording_id or release_track_id:
+                mapping[(disc_num, track_num)] = (recording_id, release_track_id)
+
+    return mapping
 
 
 def _remove_from_priority_file(entry: str) -> None:

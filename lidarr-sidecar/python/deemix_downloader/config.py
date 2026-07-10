@@ -100,6 +100,12 @@ class Config:
     priority_only: bool = field(default_factory=lambda: _env_bool("AUDIO_PRIORITY_ONLY", False))
     priority_exempt_from_limit: bool = field(default_factory=lambda: _env_bool("AUDIO_PRIORITY_EXEMPT_FROM_LIMIT", False))
 
+    # Import behavior
+    import_strategy: str = field(default_factory=lambda: _env("AUDIO_IMPORT_STRATEGY", "scan").strip().lower())
+    import_manual_fallback_to_scan: bool = field(
+        default_factory=lambda: _env_bool("AUDIO_IMPORT_MANUAL_FALLBACK_TO_SCAN", True)
+    )
+
     # Result file
     result_file_name: str = field(default_factory=lambda: _env("AUDIO_RESULT_FILE_NAME", "results.md"))
     missing_result_file_name: str = field(

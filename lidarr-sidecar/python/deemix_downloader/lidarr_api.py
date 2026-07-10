@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+from urllib.parse import quote_plus
 from typing import Any
 
 # Add the app root so shared modules can be found
@@ -78,6 +79,76 @@ def notify_lidarr_import(import_path: str) -> None:
     payload = json.dumps({"name": "DownloadedAlbumsScan", "path": import_path})
     arr_api_request("POST", "command", payload)
     log.debug(f"Sent import notification to Lidarr for: {import_path}")
+
+
+def manual_import_release(
+    import_path: str,
+    artist_id: int | str,
+    album_id: int | str,
+    release_id: int | str,
+) -> tuple[bool, list[str]]:
+    """Run a deterministic manual import by forcing artist/album/release for each file."""
+    folder = quote_plus(import_path)
+    path = (
+        f"manualimport?folder={folder}"
+        f"&artistId={artist_id}"
+        "&filterExistingFiles=false"
+        "&replaceExistingFiles=true"
+    )
+    arr_api_request("GET", path)
+    response = get_state("arrApiResponse")
+
+    try:
+        items = json.loads(response) if isinstance(response, str) else response
+    except (json.JSONDecodeError, TypeError):
+        items = []
+
+    if not isinstance(items, list) or not items:
+        return False, ["No manual import items returned by Lidarr"]
+
+    updates: list[dict[str, Any]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        updates.append({
+            "id": item.get("id"),
+            "path": item.get("path", ""),
+            "name": item.get("name", ""),
+            "artistId": int(artist_id),
+            "albumId": int(album_id),
+            "albumReleaseId": int(release_id),
+            "quality": item.get("quality"),
+            "releaseGroup": item.get("releaseGroup", ""),
+            "indexerFlags": item.get("indexerFlags", 0),
+            "downloadId": item.get("downloadId", ""),
+            "additionalFile": bool(item.get("additionalFile", False)),
+            "replaceExistingFiles": True,
+            "disableReleaseSwitching": True,
+        })
+
+    if not updates:
+        return False, ["No valid manual import updates could be generated"]
+
+    arr_api_request("POST", "manualimport", json.dumps(updates))
+    post_response = get_state("arrApiResponse")
+    try:
+        results = json.loads(post_response) if isinstance(post_response, str) else post_response
+    except (json.JSONDecodeError, TypeError):
+        results = []
+
+    if not isinstance(results, list):
+        return False, ["Unexpected manual import response from Lidarr"]
+
+    rejections: list[str] = []
+    for item in results:
+        if not isinstance(item, dict):
+            continue
+        path_val = item.get("path") or item.get("name") or "item"
+        for rej in item.get("rejections", []) or []:
+            reason = rej.get("reason") if isinstance(rej, dict) else str(rej)
+            rejections.append(f"{path_val}: {reason}")
+
+    return len(rejections) == 0, rejections
 
 
 def get_wanted_albums(list_type: str, page: int = 1, page_size: int = 1000) -> dict:

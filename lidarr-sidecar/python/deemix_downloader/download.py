@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import time
@@ -144,6 +145,8 @@ def tag_flac_musicbrainz(
     album_title: str,
     release_id: str,
     release_group_id: str,
+    recording_mb_id: str = "",
+    release_track_mb_id: str = "",
     deezer_album_id: str = "",
     date_downloaded: str = "",
 ) -> None:
@@ -153,6 +156,8 @@ def tag_flac_musicbrainz(
             "metaflac",
             "--remove-tag=MUSICBRAINZ_ALBUMID",
             "--remove-tag=MUSICBRAINZ_RELEASEGROUPID",
+            "--remove-tag=MUSICBRAINZ_TRACKID",
+            "--remove-tag=MUSICBRAINZ_RELEASETRACKID",
             "--remove-tag=DEEZER_ALBUM_ID",
             "--remove-tag=DATE_DOWNLOADED",
             "--remove-tag=ALBUM",
@@ -160,6 +165,10 @@ def tag_flac_musicbrainz(
             f"--set-tag=MUSICBRAINZ_RELEASEGROUPID={release_group_id}",
             f"--set-tag=ALBUM={album_title}",
         ]
+        if recording_mb_id:
+            cmd.append(f"--set-tag=MUSICBRAINZ_TRACKID={recording_mb_id}")
+        if release_track_mb_id:
+            cmd.append(f"--set-tag=MUSICBRAINZ_RELEASETRACKID={release_track_mb_id}")
         if deezer_album_id:
             cmd.append(f"--set-tag=DEEZER_ALBUM_ID={deezer_album_id}")
         if date_downloaded:
@@ -205,6 +214,8 @@ def tag_mp3_mutagen(
     album_title: str = "",
     release_id: str = "",
     release_group_id: str = "",
+    recording_mb_id: str = "",
+    release_track_mb_id: str = "",
     deezer_album_id: str = "",
     date_downloaded: str = "",
     artist_name: str = "",
@@ -237,6 +248,14 @@ def tag_mp3_mutagen(
             tags.delall("TXXX:MUSICBRAINZ_RELEASEGROUPID")
             tags.add(TXXX(encoding=3, desc="MUSICBRAINZ_RELEASEGROUPID", text=[release_group_id]))
 
+        if recording_mb_id:
+            tags.delall("TXXX:MUSICBRAINZ_TRACKID")
+            tags.add(TXXX(encoding=3, desc="MUSICBRAINZ_TRACKID", text=[recording_mb_id]))
+
+        if release_track_mb_id:
+            tags.delall("TXXX:MUSICBRAINZ_RELEASETRACKID")
+            tags.add(TXXX(encoding=3, desc="MUSICBRAINZ_RELEASETRACKID", text=[release_track_mb_id]))
+
         if deezer_album_id:
             tags.delall("TXXX:DEEZER_ALBUM_ID")
             tags.add(TXXX(encoding=3, desc="DEEZER_ALBUM_ID", text=[deezer_album_id]))
@@ -252,6 +271,49 @@ def tag_mp3_mutagen(
         tags.save(str(file_path))
     except Exception as e:
         log.warning(f"Failed to tag MP3 {file_path.name}: {e}")
+
+
+def _parse_tag_number(value: str) -> int | None:
+    if not value:
+        return None
+    match = re.match(r"\s*(\d+)", str(value))
+    if not match:
+        return None
+    try:
+        return int(match.group(1))
+    except ValueError:
+        return None
+
+
+def get_file_disc_track_numbers(file_path: Path) -> tuple[int | None, int | None]:
+    """Extract (disc_number, track_number) from audio file tags using mutagen."""
+    suffix = file_path.suffix.lower()
+    try:
+        if suffix == ".flac":
+            from mutagen.flac import FLAC
+
+            audio = FLAC(str(file_path))
+            track_val = (audio.get("tracknumber") or [""])[0]
+            disc_val = (audio.get("discnumber") or [""])[0]
+            return _parse_tag_number(disc_val) or 1, _parse_tag_number(track_val)
+
+        if suffix == ".mp3":
+            from mutagen.id3 import ID3, ID3NoHeaderError
+
+            try:
+                tags = ID3(str(file_path))
+            except ID3NoHeaderError:
+                return None, None
+
+            trck = tags.get("TRCK")
+            tpos = tags.get("TPOS")
+            track_val = trck.text[0] if trck and getattr(trck, "text", None) else ""
+            disc_val = tpos.text[0] if tpos and getattr(tpos, "text", None) else ""
+            return _parse_tag_number(disc_val) or 1, _parse_tag_number(track_val)
+    except Exception as e:
+        log.debug(f"Could not read track/disc tags for {file_path.name}: {e}")
+
+    return None, None
 
 
 def apply_replaygain(directory: Path) -> bool:

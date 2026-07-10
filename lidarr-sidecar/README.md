@@ -19,7 +19,8 @@ Automates Lidarr wanted-album acquisition from Deezer using MusicBrainz-linked r
   - Validates candidate links (title, track count, lyric filters)
   - Enforces optional hard gates for Deezer redirect handling and UPC matching
   - Downloads via deemix, applies optional ReplayGain/Beets, and triggers Lidarr import
-  - Writes `DEEZER_ALBUM_ID` and `DATE_DOWNLOADED` metadata to downloaded FLAC/MP3 files
+  - Supports import strategies: `scan` (DownloadedAlbumsScan) or `manual` (forced release via Manual Import API)
+  - Writes `DEEZER_ALBUM_ID`, `DATE_DOWNLOADED`, and per-track MusicBrainz IDs to downloaded FLAC/MP3 files
 
 ## DeemixDownloader
 
@@ -37,6 +38,7 @@ The DeemixDownloader service is responsible for turning Lidarr wanted albums int
    - Lyric type requirement, title sanity checks, and track-count sanity checks must pass.
 5. First candidate that passes all active gates is selected for download.
 6. Downloaded files are tagged, optionally processed by ReplayGain and Beets, moved to import, and Lidarr is notified.
+7. If `AUDIO_IMPORT_STRATEGY=manual`, the sidecar calls Lidarr Manual Import and forces the selected artist/album/release. If rejected, it can optionally fall back to scan import.
 
 ### results.md and missing.md
 
@@ -87,6 +89,8 @@ Downloader behavior:
 - `AUDIO_REQUIRE_UPC_MATCH` (default: `true`, require MusicBrainz barcode and Deezer UPC to match after stripping leading zeros)
 - `AUDIO_DOWNLOAD_ATTEMPT_THRESHOLD` (default: `10`)
 - `AUDIO_DOWNLOAD_QUALITY_FALLBACK` (default: `true`)
+- `AUDIO_IMPORT_STRATEGY` (default: `scan`; `manual` forces release selection via Lidarr Manual Import API)
+- `AUDIO_IMPORT_MANUAL_FALLBACK_TO_SCAN` (default: `true`; if manual import rejects files, run DownloadedAlbumsScan as fallback)
 
 Processing and output:
 

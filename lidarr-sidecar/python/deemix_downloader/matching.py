@@ -33,6 +33,7 @@ class MatchResult:
     deezer_title: str = ""
     deezer_year: str = ""
     deezer_track_count: int = 0
+    lidarr_release_id: str = ""
     lidarr_release_foreign_id: str = ""
     matched: bool = False
     was_redirected: bool = False
@@ -45,6 +46,7 @@ class ReleaseCandidate:
 
     title: str = ""
     disambiguation: str = ""
+    release_id: str = ""
     foreign_id: str = ""
     track_count: int = 0
     deezer_album_id: str = ""
@@ -306,6 +308,7 @@ def find_best_match(
             deezer_title=deezer_title,
             deezer_year=deezer_year,
             deezer_track_count=deezer_track_count,
+            lidarr_release_id=candidate.release_id,
             lidarr_release_foreign_id=candidate.foreign_id,
             matched=True,
             was_redirected=is_redirected,
