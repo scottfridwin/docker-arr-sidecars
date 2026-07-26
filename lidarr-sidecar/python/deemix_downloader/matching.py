@@ -33,8 +33,10 @@ class MatchResult:
     deezer_title: str = ""
     deezer_year: str = ""
     deezer_track_count: int = 0
+    lidarr_release_id: str = ""
     lidarr_release_foreign_id: str = ""
     matched: bool = False
+    was_redirected: bool = False
     reason: str = ""  # Why it was selected or rejected
 
 
@@ -44,6 +46,7 @@ class ReleaseCandidate:
 
     title: str = ""
     disambiguation: str = ""
+    release_id: str = ""
     foreign_id: str = ""
     track_count: int = 0
     deezer_album_id: str = ""
@@ -55,6 +58,7 @@ class ReleaseCandidate:
     instrumental: bool = False
     explicit: bool = False
     alternate_titles: list[str] | None = None
+    musicbrainz_barcode: str = ""
 
 
 # ─── Sanity checks ────────────────────────────────────────────────────
@@ -132,6 +136,14 @@ def _should_skip_by_lyric_type(explicit: bool) -> bool:
     return False
 
 
+def _normalize_upc(value: str) -> str:
+    """Normalize UPC for comparison by keeping digits and trimming leading zeros."""
+    digits = "".join(ch for ch in str(value).strip() if ch.isdigit())
+    if not digits:
+        return ""
+    return digits.lstrip("0") or "0"
+
+
 # ─── Release ranking ───────────────────────────────────────────────────
 
 
@@ -194,6 +206,16 @@ def find_best_match(
     # Sort by ranking criteria
     official.sort(key=_rank_release)
 
+    reject_counts: dict[str, int] = {
+        "previously_failed": 0,
+        "deezer_fetch_failed": 0,
+        "redirect_rejected": 0,
+        "upc_mismatch": 0,
+        "lyric_type": 0,
+        "title_mismatch": 0,
+        "track_count_mismatch": 0,
+    }
+
     # Try each candidate in rank order
     for candidate in official:
         deezer_id = candidate.deezer_album_id
@@ -201,20 +223,31 @@ def find_best_match(
         # Skip previously failed
         if deezer_id in failed_albums:
             log.debug(f"Skipping Deezer album {deezer_id} (previously failed)")
+            reject_counts["previously_failed"] += 1
             continue
 
         # Fetch Deezer album info (validates the link isn't broken)
         album_data = get_deezer_album_info(deezer_id)
         if album_data is None:
             log.warning(f"Deezer album {deezer_id} could not be fetched (broken link?)")
+            reject_counts["deezer_fetch_failed"] += 1
             continue
 
         # Use the actual ID from the response (handles Deezer redirects/remaps)
         actual_deezer_id = str(album_data.get("id", deezer_id))
+        is_redirected = actual_deezer_id != deezer_id
         if actual_deezer_id != deezer_id:
             log.info(f"Deezer album {deezer_id} redirected to {actual_deezer_id}")
             if actual_deezer_id in failed_albums:
                 log.debug(f"Skipping remapped Deezer album {actual_deezer_id} (previously failed)")
+                reject_counts["previously_failed"] += 1
+                continue
+            if cfg.require_non_redirect_deezer:
+                log.info(
+                    f"Skipping Deezer album {deezer_id}: redirected to {actual_deezer_id} "
+                    "and AUDIO_REQUIRE_NON_REDIRECT_DEEZER is enabled"
+                )
+                reject_counts["redirect_rejected"] += 1
                 continue
 
         deezer_title = album_data.get("title", "")
@@ -223,9 +256,23 @@ def find_best_match(
         deezer_release_date = album_data.get("release_date", "")
         deezer_year = deezer_release_date[:4] if deezer_release_date else ""
 
+        # Hard gate: UPC must match (after normalizing leading-zero padded values)
+        if cfg.require_upc_match:
+            mb_upc = _normalize_upc(candidate.musicbrainz_barcode)
+            deezer_upc = _normalize_upc(str(album_data.get("upc", "") or ""))
+            if not mb_upc or not deezer_upc or mb_upc != deezer_upc:
+                log.info(
+                    f"Skipping Deezer album {deezer_id}: UPC mismatch "
+                    f"(MusicBrainz={candidate.musicbrainz_barcode or 'missing'}, "
+                    f"Deezer={album_data.get('upc', '') or 'missing'})"
+                )
+                reject_counts["upc_mismatch"] += 1
+                continue
+
         # Sanity check: lyric type
         if _should_skip_by_lyric_type(deezer_explicit):
             log.debug(f"Skipping Deezer album {deezer_id} ({deezer_title}) - lyric type filter")
+            reject_counts["lyric_type"] += 1
             continue
 
         # Sanity check: title reasonableness
@@ -239,6 +286,7 @@ def find_best_match(
                 f"Deezer album {deezer_id} title \"{deezer_title}\" doesn't match "
                 f"expected \"{search_title}\" - possible bad MusicBrainz link"
             )
+            reject_counts["title_mismatch"] += 1
             continue
 
         # Sanity check: track count
@@ -247,6 +295,7 @@ def find_best_match(
                 f"Deezer album {deezer_id} has {deezer_track_count} tracks but "
                 f"expected ~{candidate.track_count} - possible bad MusicBrainz link"
             )
+            reject_counts["track_count_mismatch"] += 1
             continue
 
         # All checks pass
@@ -254,14 +303,33 @@ def find_best_match(
             f"Matched: \"{deezer_title}\" ({actual_deezer_id}) "
             f"[tracks: {deezer_track_count}, year: {deezer_year}]"
         )
-        return MatchResult(
+        match_result = MatchResult(
             deezer_album_id=actual_deezer_id,
             deezer_title=deezer_title,
             deezer_year=deezer_year,
             deezer_track_count=deezer_track_count,
+            lidarr_release_id=candidate.release_id,
             lidarr_release_foreign_id=candidate.foreign_id,
             matched=True,
-            reason="Matched via MusicBrainz Deezer link",
+            was_redirected=is_redirected,
+            reason=(
+                "Matched via MusicBrainz Deezer link (redirected Deezer ID)"
+                if is_redirected
+                else "Matched via MusicBrainz Deezer link"
+            ),
         )
 
-    return MatchResult(reason="All Deezer links failed sanity checks")
+        return match_result
+
+    summary_parts = [
+        f"redirect gate rejected={reject_counts['redirect_rejected']}",
+        f"upc mismatch={reject_counts['upc_mismatch']}",
+        f"deezer fetch failed={reject_counts['deezer_fetch_failed']}",
+        f"lyric type={reject_counts['lyric_type']}",
+        f"title mismatch={reject_counts['title_mismatch']}",
+        f"track mismatch={reject_counts['track_count_mismatch']}",
+        f"previously failed={reject_counts['previously_failed']}",
+    ]
+    return MatchResult(
+        reason="All Deezer links failed sanity checks: " + ", ".join(summary_parts)
+    )

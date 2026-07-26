@@ -1,294 +1,112 @@
 # docker-arr-sidecars
 
-Sidecar containers for the *Arr ecosystem (Lidarr, Radarr, Sonarr). These sidecars automate common workflows such as initial configuration, import orchestration, and for Lidarr, automated Deezer downloads via Deemix with optional tagging/normalization.
+[![Build and Publish](https://github.com/scottfridwin/docker-arr-sidecars/actions/workflows/build-publish.yml/badge.svg?branch=main)](https://github.com/scottfridwin/docker-arr-sidecars/actions/workflows/build-publish.yml)
+[![Latest Release](https://img.shields.io/github/v/release/scottfridwin/docker-arr-sidecars?sort=semver)](https://github.com/scottfridwin/docker-arr-sidecars/releases)
+[![License: GPL-3.0-only](https://img.shields.io/github/license/scottfridwin/docker-arr-sidecars)](LICENSE)
 
-Use them alongside your main *Arr containers to reduce manual clicks and glue logic.
+Sidecar containers for the *Arr ecosystem focused on reducing manual setup and repetitive import workflows.
 
-## Acknowledgements
+- **Lidarr sidecar**: AutoConfig + Deezer/Deemix album automation with import orchestration
+- **Radarr sidecar**: AutoConfig + drop-folder based auto-import
+- **Sonarr sidecar**: AutoConfig + drop-folder based auto-import
 
-This project was inspired by the excellent work in RandomNinjaAtk's [arr-scripts](https://github.com/RandomNinjaAtk/arr-scripts). The original script logic there was adapted and refactored here to run as standalone containerized sidecars.
+Repository: <https://github.com/scottfridwin/docker-arr-sidecars>
 
-## What's here
+## Published Images
 
-- `lidarr-sidecar/` – Automates Lidarr with three services:
-  - AutoConfig – applies opinionated Lidarr settings (media management, metadata provider/profile, track naming, UI) from JSON files
-  - ARLChecker – validates a Deezer ARL token file on an interval (ownership and 0600 perms enforced)
-  - DeemixDownloader – polls Lidarr's wanted list, finds best-matching Deezer releases, downloads with Deemix, optionally applies ReplayGain and Beets tagging, then triggers Lidarr import
-- `radarr-sidecar/` – Automates Radarr with:
-  - AutoConfig – applies media management, host, custom formats, UI, quality profiles, and naming from JSON
-  - AutoImport – watches a "drop" folder for directories prefixed with an import marker (e.g., `import-My Movie (2024)`), moves them to the matching Radarr library path, and triggers import
-- `sonarr-sidecar/` – Automates Sonarr with:
-  - AutoConfig – same idea as Radarr (disabled by default in the Dockerfile)
-  - AutoImport – same import flow as Radarr, but for series
-- `shared/` – Common entrypoint and utilities used by all sidecars (logging, health, *Arr API helpers, state handling)
-
-## How it works (at a glance)
-
-- A shared entrypoint runs all service scripts in each sidecar and maintains a simple health file.
-- Minimal changes required in the associated *Arr container; only a shared mount path for imports.
-- Utilities provide:
-  - Arr API discovery (URL base, API key, API version probing)
-  - Robust request/retry handling and task-busy checks
-  - Minimal key/value "state" across functions
-  - Consistent logging with adjustable `LOG_LEVEL`
-
-## Capabilities
-
-### Lidarr sidecar
-
-Services:
-
-- AutoConfig – sends bundled JSONs for many different configuration aspects of Lidarr
-- ARLChecker
-  - Validates a Deezer ARL token read from `AUDIO_DEEMIX_ARL_FILE`
-  - Enforces: file exists, owned by the running user, and mode 0600
-  - Runs at `ARLUPDATE_INTERVAL` (e.g., `24h`)
-- DeemixDownloader
-  - Periodically scans the Lidarr wanted queue and finds matching Deezer albums via MusicBrainz release links (no fuzzy searching — requires a Deezer URL in MusicBrainz relations)
-  - Applies sanity checks (title similarity, track count, lyric type) to validate links
-  - Ranks multiple release candidates by country/format preference and content type (deprioritizes commentary/instrumental)
-  - Handles Deezer album redirects transparently (stale MusicBrainz links to removed albums)
-  - Downloads via Deemix using the ARL token with automatic retry and quality fallback
-  - Optional post-processing: ReplayGain (rsgain) and Beets tagging
-  - Adds a Usenet Blackhole download client in Lidarr pointing to a shared import folder
-  - Import folder includes MusicBrainz Release Group ID for reliable matching even with special characters
-  - Triggers Lidarr's `DownloadedAlbumsScan` for immediate import
-  - Maintains working dirs (`/work/staging`, `/work/cache`) and retry state (`notfound/`, `downloaded/`, `failed/`)
-
-#### Environment variables
-
-| Variable | Default | Description |
+| Sidecar | GHCR Package | Pull |
 |---|---|---|
-| LOG_LEVEL | INFO | Log verbosity: TRACE, DEBUG, INFO, WARNING, ERROR |
-| ARR_NAME | Lidarr | Friendly name (informational) |
-| ARR_CONFIG_PATH | /lidarr/config.xml | Path to mounted Lidarr `config.xml` inside the sidecar |
-| ARR_SUPPORTED_API_VERSIONS | v1 | API versions to probe in order |
-| ARR_HOST | lidarr | Hostname/IP of Lidarr |
-| ARR_PORT | (unset) | Optional external port override (reads from config if unset) |
-| UMASK | (unset) | Process umask applied at start (e.g., 0002) |
+| Lidarr | <https://github.com/scottfridwin/docker-arr-sidecars/pkgs/container/lidarr-sidecar> | `docker pull ghcr.io/scottfridwin/lidarr-sidecar:latest` |
+| Radarr | <https://github.com/scottfridwin/docker-arr-sidecars/pkgs/container/radarr-sidecar> | `docker pull ghcr.io/scottfridwin/radarr-sidecar:latest` |
+| Sonarr | <https://github.com/scottfridwin/docker-arr-sidecars/pkgs/container/sonarr-sidecar> | `docker pull ghcr.io/scottfridwin/sonarr-sidecar:latest` |
+
+## What Each Sidecar Does
+
+| Sidecar | One-time services | Persistent services |
 |---|---|---|
-| ARLUPDATE_INTERVAL | 24h | Interval between ARL token checks |
-|---|---|---|
-| AUDIO_APPLY_BEETS | true | Apply Beets tagging to downloads |
-| AUDIO_APPLY_REPLAYGAIN | true | Apply ReplayGain tags via rsgain |
-| AUDIO_CACHE_MAX_AGE_DAYS_DEEZER | 30 | Prune Deezer cache entries older than this many days. Set to negative to disable |
-| AUDIO_CACHE_MAX_AGE_DAYS_MUSICBRAINZ | 30 | Prune MusicBrainz cache entries older than this many days. Set to negative to disable |
-| AUDIO_BEETS_CUSTOM_CONFIG | (unset) | Beets YAML custom config (path or inline YAML) |
-| AUDIO_COMMENTARY_KEYWORDS | commentary,commentaries,directors commentary,audio commentary,with commentary,track by track | Keywords that mark commentary releases |
-| AUDIO_DAILY_DOWNLOAD_LIMIT | 0 | Maximum albums to download per day. 0 = unlimited |
-| AUDIO_DATA_PATH | /data | State path for `notfound/`, `downloaded/`, `failed/` |
-| AUDIO_DEEMIX_CUSTOM_CONFIG | (unset) | Deemix JSON custom config (path or inline JSON) |
-| AUDIO_DEEZER_API_RETRIES | 3 | Max retries for Deezer API calls |
-| AUDIO_DEEZER_API_TIMEOUT | 30 | Deezer API timeout (seconds) |
-| AUDIO_DEEMIX_ARL_FILE | /deemix_arl_token | Path to Deezer ARL token file (must be owned by container user and chmod 600) |
-| AUDIO_DEPRIORITIZE_COMMENTARY_RELEASES | true | Prefer non-commentary releases when possible |
-| AUDIO_DOWNLOADCLIENT_NAME | lidarr-deemix-sidecar | Name of Blackhole download client created in Lidarr |
-| AUDIO_DOWNLOAD_ATTEMPT_THRESHOLD | 10 | Max download attempts per album before marking failed |
-| AUDIO_DOWNLOAD_QUALITY_FALLBACK | true | If FLAC download fails, fallback to MP3 |
-| AUDIO_IGNORE_INSTRUMENTAL_RELEASES | true | Skip instrumental releases by keyword |
-| AUDIO_INSTRUMENTAL_KEYWORDS | Instrumental,Score | Instrumental keywords list |
-| AUDIO_INTERVAL | 15m | Main loop sleep interval for downloader |
-| AUDIO_LYRIC_TYPE | prefer-explicit | Lyric preference: prefer-explicit, require-explicit, require-clean |
-| AUDIO_PREFERRED_COUNTRIES | [Worldwide]\|United States\|...\|[BLANK] | Pipe-delimited country preference for release ranking |
-| AUDIO_PREFERRED_FORMATS | Digital Media\|CD | Pipe-delimited format preference for release ranking |
-| AUDIO_PRIORITY_FILE | (unset) | File path containing album IDs to process with priority |
-| AUDIO_PRIORITY_ONLY | false | Only process priority albums (skip wanted list) |
-| AUDIO_RESULT_FILE_NAME | results.md | Name for match result file written to work directory. Empty to disable |
-| AUDIO_RETRY_NOTFOUND_DAYS | 90 | Retry not-found albums after this many days |
-| AUDIO_RETRY_DOWNLOADED_DAYS | 180 | Retry downloaded albums after this many days |
-| AUDIO_RETRY_FAILED_DAYS | 90 | Retry failed albums after this many days |
-| AUDIO_SHARED_LIDARR_PATH | /sidecar-import | Shared import path watched by Lidarr (Blackhole) |
-| AUDIO_WORK_PATH | /work | Working directory for temporary files and cache |
-|---|---|---|
-| AUTOCONFIG_DELAY | 10 | Initial delay before running `AutoConfig` service after container start |
-| AUTOCONFIG_CUSTOMFORMAT | false | Configure settings at the `customformat` api endpoint. |
-| AUTOCONFIG_CUSTOMFORMAT_JSON | /app/config/customformat.json | Path to the json file for `customformat` configuration. Expects an array of objects. |
-| AUTOCONFIG_DOWNLOADCLIENT | false | Configure settings at the `downloadclient` api endpoint. |
-| AUTOCONFIG_DOWNLOADCLIENT_JSON | /app/config/downloadclient.json | Path to the json file for `downloadclient` configuration. Expects an array of objects. |
-| AUTOCONFIG_HOST | true | Configure settings at the `config/host` api endpoint. |
-| AUTOCONFIG_HOST_JSON | /app/config/host.json | Path to the json file for `config/host` configuration. Expects a single json object. |
-| AUTOCONFIG_MEDIAMANAGEMENT | true | Configure settings at the `config/mediamanagement` api endpoint. |
-| AUTOCONFIG_MEDIAMANAGEMENT_JSON | /app/config/mediamanagement.json | Path to the json file for `config/mediamanagement` configuration. Expects a single json object. |
-| AUTOCONFIG_MEDIAMANAGEMENT | true | Configure settings at the `metadata` api endpoint. |
-| AUTOCONFIG_MEDIAMANAGEMENT_JSON | /app/config/mediamanagement.json | Path to the json file for `metadata` configuration. Expects an array of objects. |
-| AUTOCONFIG_MEDIAMANAGEMENT | true | Configure settings at the `config/metadataProvider` api endpoint. |
-| AUTOCONFIG_MEDIAMANAGEMENT_JSON | /app/config/mediamanagement.json | Path to the json file for `config/metadataProvider` configuration. Expects a single json object. |
-| AUTOCONFIG_NAMING | true | Configure settings at the `config/naming` api endpoint. |
-| AUTOCONFIG_NAMING_JSON | /app/config/naming.json | Path to the json file for `config/naming` configuration. Expects a single json object. |
-| AUTOCONFIG_QUALITYPROFILE | true | Configure settings at the `qualityprofile` api endpoint. |
-| AUTOCONFIG_QUALITYPROFILE_JSON | /app/config/qualityprofile.json | Path to the json file for `qualityprofile` configuration. Expects an array of objects. |
-| AUTOCONFIG_REMOTEPATHMAPPING | false | Configure settings at the `remotepathmapping` api endpoint. |
-| AUTOCONFIG_REMOTEPATHMAPPING_JSON | /app/config/remotepathmapping.json | Path to the json file for `remotepathmapping` configuration. Expects an array of objects. |
-| AUTOCONFIG_UI | false | Configure settings at the `config/ui` api endpoint. |
-| AUTOCONFIG_UI_JSON | /app/config/ui.json | Path to the json file for `config/ui` configuration. Expects a single json object. |
+| Lidarr | AutoConfig | ARLChecker, DeemixDownloader |
+| Radarr | AutoConfig | AutoImport |
+| Sonarr | AutoConfig | AutoImport |
 
-### Radarr sidecar
+All sidecars use a shared Python entrypoint that:
 
-Services:
+- validates required environment and mounted config
+- runs one-time services first
+- supervises persistent services
+- marks health via `/tmp/health`
 
-- AutoConfig – sends bundled JSONs for many different configuration aspects of Radarr
-- AutoImport – watches a drop directory for folders beginning with an import marker and:
-  - Attempts to match the folder (minus marker) to an existing Radarr movie path
-  - Verifies group ownership and group rw permissions for all files (`AUTOIMPORT_GROUP` is required)
-  - Moves the folder into the matched library path under `AUTOIMPORT_SHARED_PATH`
-  - Triggers Radarr's `DownloadedMoviesScan` for import
-  - Adds a Blackhole download client mapped to your shared import folder if missing
-
-#### Environment variables
-
-| Variable | Default | Description |
-|---|---|---|
-| UMASK | 0002 | Process umask applied at start |
-| LOG_LEVEL | INFO | Log verbosity |
-| ARR_NAME | radarr | Friendly name (informational) |
-| ARR_CONFIG_PATH | /radarr/config.xml | Path to mounted Radarr `config.xml` inside the sidecar |
-| ARR_SUPPORTED_API_VERSIONS | v3,v1 | API versions to probe in order |
-| ARR_HOST | radarr | Hostname/IP of Radarr |
-| ARR_PORT | (unset) | Optional external port override |
-|---|---|---|
-| AUTOCONFIG_DELAY | 10 | Initial delay before running `AutoConfig` service after container start |
-| AUTOCONFIG_CUSTOMFORMAT | false | Configure settings at the `customformat` api endpoint. |
-| AUTOCONFIG_CUSTOMFORMAT_JSON | /app/config/customformat.json | Path to the json file for `customformat` configuration. Expects an array of objects. |
-| AUTOCONFIG_DOWNLOADCLIENT | false | Configure settings at the `downloadclient` api endpoint. |
-| AUTOCONFIG_DOWNLOADCLIENT_JSON | /app/config/downloadclient.json | Path to the json file for `downloadclient` configuration. Expects an array of objects. |
-| AUTOCONFIG_HOST | true | Configure settings at the `config/host` api endpoint. |
-| AUTOCONFIG_HOST_JSON | /app/config/host.json | Path to the json file for `config/host` configuration. Expects a single json object. |
-| AUTOCONFIG_MEDIAMANAGEMENT | true | Configure settings at the `config/mediamanagement` api endpoint. |
-| AUTOCONFIG_MEDIAMANAGEMENT_JSON | /app/config/mediamanagement.json | Path to the json file for `config/mediamanagement` configuration. Expects a single json object. |
-| AUTOCONFIG_NAMING | true | Configure settings at the `config/naming` api endpoint. |
-| AUTOCONFIG_NAMING_JSON | /app/config/naming.json | Path to the json file for `config/naming` configuration. Expects a single json object. |
-| AUTOCONFIG_QUALITYPROFILE | true | Configure settings at the `qualityprofile` api endpoint. |
-| AUTOCONFIG_QUALITYPROFILE_JSON | /app/config/qualityprofile.json | Path to the json file for `qualityprofile` configuration. Expects an array of objects. |
-| AUTOCONFIG_REMOTEPATHMAPPING | false | Configure settings at the `remotepathmapping` api endpoint. |
-| AUTOCONFIG_REMOTEPATHMAPPING_JSON | /app/config/remotepathmapping.json | Path to the json file for `remotepathmapping` configuration. Expects an array of objects. |
-| AUTOCONFIG_UI | false | Configure settings at the `config/ui` api endpoint. |
-| AUTOCONFIG_UI_JSON | /app/config/ui.json | Path to the json file for `config/ui` configuration. Expects a single json object. |
-|---|---|---|
-| AUTOIMPORT_CACHE_HOURS | 1 | Cache lifetime for path list (hours) |
-| AUTOIMPORT_DROP_DIR | /drop | Directory scanned for `import-` prefixed folders |
-| AUTOIMPORT_DOWNLOADCLIENT_NAME | radarr-sidecar | Blackhole client name created if missing |
-| AUTOIMPORT_GROUP | (unset) | REQUIRED. Numeric gid expected on files for permission checks |
-| AUTOIMPORT_IMPORT_MARKER | import- | Prefix marking folders to import |
-| AUTOIMPORT_INTERVAL | 5m | Scan interval for drop directory |
-| AUTOIMPORT_SHARED_PATH | /sidecar-import | Library root seen by Radarr |
-| AUTOIMPORT_WORK_DIR | /work | Working directory for caches |
-
-### Sonarr sidecar
-
-Services:
-
-- AutoConfig – sends bundled JSONs for many different configuration aspects of Sonarr
-- AutoImport – same behavior as Radarr but for series, using Sonarr's `DownloadedSeriesScan`
-
-#### Environment variables
-
-| Variable | Default | Description |
-|---|---|---|
-| UMASK | 0002 | Process umask applied at start |
-| LOG_LEVEL | INFO | Log verbosity |
-| ARR_NAME | sonarr | Friendly name (informational) |
-| ARR_CONFIG_PATH | /sonarr/config.xml | Path to mounted Sonarr `config.xml` inside the sidecar |
-| ARR_SUPPORTED_API_VERSIONS | v3,v1 | API versions to probe in order |
-| ARR_HOST | sonarr | Hostname/IP of Sonarr |
-| ARR_PORT | (unset) | Optional external port override |
-|---|---|---|
-| AUTOCONFIG_DELAY | 10 | Initial delay before running `AutoConfig` service after container start |
-| AUTOCONFIG_CUSTOMFORMAT | false | Configure settings at the `customformat` api endpoint. |
-| AUTOCONFIG_CUSTOMFORMAT_JSON | /app/config/customformat.json | Path to the json file for `customformat` configuration. Expects an array of objects. |
-| AUTOCONFIG_DOWNLOADCLIENT | false | Configure settings at the `downloadclient` api endpoint. |
-| AUTOCONFIG_DOWNLOADCLIENT_JSON | /app/config/downloadclient.json | Path to the json file for `downloadclient` configuration. Expects an array of objects. |
-| AUTOCONFIG_HOST | true | Configure settings at the `config/host` api endpoint. |
-| AUTOCONFIG_HOST_JSON | /app/config/host.json | Path to the json file for `config/host` configuration. Expects a single json object. |
-| AUTOCONFIG_MEDIAMANAGEMENT | true | Configure settings at the `config/mediamanagement` api endpoint. |
-| AUTOCONFIG_MEDIAMANAGEMENT_JSON | /app/config/mediamanagement.json | Path to the json file for `config/mediamanagement` configuration. Expects a single json object. |
-| AUTOCONFIG_NAMING | true | Configure settings at the `config/naming` api endpoint. |
-| AUTOCONFIG_NAMING_JSON | /app/config/naming.json | Path to the json file for `config/naming` configuration. Expects a single json object. |
-| AUTOCONFIG_QUALITYPROFILE | true | Configure settings at the `qualityprofile` api endpoint. |
-| AUTOCONFIG_QUALITYPROFILE_JSON | /app/config/qualityprofile.json | Path to the json file for `qualityprofile` configuration. Expects an array of objects. |
-| AUTOCONFIG_REMOTEPATHMAPPING | false | Configure settings at the `remotepathmapping` api endpoint. |
-| AUTOCONFIG_REMOTEPATHMAPPING_JSON | /app/config/remotepathmapping.json | Path to the json file for `remotepathmapping` configuration. Expects an array of objects. |
-| AUTOCONFIG_UI | false | Configure settings at the `config/ui` api endpoint. |
-| AUTOCONFIG_UI_JSON | /app/config/ui.json | Path to the json file for `config/ui` configuration. Expects a single json object. |
-|---|---|---|
-| AUTOIMPORT_CACHE_HOURS | 1 | Cache lifetime for path list (hours) |
-| AUTOIMPORT_DROP_DIR | /drop | Directory scanned for `import-` prefixed folders |
-| AUTOIMPORT_DOWNLOADCLIENT_NAME | sonarr-sidecar | Blackhole client name created if missing |
-| AUTOIMPORT_GROUP | (unset) | REQUIRED. Numeric gid expected on files for permission checks |
-| AUTOIMPORT_IMPORT_MARKER | import- | Prefix marking folders to import |
-| AUTOIMPORT_INTERVAL | 5m | Scan interval for drop directory |
-| AUTOIMPORT_SHARED_PATH | /sidecar-import | Library root seen by Sonarr |
-| AUTOIMPORT_WORK_DIR | /work | Working directory for caches |
-
-## Volumes you'll typically mount
-
-- The *Arr config file into the sidecar:
-  - Lidarr: `-v /path/to/lidarr/config.xml:/lidarr/config.xml:ro`
-  - Radarr: `-v /path/to/radarr/config.xml:/radarr/config.xml:ro`
-  - Sonarr: `-v /path/to/sonarr/config.xml:/sonarr/config.xml:ro`
-- A shared import folder both the sidecar and *Arr see (Blackhole watch):
-  - `-v /some/shared/import:/sidecar-import`
-- A working directory for caches/temp/state:
-  - `-v /path/to/work:/work`
-- Lidarr only: ARL token file with strict perms and ownership:
-  - `-v /secure/path/deemix_arl_token:/deemix_arl_token:rw` (must be owned by the container user and `chmod 600`)
-
-## Example: docker compose snippets
-
-These are minimal examples; adapt paths and network addresses to your setup.
+## Quick Start (Compose)
 
 ```yaml
 services:
- lidarr-sidecar:
-  image: ghcr.io/scottfridwin/lidarr-sidecar:latest
-  container_name: lidarr-sidecar
-  environment:
-   - LOG_LEVEL=INFO
-  volumes:
-   - /path/to/lidarr/config.xml:/lidarr/config.xml:ro
-   - /secure/path/deemix_arl_token:/deemix_arl_token:rw
-   - /path/to/work:/work
-   - /path/to/shared/import:/sidecar-import
-  depends_on:
-   - lidarr
+  lidarr-sidecar:
+    image: ghcr.io/scottfridwin/lidarr-sidecar:latest
+    environment:
+      - LOG_LEVEL=INFO
+    volumes:
+      - /path/to/lidarr/config.xml:/lidarr/config.xml:ro
+      - /secure/path/deemix_arl_token:/deemix_arl_token:rw
+      - /path/to/work:/work
+      - /path/to/shared/import:/sidecar-import
 
- radarr-sidecar:
-  image: ghcr.io/scottfridwin/radarr-sidecar:latest
-  container_name: radarr-sidecar
-  environment:
-   - LOG_LEVEL=INFO
-   - AUTOIMPORT_GROUP=1000   # target group id for permission checks
-  volumes:
-   - /path/to/radarr/config.xml:/radarr/config.xml:ro
-   - /path/to/drop:/drop
-   - /path/to/work:/work
-   - /path/to/shared/import:/sidecar-import
-  depends_on:
-   - radarr
+  radarr-sidecar:
+    image: ghcr.io/scottfridwin/radarr-sidecar:latest
+    environment:
+      - LOG_LEVEL=INFO
+      - AUTOIMPORT_GROUP=1000
+    volumes:
+      - /path/to/radarr/config.xml:/radarr/config.xml:ro
+      - /path/to/drop:/drop
+      - /path/to/work:/work
+      - /path/to/shared/import:/sidecar-import
 
- sonarr-sidecar:
-  image: ghcr.io/scottfridwin/sonarr-sidecar:latest
-  container_name: sonarr-sidecar
-  environment:
-   - LOG_LEVEL=INFO
-   - AUTOIMPORT_GROUP=1000   # target group id for permission checks
-  volumes:
-   - /path/to/sonarr/config.xml:/sonarr/config.xml:ro
-   - /path/to/drop:/drop
-   - /path/to/work:/work
-   - /path/to/shared/import:/sidecar-import
-  depends_on:
-   - sonarr
+  sonarr-sidecar:
+    image: ghcr.io/scottfridwin/sonarr-sidecar:latest
+    environment:
+      - LOG_LEVEL=INFO
+      - AUTOIMPORT_GROUP=1000
+    volumes:
+      - /path/to/sonarr/config.xml:/sonarr/config.xml:ro
+      - /path/to/drop:/drop
+      - /path/to/work:/work
+      - /path/to/shared/import:/sidecar-import
 ```
 
-Notes:
+## Sidecar Docs
 
-- The sidecars discover the correct *Arr API version automatically from `ARR_SUPPORTED_API_VERSIONS` defaults.
-- If your *Arr instances run with a URL base, it's auto-detected from the mounted `config.xml`.
-- For Radarr/Sonarr AutoImport, create the "drop" folder and place directories there named like `import-<exact movie or series folder name>`.
+- [lidarr-sidecar/README.md](lidarr-sidecar/README.md)
+- [radarr-sidecar/README.md](radarr-sidecar/README.md)
+- [sonarr-sidecar/README.md](sonarr-sidecar/README.md)
 
-## Build locally
+Each sidecar README includes:
 
-Build any sidecar with Docker:
+- service behavior
+- required mounts
+- key environment variables
+- package and pull references
+
+## Tagging and Release Model
+
+CI builds on pushes to `main` and publishes multi-arch images (`linux/amd64`, `linux/arm64`) to GHCR.
+
+Image tags used by the workflow:
+
+- `sha-<shortsha>` for commit builds
+- `main` for branch tip builds
+- `latest` and version tags (`vX.Y.Z`, `X.Y.Z`) when promoted via manual release dispatch
+
+See workflow: [.github/workflows/build-publish.yml](.github/workflows/build-publish.yml)
+
+## Development
+
+Run unit tests locally:
+
+```bash
+python3 -m unittest discover -s shared/python/tests -p 'test_*.py' -v
+python3 -m unittest discover -s lidarr-sidecar/python/tests -p 'test_*.py' -v
+```
+
+Build locally:
 
 ```bash
 docker build -t lidarr-sidecar ./lidarr-sidecar
@@ -296,25 +114,15 @@ docker build -t radarr-sidecar ./radarr-sidecar
 docker build -t sonarr-sidecar ./sonarr-sidecar
 ```
 
-## Timezone
+## Security Notes
 
-The timezone for each container can be set either by using the `TZ` environment variable or by bind-mounting the host's `/etc/localtime` and `/etc/timezone` paths as read-only.
+- Lidarr ARL token file must be owned by the runtime user and permissioned `0600`.
+- Radarr/Sonarr AutoImport expects `AUTOIMPORT_GROUP` to be set and enforces group ownership/permissions before moving files.
 
-## Security and permissions
+## Acknowledgements
 
-- Lidarr ARL token file must be owned by the container's user (default root unless you override) and set to `0600`.
-- Radarr/Sonarr AutoImport validates that all files in a candidate import folder have the expected group id and group read/write perms. Set `AUTOIMPORT_GROUP` to the numeric gid your media files should use.
-
-## FAQ
-
-- Can I disable parts of AutoConfig? Yes. Each `AUTOCONFIG_*` flag can be toggled per sidecar; see the Dockerfiles for defaults and the `config/` JSON files.
-- How do I customize Deemix/Beets? Provide your own JSON/YAML via `AUDIO_DEEMIX_CUSTOM_CONFIG`/`AUDIO_BEETS_CUSTOM_CONFIG` (path or inline content). Custom settings merge with the defaults.
-- Where do downloaded files go for Lidarr? Into the shared folder you map to `AUDIO_SHARED_LIDARR_PATH`. The sidecar notifies Lidarr to import from there.
+This project was inspired by RandomNinjaAtk's [arr-scripts](https://github.com/RandomNinjaAtk/arr-scripts). Some logic was adapted and refactored into containerized sidecars.
 
 ## License
 
-This project is licensed under the GNU General Public License v3.0 (GPL-3.0). See `LICENSE` for the full text. Source files include SPDX identifiers (`GPL-3.0-only`). Portions of logic were adapted from RandomNinjaAtk's [arr-scripts](https://github.com/RandomNinjaAtk/arr-scripts).
-
----
-
-If you spot gaps or want additional knobs documented, open an issue or PR. Happy automating!
+GPL-3.0-only. See [LICENSE](LICENSE).

@@ -36,6 +36,7 @@ from .download import (
     consolidate_files,
     count_audio_files,
     download_with_deemix,
+    get_file_disc_track_numbers,
     move_to_import,
     prune_cache,
     setup_working_dirs,
@@ -50,6 +51,7 @@ from .lidarr_api import (
     get_album_ids_by_artist,
     get_album_ids_by_release_group,
     get_wanted_albums,
+    manual_import_release,
     notify_lidarr_import,
 )
 from .logging import log
@@ -247,6 +249,7 @@ def _build_candidates(album_data: dict, album_release_year: str) -> list[Release
     for release_json in album_data.get("releases", []):
         title = release_json.get("title", "")
         disambiguation = release_json.get("disambiguation", "") or ""
+        release_id = str(release_json.get("id", "") or "")
         track_count = release_json.get("trackCount", 0)
         foreign_release_id = release_json.get("foreignReleaseId", "")
         release_format = release_json.get("format", "")
@@ -262,6 +265,7 @@ def _build_candidates(album_data: dict, album_release_year: str) -> list[Release
             continue
 
         release_status = mb_data.get("status", "")
+        musicbrainz_barcode = str(mb_data.get("barcode", "") or "")
 
         # Extract Deezer album ID from MB relations
         deezer_album_id = ""
@@ -320,6 +324,7 @@ def _build_candidates(album_data: dict, album_release_year: str) -> list[Release
         candidates.append(ReleaseCandidate(
             title=title,
             disambiguation=disambiguation,
+            release_id=release_id,
             foreign_id=foreign_release_id,
             track_count=track_count,
             deezer_album_id=deezer_album_id,
@@ -330,6 +335,7 @@ def _build_candidates(album_data: dict, album_release_year: str) -> list[Release
             contains_commentary=contains_commentary,
             instrumental=instrumental,
             alternate_titles=alternate_titles,
+            musicbrainz_barcode=musicbrainz_barcode,
         ))
 
     return candidates
@@ -390,14 +396,19 @@ def search_and_download(
 
     if result.matched:
         success = _download_album(
-            result, artist_name, artist_foreign_id,
+            result,
+            artist_name,
+            str(artist_data.get("id", "") or ""),
+            artist_foreign_id,
             album_title_raw, album_foreign_id, album_id, arl_token,
             priority_entry=priority_entry,
         )
         if success:
+            _remove_from_missing_file(album_id)
             daily_tracker.increment()
     else:
         log.info(f"No match: {result.reason}")
+        _upsert_missing_file(album_id, artist_name, album_title, album_foreign_id, result.reason)
         # Mark as not found (unless it's a new release)
         is_new = False
         if album_release_date:
@@ -413,6 +424,7 @@ def search_and_download(
 def _download_album(
     result: MatchResult,
     artist_name: str,
+    artist_id: str,
     artist_foreign_id: str,
     album_title: str,
     album_foreign_id: str,
@@ -482,17 +494,50 @@ def _download_album(
 
     # Post-processing
     consolidate_files(cfg.staging_dir)
+    downloaded_timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
     release_foreign_id = result.lidarr_release_foreign_id
+    release_lidarr_id = result.lidarr_release_id
+    track_id_map: dict[tuple[int, int], tuple[str, str]] = {}
+
+    release_data = fetch_musicbrainz_release(release_foreign_id)
+    if isinstance(release_data, dict):
+        track_id_map = _build_release_track_id_map(release_data)
 
     # Tag with MusicBrainz info
     for f in cfg.staging_dir.iterdir():
         if not f.is_file():
             continue
         if f.suffix.lower() == ".flac":
-            tag_flac_musicbrainz(f, album_title, release_foreign_id, album_foreign_id)
+            disc_num, track_num = get_file_disc_track_numbers(f)
+            rec_id, rel_track_id = ("", "")
+            if disc_num is not None and track_num is not None:
+                rec_id, rel_track_id = track_id_map.get((disc_num, track_num), ("", ""))
+            tag_flac_musicbrainz(
+                f,
+                album_title,
+                release_foreign_id,
+                album_foreign_id,
+                recording_mb_id=rec_id,
+                release_track_mb_id=rel_track_id,
+                deezer_album_id=deezer_album_id,
+                date_downloaded=downloaded_timestamp,
+            )
         elif f.suffix.lower() == ".mp3":
-            tag_mp3_mutagen(f, album_title=album_title, release_id=release_foreign_id, release_group_id=album_foreign_id)
+            disc_num, track_num = get_file_disc_track_numbers(f)
+            rec_id, rel_track_id = ("", "")
+            if disc_num is not None and track_num is not None:
+                rec_id, rel_track_id = track_id_map.get((disc_num, track_num), ("", ""))
+            tag_mp3_mutagen(
+                f,
+                album_title=album_title,
+                release_id=release_foreign_id,
+                release_group_id=album_foreign_id,
+                recording_mb_id=rec_id,
+                release_track_mb_id=rel_track_id,
+                deezer_album_id=deezer_album_id,
+                date_downloaded=downloaded_timestamp,
+            )
 
     # ReplayGain
     if cfg.apply_replaygain:
@@ -513,7 +558,33 @@ def _download_album(
 
     # Move and import
     dest = move_to_import(artist_name, album_title, release_year, album_foreign_id)
-    notify_lidarr_import(str(dest))
+    import_ok = True
+    if cfg.import_strategy == "manual":
+        if not (artist_id and album_id and release_lidarr_id):
+            log.warning("Manual import strategy requested but missing internal IDs; using scan import")
+            notify_lidarr_import(str(dest))
+            import_ok = True
+        else:
+            import_ok, rejections = manual_import_release(
+                import_path=str(dest),
+                artist_id=artist_id,
+                album_id=album_id,
+                release_id=release_lidarr_id,
+            )
+        if not import_ok:
+            log.warning("Manual import had rejections:")
+            for rejection in rejections[:20]:
+                log.warning(f"  - {rejection}")
+            if cfg.import_manual_fallback_to_scan:
+                log.warning("Falling back to DownloadedAlbumsScan import")
+                notify_lidarr_import(str(dest))
+                import_ok = True
+    else:
+        notify_lidarr_import(str(dest))
+
+    if not import_ok:
+        log.warning(f"Import failed for \"{deezer_title}\"; leaving files for manual review")
+        return False
 
     # Mark downloaded
     marker = f"{album_id}--{artist_foreign_id}--{album_foreign_id}"
@@ -529,6 +600,47 @@ def _download_album(
     log.info(f"Successfully downloaded \"{deezer_title}\"")
     clean_staging()
     return True
+
+
+def _build_release_track_id_map(release_data: dict) -> dict[tuple[int, int], tuple[str, str]]:
+    """Build mapping of (disc, track_number) -> (recording_mbid, release_track_mbid)."""
+    mapping: dict[tuple[int, int], tuple[str, str]] = {}
+    media = release_data.get("media", [])
+    if not isinstance(media, list):
+        return mapping
+
+    for medium in media:
+        if not isinstance(medium, dict):
+            continue
+        disc_raw = medium.get("position", 1)
+        try:
+            disc_num = int(disc_raw)
+        except (TypeError, ValueError):
+            disc_num = 1
+
+        tracks = medium.get("tracks", [])
+        if not isinstance(tracks, list):
+            continue
+
+        for idx, track in enumerate(tracks, start=1):
+            if not isinstance(track, dict):
+                continue
+            track_raw = track.get("number") or track.get("position") or idx
+            try:
+                track_num = int(str(track_raw).split("/")[0])
+            except (TypeError, ValueError):
+                track_num = idx
+
+            recording_id = ""
+            recording = track.get("recording", {})
+            if isinstance(recording, dict):
+                recording_id = str(recording.get("id", "") or "")
+
+            release_track_id = str(track.get("id", "") or "")
+            if recording_id or release_track_id:
+                mapping[(disc_num, track_num)] = (recording_id, release_track_id)
+
+    return mapping
 
 
 def _remove_from_priority_file(entry: str) -> None:
@@ -562,6 +674,91 @@ def _write_result_file(
     with open(out_file, "a") as f:
         f.write(f"| {timestamp} | {artist_name} | {album_title} | {album_id} "
                 f"| {album_foreign_id} | {status} | {result.lidarr_release_foreign_id} | {result.deezer_album_id} |\n")
+
+
+def _upsert_missing_file(
+    album_id: str,
+    artist_name: str,
+    album_title: str,
+    album_foreign_id: str,
+    reason: str,
+) -> None:
+    """Write/update a current missing-album reason record."""
+    if not cfg.missing_result_file_name:
+        return
+
+    out_file = cfg.work_path / cfg.missing_result_file_name
+    timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+    header = (
+        "# Missing Album Reasons\n\n"
+        "| Last Checked | Artist | Album | Album Id | Release Group Id | Reason |\n"
+        "|--------------|--------|-------|----------|------------------|--------|\n"
+    )
+
+    rows: list[str] = []
+    if out_file.exists():
+        try:
+            lines = out_file.read_text().splitlines()
+            for line in lines:
+                if not line.startswith("|"):
+                    continue
+                if "| Last Checked |" in line or "|--------------|" in line:
+                    continue
+                parts = [p.strip() for p in line.split("|")]
+                if len(parts) < 7:
+                    continue
+                existing_album_id = parts[4]
+                if existing_album_id and existing_album_id != album_id:
+                    rows.append(line)
+        except OSError:
+            rows = []
+
+    rows.append(
+        f"| {timestamp} | {artist_name} | {album_title} | {album_id} | {album_foreign_id} | {reason} |"
+    )
+
+    try:
+        out_file.parent.mkdir(parents=True, exist_ok=True)
+        content = header + "\n".join(rows) + "\n"
+        out_file.write_text(content)
+    except OSError:
+        pass
+
+
+def _remove_from_missing_file(album_id: str) -> None:
+    """Remove an album from missing reasons after it matches."""
+    if not cfg.missing_result_file_name:
+        return
+
+    out_file = cfg.work_path / cfg.missing_result_file_name
+    if not out_file.exists():
+        return
+
+    try:
+        lines = out_file.read_text().splitlines()
+    except OSError:
+        return
+
+    kept: list[str] = []
+    for line in lines:
+        if not line.startswith("|"):
+            kept.append(line)
+            continue
+        if "| Last Checked |" in line or "|--------------|" in line:
+            kept.append(line)
+            continue
+        parts = [p.strip() for p in line.split("|")]
+        if len(parts) < 7:
+            kept.append(line)
+            continue
+        existing_album_id = parts[4]
+        if existing_album_id != album_id:
+            kept.append(line)
+
+    try:
+        out_file.write_text("\n".join(kept).rstrip() + "\n")
+    except OSError:
+        pass
 
 
 # ─── Processing loops ─────────────────────────────────────────────────────
