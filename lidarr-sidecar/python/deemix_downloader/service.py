@@ -544,17 +544,21 @@ def _download_album(
         apply_replaygain(cfg.staging_dir)
 
     # Beets
+    beets_ok = False
     if cfg.apply_beets:
-        apply_beets(cfg.staging_dir, release_foreign_id, BEETS_CONFIG_PATH, BEETS_DIR)
+        beets_ok = apply_beets(cfg.staging_dir, release_foreign_id, BEETS_CONFIG_PATH, BEETS_DIR)
 
-    # Artist tags
-    for f in cfg.staging_dir.iterdir():
-        if not f.is_file():
-            continue
-        if f.suffix.lower() == ".flac":
-            tag_flac_artist(f, artist_name, artist_foreign_id)
-        elif f.suffix.lower() == ".mp3":
-            tag_mp3_mutagen(f, artist_name=artist_name, artist_foreign_id=artist_foreign_id)
+    # Artist tags: only reassert the album-level Lidarr artist when Beets didn't
+    # run or failed. Otherwise, leave Beets' own per-track match in place, since
+    # it can be more accurate than the album-level artist on compilations.
+    if not beets_ok:
+        for f in cfg.staging_dir.iterdir():
+            if not f.is_file():
+                continue
+            if f.suffix.lower() == ".flac":
+                tag_flac_artist(f, artist_name, artist_foreign_id)
+            elif f.suffix.lower() == ".mp3":
+                tag_mp3_mutagen(f, artist_name=artist_name, artist_foreign_id=artist_foreign_id)
 
     # Move and import
     dest = move_to_import(artist_name, album_title, release_year, album_foreign_id)
