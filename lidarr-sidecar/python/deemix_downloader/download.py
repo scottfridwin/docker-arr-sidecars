@@ -240,21 +240,27 @@ def tag_mp3_mutagen(
             tags.delall("TPE2")
             tags.add(TPE2(encoding=3, text=[artist_name]))
 
-        if release_id:
-            tags.delall("TXXX:MUSICBRAINZ_ALBUMID")
-            tags.add(TXXX(encoding=3, desc="MUSICBRAINZ_ALBUMID", text=[release_id]))
+        # Beets (run later in the pipeline) writes these same MusicBrainz IDs
+        # under its own standard ID3 TXXX names (e.g. "MusicBrainz Release Group
+        # Id"), which would leave two competing frames per field. Only write our
+        # legacy all-caps names here when Beets is disabled, so MP3s still get
+        # MusicBrainz IDs from at least one source.
+        if not cfg.apply_beets:
+            if release_id:
+                tags.delall("TXXX:MUSICBRAINZ_ALBUMID")
+                tags.add(TXXX(encoding=3, desc="MUSICBRAINZ_ALBUMID", text=[release_id]))
 
-        if release_group_id:
-            tags.delall("TXXX:MUSICBRAINZ_RELEASEGROUPID")
-            tags.add(TXXX(encoding=3, desc="MUSICBRAINZ_RELEASEGROUPID", text=[release_group_id]))
+            if release_group_id:
+                tags.delall("TXXX:MUSICBRAINZ_RELEASEGROUPID")
+                tags.add(TXXX(encoding=3, desc="MUSICBRAINZ_RELEASEGROUPID", text=[release_group_id]))
 
-        if recording_mb_id:
-            tags.delall("TXXX:MUSICBRAINZ_TRACKID")
-            tags.add(TXXX(encoding=3, desc="MUSICBRAINZ_TRACKID", text=[recording_mb_id]))
+            if recording_mb_id:
+                tags.delall("TXXX:MUSICBRAINZ_TRACKID")
+                tags.add(TXXX(encoding=3, desc="MUSICBRAINZ_TRACKID", text=[recording_mb_id]))
 
-        if release_track_mb_id:
-            tags.delall("TXXX:MUSICBRAINZ_RELEASETRACKID")
-            tags.add(TXXX(encoding=3, desc="MUSICBRAINZ_RELEASETRACKID", text=[release_track_mb_id]))
+            if release_track_mb_id:
+                tags.delall("TXXX:MUSICBRAINZ_RELEASETRACKID")
+                tags.add(TXXX(encoding=3, desc="MUSICBRAINZ_RELEASETRACKID", text=[release_track_mb_id]))
 
         if deezer_album_id:
             tags.delall("TXXX:DEEZER_ALBUM_ID")
@@ -264,7 +270,7 @@ def tag_mp3_mutagen(
             tags.delall("TXXX:DATE_DOWNLOADED")
             tags.add(TXXX(encoding=3, desc="DATE_DOWNLOADED", text=[date_downloaded]))
 
-        if artist_foreign_id:
+        if artist_foreign_id and not cfg.apply_beets:
             tags.delall("TXXX:MUSICBRAINZ_ARTISTID")
             tags.add(TXXX(encoding=3, desc="MUSICBRAINZ_ARTISTID", text=[artist_foreign_id]))
 
