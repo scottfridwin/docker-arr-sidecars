@@ -21,6 +21,10 @@ Automates Lidarr wanted-album acquisition from Deezer using MusicBrainz-linked r
   - Downloads via deemix, applies optional ReplayGain/Beets, and triggers Lidarr import
   - Supports import strategies: `scan` (DownloadedAlbumsScan) or `manual` (forced release via Manual Import API)
   - Writes `DEEZER_ALBUM_ID`, `DATE_DOWNLOADED`, and per-track MusicBrainz IDs to downloaded FLAC/MP3 files
+- ManualImport (`services/persistent/ManualImport.py`)
+  - Watches `AUDIO_MANUAL_IMPORT_DROP_DIR` for user-supplied albums (e.g. CD rips not available on Deezer)
+  - Applies the same MusicBrainz/ReplayGain/Beets tagging as DeemixDownloader, then forces a Lidarr Manual Import
+  - Sets `DEEZER_ALBUM_ID` to `AUDIO_MANUAL_IMPORT_DEEZER_SENTINEL` (default `None`) instead of a real Deezer ID, so these tracks stay identifiable as manually-imported
 
 ## DeemixDownloader
 
@@ -54,6 +58,21 @@ The downloader writes two complementary files to AUDIO_WORK_PATH:
   - Stores the latest no-match reason per album (for example: no Deezer link, redirect gate rejection, UPC mismatch, fetch failure, title/track sanity failure).
   - Entries are updated on each no-match attempt and removed automatically once an album is successfully downloaded.
 
+## ManualImport
+
+Some albums simply aren't available on Deezer (out-of-print releases, self-released CDs, etc.). ManualImport lets you supply your own rips for an album Lidarr is already tracking (wanted/monitored), while still getting the same MusicBrainz/ReplayGain/Beets tagging DeemixDownloader applies.
+
+### Usage
+
+1. Find the MusicBrainz release-group ID for the album (the same ID visible in Lidarr, or embedded in your library's folder naming convention).
+2. Create a folder named `<AUDIO_MANUAL_IMPORT_MARKER><release-group-mbid>` (default marker: `import-`) inside `AUDIO_MANUAL_IMPORT_DROP_DIR`, e.g. `import-e197ccf5-96fc-3f99-bbcc-8d33be9bd498`.
+   - To target a specific release/edition instead of whichever one Lidarr currently has monitored, append `--<release-mbid>`: `import-<release-group-mbid>--<release-mbid>`.
+3. Copy your ripped audio files (FLAC/MP3) into that folder - subfolders (e.g. per-disc) are flattened automatically.
+4. ManualImport picks it up on its next scan (`AUDIO_MANUAL_IMPORT_INTERVAL`), tags the files, and forces a Lidarr Manual Import against the matched artist/album/release.
+5. On completion, the folder is moved to `imported/` (success) or `failed/` (with an `IMPORT_STATUS.txt` explaining why) under the drop directory. Your original files are only ever copied, never moved or modified in place.
+
+`DEEZER_ALBUM_ID` is set to `AUDIO_MANUAL_IMPORT_DEEZER_SENTINEL` (default `None`) rather than a real Deezer ID, and `DATE_DOWNLOADED` is set to the current time - both let you distinguish manually-imported tracks from Deezer downloads later.
+
 ## Required Mounts
 
 - Lidarr config XML:
@@ -62,6 +81,8 @@ The downloader writes two complementary files to AUDIO_WORK_PATH:
   - `/path/to/work:/work`
 - Shared import path (also mounted in Lidarr):
   - `/path/to/shared/import:/sidecar-import`
+- Manual import drop directory (optional, only needed to use ManualImport):
+  - `/path/to/manual-import:/manual-import`
 - Deezer ARL token file:
   - `/secure/path/deemix_arl_token:/deemix_arl_token:rw`
 
@@ -91,6 +112,10 @@ Downloader behavior:
 - `AUDIO_DOWNLOAD_QUALITY_FALLBACK` (default: `true`)
 - `AUDIO_IMPORT_STRATEGY` (default: `scan`; `manual` forces release selection via Lidarr Manual Import API)
 - `AUDIO_IMPORT_MANUAL_FALLBACK_TO_SCAN` (default: `true`; if manual import rejects files, run DownloadedAlbumsScan as fallback)
+- `AUDIO_MANUAL_IMPORT_DROP_DIR` (default: `/manual-import`)
+- `AUDIO_MANUAL_IMPORT_MARKER` (default: `import-`; drop-folder name prefix, followed by a release-group MBID)
+- `AUDIO_MANUAL_IMPORT_INTERVAL` (default: `5m`)
+- `AUDIO_MANUAL_IMPORT_DEEZER_SENTINEL` (default: `None`; value written to DEEZER_ALBUM_ID for manually-imported tracks)
 
 Processing and output:
 
