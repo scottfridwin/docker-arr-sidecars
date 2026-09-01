@@ -3,7 +3,7 @@
     "recycleBin": "/recycle",
     "recycleBinCleanupDays": 2,
     "downloadPropersAndRepacks": "preferAndUpgrade",
-    "createEmptyArtistFolders": true,
+    "createEmptyArtistFolders": false,
     "deleteEmptyFolders": true,
     "fileDate": "none",
     "watchLibraryForChanges": false,

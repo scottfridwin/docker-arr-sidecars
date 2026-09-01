@@ -123,3 +123,22 @@ class TestEntrypoint(unittest.TestCase):
             self.assertEqual(
                 popen_mock.call_args.kwargs["env"]["SCRIPT_NAME"], "AutoImport"
             )
+
+    def test_start_services_skips_disabled_persistent_service(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            service_base_dir = Path(tmpdir) / "services"
+            one_time_dir = service_base_dir / "one-time"
+            persistent_dir = service_base_dir / "persistent"
+            one_time_dir.mkdir(parents=True)
+            persistent_dir.mkdir(parents=True)
+
+            manual_import = persistent_dir / "ManualImport.py"
+            manual_import.write_text("print('import')\n", encoding="utf-8")
+
+            with patch.dict(
+                os.environ, {"SERVICE_MANUALIMPORT_ENABLED": "false"}, clear=False
+            ), patch("shared.python.entrypoint.subprocess.Popen") as popen_mock:
+                processes = entrypoint._start_services(service_base_dir)
+
+            self.assertEqual(processes, {})
+            popen_mock.assert_not_called()

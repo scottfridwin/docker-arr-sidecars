@@ -258,42 +258,46 @@ def ensure_resource_paths(strategy) -> list[str]:
 
 
 def _find_match(target_name: str, paths: list[str]) -> str | None:
-    needle = f"/{target_name}"
     for path in paths:
-        if needle in path:
+        if Path(path).name == target_name:
             return path
     return None
 
 
 def process_import(import_dir: str, strategy) -> None:
     debug("TRACE :: Entering process_import...")
-    target_name = get_import_target_name(import_dir)
+    raw_target_name = get_import_target_name(import_dir)
+    match_key, hook_arg = strategy.parse_folder_name(raw_target_name)
     info(f"Processing flagged import folder: {Path(import_dir).name}")
 
     paths = ensure_resource_paths(strategy)
-    match_path = _find_match(target_name, paths)
+    match_path = _find_match(match_key, paths)
 
     if match_path:
-        debug(f"Match found: {target_name} -> {match_path}")
+        debug(f"Match found: {match_key} -> {match_path}")
         if not check_permissions(import_dir):
             issues = get_state("permissionIssues")
             _write_status(
                 Path(import_dir), f"Permission or ownership issues detected:\n{issues}"
             )
+        elif strategy.pre_move_hook is not None and not strategy.pre_move_hook(Path(import_dir), hook_arg):
+            debug(f"Pre-move hook rejected import for '{hook_arg}'")
+            new_dir = Path(env("AUTOIMPORT_DROP_DIR")) / raw_target_name
+            _move_directory(Path(import_dir), new_dir)
         else:
-            dest_dir = Path(env("AUTOIMPORT_SHARED_PATH")) / target_name
+            dest_dir = Path(env("AUTOIMPORT_SHARED_PATH")) / raw_target_name
             debug(f"Moving '{import_dir}' to '{dest_dir}'")
             _move_directory(Path(import_dir), dest_dir)
             debug(
                 "DEBUG :: No notification behavior configured; import move is complete"
             )
     else:
-        debug(f"No match found for '{target_name}'")
+        debug(f"No match found for '{match_key}'")
         _write_status(
             Path(import_dir),
-            f"No matching {env('ARR_NAME')} directory found for '{target_name}'.",
+            f"No matching {env('ARR_NAME')} directory found for '{match_key}'.",
         )
-        new_dir = Path(env("AUTOIMPORT_DROP_DIR")) / target_name
+        new_dir = Path(env("AUTOIMPORT_DROP_DIR")) / raw_target_name
         _move_directory(Path(import_dir), new_dir)
         debug(f"Removed import tag from '{import_dir}'")
 

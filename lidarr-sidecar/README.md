@@ -22,8 +22,8 @@ Automates Lidarr wanted-album acquisition from Deezer using MusicBrainz-linked r
   - Supports import strategies: `scan` (DownloadedAlbumsScan) or `manual` (forced release via Manual Import API)
   - Writes `DEEZER_ALBUM_ID`, `DATE_DOWNLOADED`, and per-track MusicBrainz IDs to downloaded FLAC/MP3 files
 - ManualImport (`services/persistent/ManualImport.py`)
-  - Watches `AUDIO_MANUAL_IMPORT_DROP_DIR` for user-supplied albums (e.g. CD rips not available on Deezer)
-  - Applies the same MusicBrainz/ReplayGain/Beets tagging as DeemixDownloader, then forces a Lidarr Manual Import
+  - Uses the same `shared/python/autoimport` mechanism as Radarr/Sonarr's AutoImport: watches `AUTOIMPORT_DROP_DIR` for marked folders, matches them against known Lidarr artist paths, then moves matched folders into Lidarr's watched import path for its own native import to pick up
+  - Adds one Lidarr-specific step Radarr/Sonarr don't need: a pre-move hook tags the files (MusicBrainz IDs, ReplayGain, Beets) in place before the move, since audio needs this and video doesn't
   - Sets `DEEZER_ALBUM_ID` to `AUDIO_MANUAL_IMPORT_DEEZER_SENTINEL` (default `None`) instead of a real Deezer ID, so these tracks stay identifiable as manually-imported
 
 ## DeemixDownloader
@@ -60,16 +60,20 @@ The downloader writes two complementary files to AUDIO_WORK_PATH:
 
 ## ManualImport
 
-Some albums simply aren't available on Deezer (out-of-print releases, self-released CDs, etc.). ManualImport lets you supply your own rips for an album Lidarr is already tracking (wanted/monitored), while still getting the same MusicBrainz/ReplayGain/Beets tagging DeemixDownloader applies.
+Some albums simply aren't available on Deezer (out-of-print releases, self-released CDs, etc.). ManualImport lets you supply your own rips for an album Lidarr is already tracking (wanted/monitored), while still getting the same MusicBrainz/ReplayGain/Beets tagging DeemixDownloader applies - and it works the same way Radarr/Sonarr's AutoImport does: drop files in, get matched, get moved into Lidarr's watched import path, let Lidarr's own import pick them up. No explicit Manual Import API call is made; Lidarr identifies the exact release itself from the MusicBrainz tags this service just wrote (the same signal Lidarr's own `DownloadedAlbumsScan` already prefers over folder-name parsing).
+
+### Why the folder name needs two parts
+
+Radarr/Sonarr match a drop-folder name directly against a Movie/Series path (one API resource = one importable unit = one folder). Lidarr's Album API has **no path field at all** - only Artist does - so matching can only ever resolve to an *artist*, never a specific album. That means the folder name has to carry two things: the artist's exact on-disk folder name (for Lidarr-side matching), and a release-group MBID (for the tagging step to know which album). Artist folder names containing `--` are not supported by this naming format.
 
 ### Usage
 
-1. Find the MusicBrainz release-group ID for the album (the same ID visible in Lidarr, or embedded in your library's folder naming convention).
-2. Create a folder named `<AUDIO_MANUAL_IMPORT_MARKER><release-group-mbid>` (default marker: `import-`) inside `AUDIO_MANUAL_IMPORT_DROP_DIR`, e.g. `import-e197ccf5-96fc-3f99-bbcc-8d33be9bd498`.
-   - To target a specific release/edition instead of whichever one Lidarr currently has monitored, append `--<release-mbid>`: `import-<release-group-mbid>--<release-mbid>`.
+1. Find the artist's folder name as Lidarr has it on disk, and the MusicBrainz release-group ID for the album (visible in Lidarr, or embedded in your library's folder naming convention).
+2. Create a folder named `<AUTOIMPORT_IMPORT_MARKER><artist folder name>--<release-group-mbid>` (default marker: `import-`) inside `AUTOIMPORT_DROP_DIR`, e.g. `import-AC-DC--e197ccf5-96fc-3f99-bbcc-8d33be9bd498`.
+   - To target a specific release/edition instead of whichever one Lidarr currently has monitored, append another `--<release-mbid>`.
 3. Copy your ripped audio files (FLAC/MP3) into that folder - subfolders (e.g. per-disc) are flattened automatically.
-4. ManualImport picks it up on its next scan (`AUDIO_MANUAL_IMPORT_INTERVAL`), tags the files, and forces a Lidarr Manual Import against the matched artist/album/release.
-5. On completion, the folder is moved to `imported/` (success) or `failed/` (with an `IMPORT_STATUS.txt` explaining why) under the drop directory. Your original files are only ever copied, never moved or modified in place.
+4. On its next scan (`AUTOIMPORT_INTERVAL`), ManualImport matches the artist portion against Lidarr's known artist paths, tags the files in place, then moves the folder into `AUTOIMPORT_SHARED_PATH` (Lidarr's existing Blackhole-watched import path) for Lidarr to import on its own.
+5. If no artist match is found, or the release-group MBID is invalid/tagging fails, the folder is set aside (unmarked, with an `IMPORT_STATUS.txt` on tagging failures) under `AUTOIMPORT_DROP_DIR` instead of being moved - same failure behavior as Radarr/Sonarr's AutoImport. Your files are tagged in place, never copied elsewhere.
 
 `DEEZER_ALBUM_ID` is set to `AUDIO_MANUAL_IMPORT_DEEZER_SENTINEL` (default `None`) rather than a real Deezer ID, and `DATE_DOWNLOADED` is set to the current time - both let you distinguish manually-imported tracks from Deezer downloads later.
 
@@ -112,10 +116,19 @@ Downloader behavior:
 - `AUDIO_DOWNLOAD_QUALITY_FALLBACK` (default: `true`)
 - `AUDIO_IMPORT_STRATEGY` (default: `scan`; `manual` forces release selection via Lidarr Manual Import API)
 - `AUDIO_IMPORT_MANUAL_FALLBACK_TO_SCAN` (default: `true`; if manual import rejects files, run DownloadedAlbumsScan as fallback)
-- `AUDIO_MANUAL_IMPORT_DROP_DIR` (default: `/manual-import`)
-- `AUDIO_MANUAL_IMPORT_MARKER` (default: `import-`; drop-folder name prefix, followed by a release-group MBID)
-- `AUDIO_MANUAL_IMPORT_INTERVAL` (default: `5m`)
-- `AUDIO_MANUAL_IMPORT_DEEZER_SENTINEL` (default: `None`; value written to DEEZER_ALBUM_ID for manually-imported tracks)
+
+ManualImport (see the section above for how the marker/MBID folder naming works):
+
+- `SERVICE_MANUALIMPORT_ENABLED` (default: `false`; set to `true` only after configuring the ManualImport variables and mount below)
+- `AUDIO_MANUAL_IMPORT_DEEZER_SENTINEL` (default: `None`; value written to DEEZER_ALBUM_ID for manually-imported tracks; no Radarr/Sonarr equivalent since they don't write this kind of tag)
+- `AUTOIMPORT_DROP_DIR` (default: `/manual-import`)
+- `AUTOIMPORT_IMPORT_MARKER` (default: `import-`; drop-folder name prefix)
+- `AUTOIMPORT_INTERVAL` (default: `5m`)
+- `AUTOIMPORT_SHARED_PATH` (default: `/sidecar-import`; same watched path as `AUDIO_SHARED_LIDARR_PATH`)
+- `AUTOIMPORT_WORK_DIR` (default: `/work`; used for the artist-path cache)
+- `AUTOIMPORT_CACHE_HOURS` (default: `1`; how long the artist-path cache is trusted before refreshing)
+- `AUTOIMPORT_DOWNLOADCLIENT_NAME` (default: `lidarr-deemix-sidecar`, same as `AUDIO_DOWNLOADCLIENT_NAME` so no duplicate Blackhole client is created)
+- `AUTOIMPORT_GROUP` (required, no default - the group ID your Lidarr container's media files use; ManualImport won't start without it)
 
 Processing and output:
 
