@@ -112,6 +112,12 @@ class Config:
         default_factory=lambda: _env("AUDIO_MISSING_RESULT_FILE_NAME", "missing.md")
     )
 
+    # Manual import (user-supplied CD rips not available on Deezer)
+    manual_import_drop_dir: Path = field(default_factory=lambda: Path(_env("AUDIO_MANUAL_IMPORT_DROP_DIR", "/manual-import")))
+    manual_import_marker: str = field(default_factory=lambda: _env("AUDIO_MANUAL_IMPORT_MARKER", "import-"))
+    manual_import_interval: str = field(default_factory=lambda: _env("AUDIO_MANUAL_IMPORT_INTERVAL", "5m"))
+    manual_import_deezer_sentinel: str = field(default_factory=lambda: _env("AUDIO_MANUAL_IMPORT_DEEZER_SENTINEL", "None"))
+
     @property
     def cache_dir(self) -> Path:
         return self.work_path / "cache"
@@ -139,6 +145,10 @@ class Config:
     @property
     def interval_seconds(self) -> float:
         return _parse_interval(self.interval)
+
+    @property
+    def manual_import_interval_seconds(self) -> float:
+        return _parse_interval(self.manual_import_interval)
 
 
 # Singleton instance - initialized when module is imported
