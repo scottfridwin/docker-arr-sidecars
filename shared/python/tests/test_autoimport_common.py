@@ -14,13 +14,16 @@ def _load_lidarr_service_module():
     if str(python_root) not in sys.path:
         sys.path.insert(0, str(python_root))
     path = python_root / "deemix_downloader" / "service.py"
-    spec = importlib.util.spec_from_file_location("deemix_downloader.service", str(path))
+    spec = importlib.util.spec_from_file_location(
+        "deemix_downloader.service", str(path)
+    )
     if spec is None or spec.loader is None:
         raise ImportError(f"Cannot import Lidarr service from {path}")
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
+
 
 from shared.python.autoimport import common
 from shared.python.autoimport.strategy import ImportStrategy
@@ -175,6 +178,19 @@ class TestAutoImportCommon(unittest.TestCase):
                     os.path.join(drop_dir, "UniqueSeries", "IMPORT_STATUS.txt")
                 )
             )
+
+    def test_write_status_ignores_permission_errors(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            import_dir = Path(tmpdir) / "import-target"
+            import_dir.mkdir()
+            status_file = import_dir / "IMPORT_STATUS.txt"
+
+            with patch.object(
+                Path, "write_text", side_effect=PermissionError("denied")
+            ):
+                common._write_status(import_dir, "status message")
+
+            self.assertFalse(status_file.exists())
 
     def test_process_import_preserves_raw_target_name_in_destination(self):
         with tempfile.TemporaryDirectory() as tmpdir:
