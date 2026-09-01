@@ -1,10 +1,26 @@
 #!/usr/bin/env python3
 import importlib.util
 import os
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+
+
+def _load_lidarr_service_module():
+    workspace = Path(__file__).resolve().parents[3]
+    python_root = workspace / "lidarr-sidecar" / "python"
+    if str(python_root) not in sys.path:
+        sys.path.insert(0, str(python_root))
+    path = python_root / "deemix_downloader" / "service.py"
+    spec = importlib.util.spec_from_file_location("deemix_downloader.service", str(path))
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Cannot import Lidarr service from {path}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
 
 from shared.python.autoimport import common
 from shared.python.autoimport.strategy import ImportStrategy
@@ -252,3 +268,23 @@ class TestAutoImportCommon(unittest.TestCase):
                 self.assertEqual(
                     call_sequence, [("GET", "series?page=1&pageSize=100", None)]
                 )
+
+    def test_manual_import_rejects_non_mp3_flac_files_when_conversion_disabled(self):
+        service = _load_lidarr_service_module()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            import_dir = Path(tmpdir)
+            (import_dir / "track.wav").write_bytes(b"not-audio")
+            service.cfg.manual_import_convert_to_mp3 = False
+            ok, message = service._validate_manual_import_files(import_dir)
+            self.assertFalse(ok)
+            self.assertIn("Unsupported manual import file", message)
+
+    def test_manual_import_allows_converted_m4a_when_conversion_enabled(self):
+        service = _load_lidarr_service_module()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            import_dir = Path(tmpdir)
+            (import_dir / "track.m4a").write_bytes(b"fake-m4a")
+            service.cfg.manual_import_convert_to_mp3 = True
+            ok, message = service._validate_manual_import_files(import_dir)
+            self.assertTrue(ok)
+            self.assertIn("Manual import files allowed", message)

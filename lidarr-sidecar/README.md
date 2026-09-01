@@ -121,6 +121,7 @@ ManualImport (see the section above for how the marker/MBID folder naming works)
 
 - `SERVICE_MANUALIMPORT_ENABLED` (default: `false`; set to `true` only after configuring the ManualImport variables and mount below)
 - `AUDIO_MANUAL_IMPORT_DEEZER_SENTINEL` (default: `None`; value written to DEEZER_ALBUM_ID for manually-imported tracks; no Radarr/Sonarr equivalent since they don't write this kind of tag)
+- `AUDIO_MANUAL_IMPORT_CONVERT_TO_MP3` (default: `false`; when enabled, M4A/Opus/AAC/WAV files are converted to MP3 before tagging; when disabled, any non-FLAC/MP3 file is rejected)
 - `AUTOIMPORT_DROP_DIR` (default: `/manual-import`)
 - `AUTOIMPORT_IMPORT_MARKER` (default: `import-`; drop-folder name prefix)
 - `AUTOIMPORT_INTERVAL` (default: `5m`)
