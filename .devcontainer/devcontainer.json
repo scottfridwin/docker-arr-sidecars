@@ -1,6 +1,7 @@
 {
 	"name": "dev-radarr-sidecar",
 	"image": "mcr.microsoft.com/devcontainers/base:alpine",
+	"postCreateCommand": "sudo apk add --no-cache py3-requests",
 	"customizations": {
 		"vscode": {
 			"extensions": [

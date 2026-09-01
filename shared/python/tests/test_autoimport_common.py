@@ -46,6 +46,7 @@ class TestAutoImportCommon(unittest.TestCase):
     def test_find_match_returns_matching_path(self):
         paths = ["/mnt/share/TestMovie", "/mnt/share/OtherMovie"]
         self.assertEqual(common._find_match("TestMovie", paths), "/mnt/share/TestMovie")
+        self.assertIsNone(common._find_match("Test", paths))
         self.assertIsNone(common._find_match("MissingMovie", paths))
 
     def test_get_import_target_name_strips_marker(self):
@@ -157,6 +158,41 @@ class TestAutoImportCommon(unittest.TestCase):
                 os.path.exists(
                     os.path.join(drop_dir, "UniqueSeries", "IMPORT_STATUS.txt")
                 )
+            )
+
+    def test_process_import_preserves_raw_target_name_in_destination(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            drop_dir = os.path.join(tmpdir, "drop")
+            shared_dir = os.path.join(tmpdir, "shared")
+            os.makedirs(drop_dir, exist_ok=True)
+            os.makedirs(shared_dir, exist_ok=True)
+            import_dir = os.path.join(drop_dir, "IMPORT_Artist--release-group")
+            os.makedirs(import_dir, exist_ok=True)
+
+            strategy = ImportStrategy(
+                resource_endpoint="artist",
+                cache_filename="artistpaths",
+                state_key="artistPaths",
+                parse_folder_name=lambda target: (target.split("--", 1)[0], target),
+            )
+            env_vars = {
+                "AUTOIMPORT_DROP_DIR": drop_dir,
+                "AUTOIMPORT_SHARED_PATH": shared_dir,
+                "AUTOIMPORT_IMPORT_MARKER": "IMPORT_",
+                "AUTOIMPORT_CACHE_HOURS": "1",
+                "AUTOIMPORT_WORK_DIR": tmpdir,
+                "AUTOIMPORT_GROUP": str(os.getgid()),
+                "ARR_NAME": "Lidarr",
+            }
+
+            with patch.dict(os.environ, env_vars, clear=False):
+                with patch.object(
+                    common, "ensure_resource_paths", return_value=["/music/Artist"]
+                ), patch.object(common, "check_permissions", return_value=True):
+                    common.process_import(import_dir, strategy)
+
+            self.assertTrue(
+                os.path.isdir(os.path.join(shared_dir, "Artist--release-group"))
             )
 
     def test_fetch_paginated_resource_paths_falls_back_when_page_size_ignored(self):

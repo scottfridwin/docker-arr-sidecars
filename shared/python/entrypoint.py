@@ -91,6 +91,11 @@ def _run_one_time_services(service_dir: Path) -> None:
         debug(f"One-time service completed: {service.name}")
 
 
+def _is_persistent_service_enabled(service: Path) -> bool:
+    setting = f"SERVICE_{service.stem.upper()}_ENABLED"
+    return os.environ.get(setting, "true").strip().lower() == "true"
+
+
 def _start_services(
     service_base_dir: Path = SERVICE_BASE_DIR,
 ) -> dict[int, subprocess.Popen]:
@@ -112,6 +117,9 @@ def _start_services(
 
     processes: dict[int, subprocess.Popen] = {}
     for service in services:
+        if not _is_persistent_service_enabled(service):
+            info(f"Persistent service disabled: {service.name}")
+            continue
         info(f"Starting service {service.name}")
         child_env = os.environ.copy()
         child_env["SCRIPT_NAME"] = service.stem

@@ -422,6 +422,7 @@ def search_and_download(
 
 
 def _tag_and_enrich(
+    directory: Path,
     artist_name: str,
     artist_foreign_id: str,
     album_title: str,
@@ -430,7 +431,7 @@ def _tag_and_enrich(
     deezer_album_id: str,
     downloaded_timestamp: str,
 ) -> None:
-    """Tag files in cfg.staging_dir with MusicBrainz/Deezer info, then apply
+    """Tag files in `directory` with MusicBrainz/Deezer info, then apply
     ReplayGain and Beets. Shared by both deemix downloads and manual imports."""
     track_id_map: dict[tuple[int, int], tuple[str, str]] = {}
     release_data = fetch_musicbrainz_release(release_foreign_id)
@@ -438,7 +439,7 @@ def _tag_and_enrich(
         track_id_map = _build_release_track_id_map(release_data)
 
     # Tag with MusicBrainz info
-    for f in cfg.staging_dir.iterdir():
+    for f in directory.iterdir():
         if not f.is_file():
             continue
         if f.suffix.lower() == ".flac":
@@ -474,18 +475,18 @@ def _tag_and_enrich(
 
     # ReplayGain
     if cfg.apply_replaygain:
-        apply_replaygain(cfg.staging_dir)
+        apply_replaygain(directory)
 
     # Beets
     beets_ok = False
     if cfg.apply_beets:
-        beets_ok = apply_beets(cfg.staging_dir, release_foreign_id, BEETS_CONFIG_PATH, BEETS_DIR)
+        beets_ok = apply_beets(directory, release_foreign_id, BEETS_CONFIG_PATH, BEETS_DIR)
 
     # Artist tags: only reassert the album-level Lidarr artist when Beets didn't
     # run or failed. Otherwise, leave Beets' own per-track match in place, since
     # it can be more accurate than the album-level artist on compilations.
     if not beets_ok:
-        for f in cfg.staging_dir.iterdir():
+        for f in directory.iterdir():
             if not f.is_file():
                 continue
             if f.suffix.lower() == ".flac":
@@ -573,7 +574,7 @@ def _download_album(
     release_lidarr_id = result.lidarr_release_id
 
     _tag_and_enrich(
-        artist_name, artist_foreign_id, album_title, release_foreign_id,
+        cfg.staging_dir, artist_name, artist_foreign_id, album_title, release_foreign_id,
         album_foreign_id, deezer_album_id, downloaded_timestamp,
     )
 
@@ -669,18 +670,18 @@ def import_manual_album(
     release_group_foreign_id: str,
     release_foreign_id: str = "",
 ) -> tuple[bool, str]:
-    """Import a user-supplied album (e.g. a CD rip) that isn't available on
-    Deezer. Applies the same MusicBrainz tagging, ReplayGain, and Beets
-    enrichment as a normal deemix download, then forces a Lidarr Manual Import
-    against the given release (or whichever release Lidarr currently has
-    selected/monitored, if none is specified).
+    """Tag a user-supplied album (e.g. a CD rip) that isn't available on
+    Deezer, in place, with the same MusicBrainz tagging, ReplayGain, and
+    Beets enrichment as a normal deemix download.
 
     DEEZER_ALBUM_ID is set to cfg.manual_import_deezer_sentinel ("None" by
     default) instead of a real Deezer ID, so these files stay identifiable as
     manually-imported later. DATE_DOWNLOADED is set to the current time.
 
-    source_dir's original files are never modified or moved - only copies are
-    staged, tagged, and handed off to Lidarr.
+    This does NOT move or import the files anywhere - it only tags
+    source_dir's contents in place. The caller (the shared AutoImport
+    pre-move hook) is responsible for moving the tagged folder into Lidarr's
+    watched import path afterward, exactly as it does for Radarr/Sonarr.
 
     Returns (success, message).
     """
@@ -705,11 +706,8 @@ def import_manual_album(
     artist_data = album_data.get("artist", {})
     artist_name = artist_data.get("artistName", "")
     artist_foreign_id = artist_data.get("foreignArtistId", "")
-    artist_id = str(artist_data.get("id", "") or "")
     album_title = album_data.get("title", "")
     album_foreign_id = album_data.get("foreignAlbumId", "") or release_group_foreign_id
-    album_release_date = album_data.get("releaseDate", "") or ""
-    release_year = album_release_date[:4] if album_release_date else ""
 
     releases = album_data.get("releases", [])
     if not isinstance(releases, list) or not releases:
@@ -723,44 +721,16 @@ def import_manual_album(
         release_json = next((r for r in releases if r.get("monitored")), releases[0])
         release_foreign_id = release_json.get("foreignReleaseId", "")
 
-    release_lidarr_id = str(release_json.get("id", "") or "")
-    if not (artist_id and album_id and release_lidarr_id):
-        return False, "Missing internal Lidarr artist/album/release IDs required for manual import"
-
-    # Stage copies of the user's files (flattening any disc subfolders),
-    # never touching/moving their originals.
-    clean_staging()
-    for f in audio_files:
-        dest = cfg.staging_dir / f.name
-        if dest.exists():
-            dest = cfg.staging_dir / f"{f.parent.name}_{f.name}"
-        shutil.copy2(str(f), str(dest))
-    consolidate_files(cfg.staging_dir)
-
+    # Flatten any disc subfolders in place, then tag in place - the files
+    # stay right where the caller found them; nothing is copied or moved.
+    consolidate_files(source_dir)
     downloaded_timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     _tag_and_enrich(
-        artist_name, artist_foreign_id, album_title, release_foreign_id,
+        source_dir, artist_name, artist_foreign_id, album_title, release_foreign_id,
         album_foreign_id, cfg.manual_import_deezer_sentinel, downloaded_timestamp,
     )
 
-    dest_dir = move_to_import(artist_name, album_title, release_year, album_foreign_id)
-    import_ok, rejections = manual_import_release(
-        import_path=str(dest_dir), artist_id=artist_id, album_id=album_id, release_id=release_lidarr_id,
-    )
-    if not import_ok:
-        log.warning("Manual import had rejections:")
-        for rejection in rejections[:20]:
-            log.warning(f"  - {rejection}")
-        if cfg.import_manual_fallback_to_scan:
-            log.warning("Falling back to DownloadedAlbumsScan import")
-            notify_lidarr_import(str(dest_dir))
-            import_ok = True
-
-    clean_staging()
-    if not import_ok:
-        return False, f"Import failed for \"{album_title}\" (files left in {dest_dir} for manual review)"
-
-    return True, f"Successfully imported \"{album_title}\" by \"{artist_name}\" from {source_dir}"
+    return True, f"Tagged \"{album_title}\" by \"{artist_name}\" in {source_dir}"
 
 
 def _remove_from_priority_file(entry: str) -> None:
@@ -1005,81 +975,60 @@ def process_wanted_list(
 
 
 # ─── Manual import (user-supplied CD rips) ─────────────────────────────────
+#
+# Reuses shared.python.autoimport (the same mechanism as Radarr/Sonarr's
+# AutoImport): scan a drop directory for marked folders, match by resource
+# path, then move matched folders into Lidarr's watched import path so its
+# own DownloadedAlbumsScan/download-client polling picks them up - same as
+# Radarr/Sonarr, no explicit Lidarr API call needed.
+#
+# The one structural difference: Lidarr's Album resource has no folder path
+# (only Artist does), so matching can only resolve to an ARTIST. The release
+# MBID needed to pick a specific album still has to travel in the folder
+# name, via parse_folder_name() below, for the pre-move hook to use.
 
 
-def _write_manual_import_status(folder: Path, text: str) -> None:
-    try:
-        (folder / "IMPORT_STATUS.txt").write_text(text, encoding="utf-8")
-    except OSError:
-        pass
+def parse_manual_import_folder_name(raw_target_name: str) -> tuple[str, str]:
+    """Split '<artist folder name>--<release-group-mbid>[--<release-mbid>]'
+    into (match_key, hook_arg): match_key is the artist folder name (matched
+    against Lidarr's known artist paths), hook_arg is everything after it
+    (passed to the pre-move hook to resolve/tag the specific album)."""
+    parts = raw_target_name.split("--", 1)
+    match_key = parts[0].strip()
+    hook_arg = parts[1].strip() if len(parts) > 1 else ""
+    return match_key, hook_arg
 
 
-def manual_import_scan() -> None:
-    """Scan AUDIO_MANUAL_IMPORT_DROP_DIR for folders marked for manual import.
+def manual_import_pre_move_hook(import_dir: Path, hook_arg: str) -> bool:
+    """AutoImport pre-move hook: tags the matched folder in place before it's
+    moved into Lidarr's watched import path. Returns False (abort the move)
+    if hook_arg doesn't contain a usable release-group MBID or tagging fails."""
+    parts = hook_arg.split("--", 1)
+    release_group_foreign_id = parts[0].strip()
+    release_foreign_id = parts[1].strip() if len(parts) > 1 else ""
 
-    Folder name format (after the marker prefix): '<release-group-mbid>' or
-    '<release-group-mbid>--<release-mbid>'. The release-group must already
-    exist as an album in Lidarr (i.e. be wanted/monitored there); if no
-    specific release is given, whichever release Lidarr currently has
-    monitored is used.
-    """
-    drop_dir = cfg.manual_import_drop_dir
-    if not drop_dir.is_dir():
-        return
-
-    marker = cfg.manual_import_marker
-    for entry in sorted(drop_dir.iterdir()):
-        if not entry.is_dir() or not entry.name.startswith(marker):
-            continue
-
-        target = entry.name[len(marker):].strip()
-        parts = target.split("--", 1)
-        release_group_foreign_id = parts[0].strip()
-        release_foreign_id = parts[1].strip() if len(parts) > 1 else ""
-
-        if not _is_valid_uuid(release_group_foreign_id):
-            log.warning(f"Manual import: '{entry.name}' does not start with a valid MusicBrainz release group ID, skipping")
-            continue
-
-        log.info(f"Manual import: processing '{entry.name}' (release group {release_group_foreign_id})")
-        success, message = import_manual_album(entry, release_group_foreign_id, release_foreign_id)
-
-        dest_root = drop_dir / ("imported" if success else "failed")
-        dest_root.mkdir(parents=True, exist_ok=True)
-        dest = dest_root / target
-        if dest.exists():
-            dest = dest_root / f"{target}_{int(time.time())}"
-        if not success:
-            _write_manual_import_status(entry, message)
-        shutil.move(str(entry), str(dest))
-
-        if success:
-            log.info(message)
-        else:
-            log.warning(f"Manual import failed: {message}")
-
-
-def manual_import_loop() -> None:
-    """Persistent loop: watch AUDIO_MANUAL_IMPORT_DROP_DIR for user-supplied
-    albums (e.g. CD rips not available on Deezer) to tag and import into Lidarr."""
-    log.info("Starting ManualImport")
-    init_state()
-    verify_arr_api_access()
-    setup_working_dirs()
-    cfg.manual_import_drop_dir.mkdir(parents=True, exist_ok=True)
-
-    while True:
+    if not _is_valid_uuid(release_group_foreign_id):
+        log.warning(f"Manual import: '{hook_arg}' does not contain a valid MusicBrainz release group ID")
         try:
-            manual_import_scan()
-        except Exception as e:
-            log.error(f"Unexpected error in manual import loop: {e}")
+            (import_dir / "IMPORT_STATUS.txt").write_text(
+                f"'{hook_arg}' does not contain a valid MusicBrainz release group ID.\n"
+                "Expected folder name: <artist folder name>--<release-group-mbid>[--<release-mbid>]",
+                encoding="utf-8",
+            )
+        except OSError:
+            pass
+        return False
 
-        if cfg.manual_import_interval.lower() == "none" or cfg.manual_import_interval_seconds == 0:
-            log.info("AUDIO_MANUAL_IMPORT_INTERVAL is 'none', exiting after single run")
-            break
-
-        log.debug(f"Sleeping for {cfg.manual_import_interval}...")
-        time.sleep(cfg.manual_import_interval_seconds)
+    success, message = import_manual_album(import_dir, release_group_foreign_id, release_foreign_id)
+    if success:
+        log.info(f"Manual import: {message}")
+    else:
+        log.warning(f"Manual import: {message}")
+        try:
+            (import_dir / "IMPORT_STATUS.txt").write_text(message, encoding="utf-8")
+        except OSError:
+            pass
+    return success
 
 
 # ─── Main ─────────────────────────────────────────────────────────────────
