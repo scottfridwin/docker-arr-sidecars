@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import time
 from urllib.parse import quote_plus
 from typing import Any
 
@@ -81,13 +82,34 @@ def notify_lidarr_import(import_path: str) -> None:
     log.debug(f"Sent import notification to Lidarr for: {import_path}")
 
 
+def _wait_for_command(command_id: int, timeout: int = 120, interval: float = 2.0) -> tuple[bool, list[str]]:
+    """Poll a Lidarr command until it finishes; return (success, [message]) on failure/timeout."""
+    waited = 0.0
+    while waited < timeout:
+        arr_api_request("GET", f"command/{command_id}")
+        response = get_state("arrApiResponse")
+        if isinstance(response, dict) and response.get("status") in ("completed", "failed"):
+            if response.get("status") == "completed" and response.get("result") == "successful":
+                return True, []
+            return False, [response.get("message") or f"Manual import command did not succeed (status={response.get('status')}, result={response.get('result')})"]
+        time.sleep(interval)
+        waited += interval
+    return False, ["Timed out waiting for manual import command to complete"]
+
+
 def manual_import_release(
     import_path: str,
     artist_id: int | str,
     album_id: int | str,
     release_id: int | str,
 ) -> tuple[bool, list[str]]:
-    """Run a deterministic manual import by forcing artist/album/release for each file."""
+    """Run a deterministic manual import by forcing artist/album/release for each file.
+
+    POST /manualimport only re-validates candidate items (recomputes rejections and
+    track mapping against the forced release) - it does NOT move any files. The actual
+    import only happens via the "ManualImport" command below, which needs the resolved
+    per-file trackIds from that validation step.
+    """
     folder = quote_plus(import_path)
     path = (
         f"manualimport?folder={folder}"
@@ -140,15 +162,56 @@ def manual_import_release(
         return False, ["Unexpected manual import response from Lidarr"]
 
     rejections: list[str] = []
+    files: list[dict[str, Any]] = []
     for item in results:
         if not isinstance(item, dict):
             continue
         path_val = item.get("path") or item.get("name") or "item"
-        for rej in item.get("rejections", []) or []:
+        item_rejections = item.get("rejections", []) or []
+        for rej in item_rejections:
             reason = rej.get("reason") if isinstance(rej, dict) else str(rej)
             rejections.append(f"{path_val}: {reason}")
+        if not item_rejections:
+            files.append({
+                "path": item.get("path", ""),
+                "artistId": int(artist_id),
+                "albumId": int(album_id),
+                "albumReleaseId": int(release_id),
+                "trackIds": [
+                    t.get("id")
+                    for t in item.get("tracks", []) or []
+                    if isinstance(t, dict) and t.get("id")
+                ],
+                "quality": item.get("quality"),
+                "releaseGroup": item.get("releaseGroup", ""),
+                "indexerFlags": item.get("indexerFlags", 0),
+                "downloadId": item.get("downloadId", ""),
+                "disableReleaseSwitching": True,
+            })
 
-    return len(rejections) == 0, rejections
+    if rejections:
+        return False, rejections
+    if not files:
+        return False, ["No importable files after manual import validation"]
+
+    # This command is the actual commit step; everything above was only a dry-run validation.
+    arr_api_request(
+        "POST",
+        "command",
+        json.dumps({
+            "name": "ManualImport",
+            "files": files,
+            "importMode": "move",
+            "replaceExistingFiles": True,
+        }),
+    )
+    command_response = get_state("arrApiResponse")
+    command_id = command_response.get("id") if isinstance(command_response, dict) else None
+    if not command_id:
+        return False, ["Manual import command was not accepted by Lidarr"]
+
+    return _wait_for_command(command_id)
+
 
 
 def get_wanted_albums(
