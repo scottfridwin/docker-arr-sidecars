@@ -151,15 +151,20 @@ def manual_import_release(
     return len(rejections) == 0, rejections
 
 
-def get_wanted_albums(list_type: str, page: int = 1, page_size: int = 1000) -> dict:
+def get_wanted_albums(
+    list_type: str, page: int = 1, page_size: int = 1000, include_artist: bool = False
+) -> dict:
     """
     Fetch a page of wanted albums from Lidarr.
     list_type: "missing" or "cutoff"
+    include_artist: Lidarr omits the nested "artist" object (foreignArtistId etc.)
+    unless includeArtist=true is passed, since it defaults to false server-side.
     Returns the full API response dict.
     """
     path = (
         f"wanted/{list_type}?page={page}&pagesize={page_size}"
         f"&sortKey=releaseDate&sortDirection=descending"
+        f"&includeArtist={'true' if include_artist else 'false'}"
     )
     arr_api_request("GET", path)
     response = get_state("arrApiResponse")
@@ -202,19 +207,24 @@ def get_album_ids_by_release_group(foreign_album_id: str) -> list[str]:
 def get_album_ids_by_artist(foreign_artist_id: str) -> list[str]:
     """Look up Lidarr album IDs for all wanted albums by a given MusicBrainz artist ID.
 
-    Checks both missing and cutoff unmet lists.
+    Checks both missing and cutoff unmet lists, paginating like process_wanted_list
+    so a large wanted list can't be pulled into memory in one huge response.
     """
+    page_size = 1000
     album_ids: list[str] = []
     for list_type in ("missing", "cutoff"):
-        arr_api_request("GET", f"wanted/{list_type}?page=1&pagesize=10000&sortKey=releaseDate&sortDirection=descending")
-        response = get_state("arrApiResponse")
-        try:
-            data = json.loads(response) if isinstance(response, str) else response
-        except (json.JSONDecodeError, TypeError):
-            data = {}
-        records = data.get("records", []) if isinstance(data, dict) else []
-        album_ids.extend(
-            str(r["id"]) for r in records
-            if r.get("artist", {}).get("foreignArtistId") == foreign_artist_id
-        )
+        page = 1
+        total_pages = 1
+        while page <= total_pages:
+            response = get_wanted_albums(
+                list_type, page=page, page_size=page_size, include_artist=True
+            )
+            total_records = response.get("totalRecords", 0) if isinstance(response, dict) else 0
+            total_pages = max(1, (total_records + page_size - 1) // page_size)
+            records = response.get("records", []) if isinstance(response, dict) else []
+            album_ids.extend(
+                str(r["id"]) for r in records
+                if r.get("artist", {}).get("foreignArtistId") == foreign_artist_id
+            )
+            page += 1
     return album_ids
