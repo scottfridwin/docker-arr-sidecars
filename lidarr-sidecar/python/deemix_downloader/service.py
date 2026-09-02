@@ -918,7 +918,10 @@ def _remove_from_priority_file(entry: str) -> None:
     try:
         path = Path(cfg.priority_file)
         lines = path.read_text().splitlines()
-        path.write_text("\n".join(l for l in lines if l.strip() != entry) + "\n")
+        # Compare with inline comments stripped, same as process_priority_list parsing
+        path.write_text(
+            "\n".join(l for l in lines if l.split("#", 1)[0].strip() != entry) + "\n"
+        )
     except OSError:
         pass
 
