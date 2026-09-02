@@ -16,6 +16,7 @@ import json
 import os
 import sys
 import time
+from pathlib import Path
 from urllib.parse import quote_plus
 from typing import Any
 
@@ -33,8 +34,14 @@ from .logging import log
 
 
 def add_download_client() -> None:
-    """Add a Usenet Blackhole download client in Lidarr if it doesn't exist."""
+    """Ensure the Usenet Blackhole download client exists in Lidarr, with its
+    enable state kept in sync with AUDIO_IMPORT_STRATEGY. When strategy is
+    "manual" it's disabled, since manual import bypasses Lidarr's own
+    watchFolder-driven auto-import entirely - leaving it enabled just makes
+    Lidarr attempt (and fail) its own scan-based import on the same folder.
+    """
     log.trace("Entering add_download_client")
+    desired_enable = cfg.import_strategy != "manual"
 
     arr_api_request("GET", "downloadclient")
     response = get_state("arrApiResponse")
@@ -44,17 +51,26 @@ def add_download_client() -> None:
     except (json.JSONDecodeError, TypeError):
         clients = []
 
-    # Check if already exists
+    existing = None
     if isinstance(clients, list):
         for client in clients:
             if client.get("name") == cfg.download_client_name:
-                log.debug(f"{cfg.download_client_name} download client already exists")
-                return
+                existing = client
+                break
 
-    log.debug(f"{cfg.download_client_name} not found, creating...")
+    if existing is not None:
+        if existing.get("enable") == desired_enable:
+            log.debug(f"{cfg.download_client_name} download client already exists (enable={desired_enable})")
+            return
+        log.debug(f"Updating {cfg.download_client_name} download client to enable={desired_enable}")
+        existing["enable"] = desired_enable
+        arr_api_request("PUT", f"downloadclient/{existing.get('id')}", json.dumps(existing))
+        return
+
+    log.debug(f"{cfg.download_client_name} not found, creating (enable={desired_enable})...")
 
     payload = json.dumps({
-        "enable": True,
+        "enable": desired_enable,
         "protocol": "usenet",
         "priority": 10,
         "removeCompletedDownloads": True,
@@ -210,7 +226,13 @@ def manual_import_release(
     if not command_id:
         return False, ["Manual import command was not accepted by Lidarr"]
 
-    return _wait_for_command(command_id)
+    success, messages = _wait_for_command(command_id)
+    if success:
+        try:
+            Path(import_path).rmdir()
+        except OSError:
+            pass  # not empty (e.g. additional non-imported files left behind) or already gone
+    return success, messages
 
 
 

@@ -293,9 +293,12 @@ def process_import(import_dir: str, strategy) -> None:
             dest_dir = Path(env("AUTOIMPORT_SHARED_PATH")) / raw_target_name
             debug(f"Moving '{import_dir}' to '{dest_dir}'")
             _move_directory(Path(import_dir), dest_dir)
-            debug(
-                "DEBUG :: No notification behavior configured; import move is complete"
-            )
+            if strategy.post_move_hook is not None:
+                strategy.post_move_hook(dest_dir, hook_arg)
+            else:
+                debug(
+                    "DEBUG :: No notification behavior configured; import move is complete"
+                )
     else:
         debug(f"No match found for '{match_key}'")
         _write_status(

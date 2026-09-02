@@ -19,6 +19,8 @@ from shared.python.config import env, env_bool, env_int
 from shared.python.logging_utils import debug, info
 from shared.python.state import init_state
 
+from python.deemix_downloader.lidarr_api import add_download_client
+
 import time
 
 
@@ -108,6 +110,11 @@ def main() -> None:
         )
     if env_bool("AUTOCONFIG_UI"):
         update_arr_config(env("AUTOCONFIG_UI_JSON"), "config/ui", "UI")
+
+    # Keeps the shared deemix/manual-import download client's enable state in
+    # sync with AUDIO_IMPORT_STRATEGY, regardless of AUTOCONFIG_DOWNLOADCLIENT
+    # (that flag is only for the generic user-supplied downloadclient.json).
+    add_download_client()
 
     info("Auto Configuration Complete")
 

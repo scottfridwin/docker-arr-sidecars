@@ -810,6 +810,52 @@ def _convert_manual_import_files_to_mp3(source_dir: Path) -> None:
         file_path.unlink(missing_ok=True)
 
 
+def _resolve_manual_import_release(
+    release_group_foreign_id: str, release_foreign_id: str = ""
+) -> dict | None:
+    """Resolve Lidarr artist/album/release info for a release-group MBID (and
+    optional specific release MBID). Shared by tagging and import-triggering
+    so both use the exact same album/release resolution."""
+    album_ids = get_album_ids_by_release_group(release_group_foreign_id)
+    if not album_ids:
+        return None
+    if len(album_ids) > 1:
+        log.warning(
+            f"Multiple Lidarr albums matched release group {release_group_foreign_id}; using the first"
+        )
+    album_id = album_ids[0]
+
+    album_data = get_album_data(album_id)
+    if album_data is None:
+        return None
+
+    artist_data = album_data.get("artist", {}) or {}
+    releases = album_data.get("releases", [])
+    if not isinstance(releases, list) or not releases:
+        return None
+
+    if release_foreign_id:
+        release_json = next(
+            (r for r in releases if r.get("foreignReleaseId") == release_foreign_id),
+            None,
+        )
+        if release_json is None:
+            return None
+    else:
+        release_json = next((r for r in releases if r.get("monitored")), releases[0])
+
+    return {
+        "album_id": album_id,
+        "artist_id": album_data.get("artistId"),
+        "release_lidarr_id": release_json.get("id"),
+        "artist_name": artist_data.get("artistName", ""),
+        "artist_foreign_id": artist_data.get("foreignArtistId", ""),
+        "album_title": album_data.get("title", ""),
+        "album_foreign_id": album_data.get("foreignAlbumId", "") or release_group_foreign_id,
+        "release_foreign_id": release_json.get("foreignReleaseId", "") or release_foreign_id,
+    }
+
+
 def import_manual_album(
     source_dir: Path,
     release_group_foreign_id: str,
@@ -853,45 +899,12 @@ def import_manual_album(
     if not audio_files:
         return False, f"No supported audio files found in {source_dir} after validation"
 
-    album_ids = get_album_ids_by_release_group(release_group_foreign_id)
-    if not album_ids:
+    resolved = _resolve_manual_import_release(release_group_foreign_id, release_foreign_id)
+    if resolved is None:
         return (
             False,
-            f"No Lidarr album found for release group {release_group_foreign_id}",
+            f"No Lidarr album/release found for release group {release_group_foreign_id}",
         )
-    if len(album_ids) > 1:
-        log.warning(
-            f"Multiple Lidarr albums matched release group {release_group_foreign_id}; using the first"
-        )
-    album_id = album_ids[0]
-
-    album_data = get_album_data(album_id)
-    if album_data is None:
-        return False, f"Could not fetch Lidarr album data for album {album_id}"
-
-    artist_data = album_data.get("artist", {})
-    artist_name = artist_data.get("artistName", "")
-    artist_foreign_id = artist_data.get("foreignArtistId", "")
-    album_title = album_data.get("title", "")
-    album_foreign_id = album_data.get("foreignAlbumId", "") or release_group_foreign_id
-
-    releases = album_data.get("releases", [])
-    if not isinstance(releases, list) or not releases:
-        return False, f"Lidarr album {album_id} has no releases"
-
-    if release_foreign_id:
-        release_json = next(
-            (r for r in releases if r.get("foreignReleaseId") == release_foreign_id),
-            None,
-        )
-        if release_json is None:
-            return (
-                False,
-                f"Release {release_foreign_id} not found on Lidarr album {album_id}",
-            )
-    else:
-        release_json = next((r for r in releases if r.get("monitored")), releases[0])
-        release_foreign_id = release_json.get("foreignReleaseId", "")
 
     # Flatten any disc subfolders in place, then tag in place - the files
     # stay right where the caller found them; nothing is copied or moved.
@@ -899,16 +912,16 @@ def import_manual_album(
     downloaded_timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     _tag_and_enrich(
         source_dir,
-        artist_name,
-        artist_foreign_id,
-        album_title,
-        release_foreign_id,
-        album_foreign_id,
+        resolved["artist_name"],
+        resolved["artist_foreign_id"],
+        resolved["album_title"],
+        resolved["release_foreign_id"],
+        resolved["album_foreign_id"],
         cfg.manual_import_deezer_sentinel,
         downloaded_timestamp,
     )
 
-    return True, f'Tagged "{album_title}" by "{artist_name}" in {source_dir}'
+    return True, f'Tagged "{resolved["album_title"]}" by "{resolved["artist_name"]}" in {source_dir}'
 
 
 def _remove_from_priority_file(entry: str) -> None:
@@ -1245,6 +1258,44 @@ def manual_import_pre_move_hook(import_dir: Path, hook_arg: str) -> bool:
         except OSError:
             pass
     return success
+
+
+def manual_import_post_move_hook(dest_dir: Path, hook_arg: str) -> None:
+    """AutoImport post-move hook: when AUDIO_IMPORT_STRATEGY=manual, triggers
+    the same deterministic Manual Import used for deemix downloads instead of
+    relying on Lidarr's watchFolder-driven scan import. No-op otherwise (scan
+    strategy keeps relying on watchFolder, as before)."""
+    if cfg.import_strategy != "manual":
+        return
+
+    parts = hook_arg.split("--", 1)
+    release_group_foreign_id = parts[0].strip()
+    release_foreign_id = parts[1].strip() if len(parts) > 1 else ""
+
+    resolved = _resolve_manual_import_release(release_group_foreign_id, release_foreign_id)
+    if resolved is None or not (resolved["artist_id"] and resolved["album_id"] and resolved["release_lidarr_id"]):
+        log.warning(
+            f"Manual import: could not resolve Lidarr IDs for '{hook_arg}'; falling back to scan import"
+        )
+        notify_lidarr_import(str(dest_dir))
+        return
+
+    import_ok, rejections = manual_import_release(
+        import_path=str(dest_dir),
+        artist_id=resolved["artist_id"],
+        album_id=resolved["album_id"],
+        release_id=resolved["release_lidarr_id"],
+    )
+    if import_ok:
+        log.info(f"Manual import: successfully imported {dest_dir}")
+        return
+
+    log.warning("Manual import had rejections:")
+    for rejection in rejections[:20]:
+        log.warning(f"  - {rejection}")
+    if cfg.import_manual_fallback_to_scan:
+        log.warning("Falling back to DownloadedAlbumsScan import")
+        notify_lidarr_import(str(dest_dir))
 
 
 # ─── Main ─────────────────────────────────────────────────────────────────

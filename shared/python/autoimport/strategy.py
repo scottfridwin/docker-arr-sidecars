@@ -27,6 +27,11 @@ class ImportStrategy:
     # move, False to abort (folder is set aside, same as a no-match). No-op
     # by default - only Lidarr uses this, to tag files before import.
     pre_move_hook: Callable[[Path, str], bool] | None = None
+    # Called with (dest_dir, hook_arg) after the move into the shared watched
+    # import path completes. No-op by default (Radarr/Sonarr rely purely on
+    # the arr app's own watchFolder-driven auto-import) - only Lidarr uses
+    # this, to trigger a deterministic Manual Import when configured to.
+    post_move_hook: Callable[[Path, str], None] | None = None
 
     def cache_path(self, work_dir: str) -> Path:
         return Path(work_dir) / self.cache_filename

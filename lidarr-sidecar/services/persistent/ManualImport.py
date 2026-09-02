@@ -7,7 +7,9 @@ Reuses shared.python.autoimport (the same mechanism Radarr/Sonarr's
 AutoImport uses): watches AUTOIMPORT_DROP_DIR for marked folders, matches
 them against known Lidarr artist paths, tags files in place via a
 Lidarr-specific pre-move hook, then moves them into Lidarr's watched import
-path so its own DownloadedAlbumsScan/download-client polling imports them -
+path. From there, import follows AUDIO_IMPORT_STRATEGY just like deemix
+downloads: "manual" triggers a deterministic Manual Import via the post-move
+hook, "scan" relies on Lidarr's own watchFolder-driven DownloadedAlbumsScan -
 for user-supplied albums (e.g. CD rips) not available on Deezer.
 """
 
@@ -21,6 +23,7 @@ from shared.python.autoimport.runner import main
 from shared.python.autoimport.strategy import ImportStrategy
 
 from python.deemix_downloader.service import (
+    manual_import_post_move_hook,
     manual_import_pre_move_hook,
     parse_manual_import_folder_name,
     setup_beets,
@@ -38,6 +41,7 @@ def lidarr_manual_import_strategy() -> ImportStrategy:
         state_key="artistPaths",
         parse_folder_name=parse_manual_import_folder_name,
         pre_move_hook=manual_import_pre_move_hook,
+        post_move_hook=manual_import_post_move_hook,
     )
 
 

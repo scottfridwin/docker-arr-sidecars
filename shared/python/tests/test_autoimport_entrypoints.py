@@ -89,6 +89,7 @@ class TestAutoImportEntrypoints(unittest.TestCase):
         fake_strategy = _fake_strategy_module()
         fake_service = ModuleType("python.deemix_downloader.service")
         fake_service.manual_import_pre_move_hook = lambda directory, argument: True
+        fake_service.manual_import_post_move_hook = lambda directory, argument: None
         fake_service.parse_manual_import_folder_name = lambda target: (target, target)
         fake_service.setup_beets = lambda: calls.append(("setup_beets", None))
 
