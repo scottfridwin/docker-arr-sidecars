@@ -114,6 +114,9 @@ class Config:
 
     # Manual import (user-supplied CD rips not available on Deezer)
     manual_import_deezer_sentinel: str = field(default_factory=lambda: _env("AUDIO_MANUAL_IMPORT_DEEZER_SENTINEL", "None"))
+    manual_import_convert_to_mp3: bool = field(
+        default_factory=lambda: _env_bool("AUDIO_MANUAL_IMPORT_CONVERT_TO_MP3", False)
+    )
 
     @property
     def cache_dir(self) -> Path:

@@ -222,7 +222,10 @@ def check_permissions(path: str) -> bool:
 
 def _write_status(import_dir: Path, text: str) -> None:
     status_file = import_dir / "IMPORT_STATUS.txt"
-    status_file.write_text(text, encoding="utf-8")
+    try:
+        status_file.write_text(text, encoding="utf-8")
+    except OSError as exc:
+        warning(f"Could not write status for '{import_dir}': {exc}")
 
 
 def _move_directory(source: Path, destination: Path) -> None:
@@ -280,7 +283,9 @@ def process_import(import_dir: str, strategy) -> None:
             _write_status(
                 Path(import_dir), f"Permission or ownership issues detected:\n{issues}"
             )
-        elif strategy.pre_move_hook is not None and not strategy.pre_move_hook(Path(import_dir), hook_arg):
+        elif strategy.pre_move_hook is not None and not strategy.pre_move_hook(
+            Path(import_dir), hook_arg
+        ):
             debug(f"Pre-move hook rejected import for '{hook_arg}'")
             new_dir = Path(env("AUTOIMPORT_DROP_DIR")) / raw_target_name
             _move_directory(Path(import_dir), new_dir)

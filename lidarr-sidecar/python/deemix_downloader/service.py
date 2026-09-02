@@ -17,6 +17,7 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import sys
 import time
 from datetime import date
@@ -67,12 +68,16 @@ BEETS_DIR = Path("/tmp/beets")
 BEETS_CONFIG_PATH = BEETS_DIR / "beets.yaml"
 
 # Pre-compiled keyword patterns (built once from config)
-_COMMENTARY_RE = re.compile(
-    "|".join(re.escape(k) for k in cfg.commentary_keywords), re.IGNORECASE
-) if cfg.commentary_keywords else None
-_INSTRUMENTAL_RE = re.compile(
-    "|".join(re.escape(k) for k in cfg.instrumental_keywords), re.IGNORECASE
-) if cfg.instrumental_keywords else None
+_COMMENTARY_RE = (
+    re.compile("|".join(re.escape(k) for k in cfg.commentary_keywords), re.IGNORECASE)
+    if cfg.commentary_keywords
+    else None
+)
+_INSTRUMENTAL_RE = (
+    re.compile("|".join(re.escape(k) for k in cfg.instrumental_keywords), re.IGNORECASE)
+    if cfg.instrumental_keywords
+    else None
+)
 
 
 # ─── Daily download limit ──────────────────────────────────────────────
@@ -175,12 +180,24 @@ def setup_beets() -> None:
     if cfg.beets_custom_config:
         try:
             custom_path = Path(cfg.beets_custom_config)
-            content = custom_path.read_text() if custom_path.is_file() else cfg.beets_custom_config
+            content = (
+                custom_path.read_text()
+                if custom_path.is_file()
+                else cfg.beets_custom_config
+            )
             import subprocess
+
             result = subprocess.run(
-                ["yq", "eval-all", "select(fileIndex == 0) * select(fileIndex == 1)",
-                 str(BEETS_CONFIG_PATH), "-"],
-                input=content, capture_output=True, text=True,
+                [
+                    "yq",
+                    "eval-all",
+                    "select(fileIndex == 0) * select(fileIndex == 1)",
+                    str(BEETS_CONFIG_PATH),
+                    "-",
+                ],
+                input=content,
+                capture_output=True,
+                text=True,
             )
             if result.returncode == 0:
                 BEETS_CONFIG_PATH.write_text(result.stdout)
@@ -239,7 +256,9 @@ def _get_failed_albums() -> set[str]:
 # ─── Build release candidates from Lidarr album data ────────────────────
 
 
-def _build_candidates(album_data: dict, album_release_year: str) -> list[ReleaseCandidate]:
+def _build_candidates(
+    album_data: dict, album_release_year: str
+) -> list[ReleaseCandidate]:
     """
     Build ReleaseCandidate objects from Lidarr album releases.
     Fetches MusicBrainz data to extract Deezer links.
@@ -254,7 +273,9 @@ def _build_candidates(album_data: dict, album_release_year: str) -> list[Release
         foreign_release_id = release_json.get("foreignReleaseId", "")
         release_format = release_json.get("format", "")
         countries = release_json.get("country", [])
-        countries_str = ",".join(countries) if isinstance(countries, list) else str(countries or "")
+        countries_str = (
+            ",".join(countries) if isinstance(countries, list) else str(countries or "")
+        )
 
         format_priority = calculate_priority(release_format, cfg.preferred_formats)
         country_priority = calculate_priority(countries_str, cfg.preferred_countries)
@@ -291,7 +312,9 @@ def _build_candidates(album_data: dict, album_release_year: str) -> list[Release
         if isinstance(release_group, dict):
             release_group_id = release_group.get("id", "")
             if release_group_id:
-                log.debug(f"Fetching MusicBrainz aliases for release-group {release_group_id}")
+                log.debug(
+                    f"Fetching MusicBrainz aliases for release-group {release_group_id}"
+                )
                 release_group_data = fetch_musicbrainz_release_group(release_group_id)
                 if release_group_data is not None:
                     aliases = release_group_data.get("aliases", [])
@@ -309,34 +332,37 @@ def _build_candidates(album_data: dict, album_release_year: str) -> list[Release
 
         # Check commentary
         contains_commentary = bool(
-            _COMMENTARY_RE and (
-                _COMMENTARY_RE.search(title) or _COMMENTARY_RE.search(disambiguation)
-            )
+            _COMMENTARY_RE
+            and (_COMMENTARY_RE.search(title) or _COMMENTARY_RE.search(disambiguation))
         )
 
         # Check instrumental
         instrumental = bool(
-            _INSTRUMENTAL_RE and (
-                _INSTRUMENTAL_RE.search(title) or _INSTRUMENTAL_RE.search(disambiguation)
+            _INSTRUMENTAL_RE
+            and (
+                _INSTRUMENTAL_RE.search(title)
+                or _INSTRUMENTAL_RE.search(disambiguation)
             )
         )
 
-        candidates.append(ReleaseCandidate(
-            title=title,
-            disambiguation=disambiguation,
-            release_id=release_id,
-            foreign_id=foreign_release_id,
-            track_count=track_count,
-            deezer_album_id=deezer_album_id,
-            release_status=release_status,
-            year=year,
-            format_priority=format_priority,
-            country_priority=country_priority,
-            contains_commentary=contains_commentary,
-            instrumental=instrumental,
-            alternate_titles=alternate_titles,
-            musicbrainz_barcode=musicbrainz_barcode,
-        ))
+        candidates.append(
+            ReleaseCandidate(
+                title=title,
+                disambiguation=disambiguation,
+                release_id=release_id,
+                foreign_id=foreign_release_id,
+                track_count=track_count,
+                deezer_album_id=deezer_album_id,
+                release_status=release_status,
+                year=year,
+                format_priority=format_priority,
+                country_priority=country_priority,
+                contains_commentary=contains_commentary,
+                instrumental=instrumental,
+                alternate_titles=alternate_titles,
+                musicbrainz_barcode=musicbrainz_barcode,
+            )
+        )
 
     return candidates
 
@@ -361,7 +387,9 @@ def search_and_download(
     artist_name = artist_data.get("artistName", "")
     artist_foreign_id = artist_data.get("foreignArtistId", "")
     album_title_raw = album_data.get("title", "")
-    album_title = remove_punctuation(normalize_string(album_title_raw))  # For matching comparison
+    album_title = remove_punctuation(
+        normalize_string(album_title_raw)
+    )  # For matching comparison
     album_foreign_id = album_data.get("foreignAlbumId", "")
     album_release_date = album_data.get("releaseDate", "") or ""
     album_release_year = album_release_date[:4] if album_release_date else ""
@@ -371,19 +399,19 @@ def search_and_download(
         release_clean = re.sub(r"[^0-9]", "", album_release_date[:10])
         today_clean = time.strftime("%Y%m%d")
         if release_clean and today_clean < release_clean:
-            log.debug(f"Album \"{album_title}\" not yet released, skipping")
+            log.debug(f'Album "{album_title}" not yet released, skipping')
             return
 
     # Check existing markers
     marker = f"{album_id}--{artist_foreign_id}--{album_foreign_id}"
     if cfg.notfound_dir.is_dir() and (cfg.notfound_dir / marker).exists():
-        log.debug(f"Album \"{album_title}\" previously marked not found, skipping")
+        log.debug(f'Album "{album_title}" previously marked not found, skipping')
         return
     if cfg.downloaded_dir.is_dir() and (cfg.downloaded_dir / marker).exists():
-        log.debug(f"Album \"{album_title}\" previously downloaded, skipping")
+        log.debug(f'Album "{album_title}" previously downloaded, skipping')
         return
 
-    log.info(f"Searching for album \"{album_title}\" by \"{artist_name}\"")
+    log.info(f'Searching for album "{album_title}" by "{artist_name}"')
 
     # Build release candidates
     candidates = _build_candidates(album_data, album_release_year)
@@ -400,7 +428,10 @@ def search_and_download(
             artist_name,
             str(artist_data.get("id", "") or ""),
             artist_foreign_id,
-            album_title_raw, album_foreign_id, album_id, arl_token,
+            album_title_raw,
+            album_foreign_id,
+            album_id,
+            arl_token,
             priority_entry=priority_entry,
         )
         if success:
@@ -408,7 +439,9 @@ def search_and_download(
             daily_tracker.increment()
     else:
         log.info(f"No match: {result.reason}")
-        _upsert_missing_file(album_id, artist_name, album_title, album_foreign_id, result.reason)
+        _upsert_missing_file(
+            album_id, artist_name, album_title, album_foreign_id, result.reason
+        )
         # Mark as not found (unless it's a new release)
         is_new = False
         if album_release_date:
@@ -480,7 +513,9 @@ def _tag_and_enrich(
     # Beets
     beets_ok = False
     if cfg.apply_beets:
-        beets_ok = apply_beets(directory, release_foreign_id, BEETS_CONFIG_PATH, BEETS_DIR)
+        beets_ok = apply_beets(
+            directory, release_foreign_id, BEETS_CONFIG_PATH, BEETS_DIR
+        )
 
     # Artist tags: only reassert the album-level Lidarr artist when Beets didn't
     # run or failed. Otherwise, leave Beets' own per-track match in place, since
@@ -492,7 +527,9 @@ def _tag_and_enrich(
             if f.suffix.lower() == ".flac":
                 tag_flac_artist(f, artist_name, artist_foreign_id)
             elif f.suffix.lower() == ".mp3":
-                tag_mp3_mutagen(f, artist_name=artist_name, artist_foreign_id=artist_foreign_id)
+                tag_mp3_mutagen(
+                    f, artist_name=artist_name, artist_foreign_id=artist_foreign_id
+                )
 
 
 def _download_album(
@@ -514,7 +551,7 @@ def _download_album(
 
     # Check previously failed
     if (cfg.failed_dir / deezer_album_id).exists():
-        log.warning(f"Album \"{deezer_title}\" previously failed, skipping")
+        log.warning(f'Album "{deezer_title}" previously failed, skipping')
         return False
 
     if not cfg.shared_lidarr_path.is_dir():
@@ -532,7 +569,9 @@ def _download_album(
 
         if download_try >= cfg.download_attempt_threshold:
             if cfg.download_quality_fallback and quality == "flac":
-                log.warning(f"Failed after {download_try} attempts, trying mp3 fallback")
+                log.warning(
+                    f"Failed after {download_try} attempts, trying mp3 fallback"
+                )
                 clean_staging()
                 quality = "mp3"
                 download_try = 0
@@ -574,8 +613,14 @@ def _download_album(
     release_lidarr_id = result.lidarr_release_id
 
     _tag_and_enrich(
-        cfg.staging_dir, artist_name, artist_foreign_id, album_title, release_foreign_id,
-        album_foreign_id, deezer_album_id, downloaded_timestamp,
+        cfg.staging_dir,
+        artist_name,
+        artist_foreign_id,
+        album_title,
+        release_foreign_id,
+        album_foreign_id,
+        deezer_album_id,
+        downloaded_timestamp,
     )
 
     # Move and import
@@ -583,7 +628,9 @@ def _download_album(
     import_ok = True
     if cfg.import_strategy == "manual":
         if not (artist_id and album_id and release_lidarr_id):
-            log.warning("Manual import strategy requested but missing internal IDs; using scan import")
+            log.warning(
+                "Manual import strategy requested but missing internal IDs; using scan import"
+            )
             notify_lidarr_import(str(dest))
             import_ok = True
         else:
@@ -605,7 +652,9 @@ def _download_album(
         notify_lidarr_import(str(dest))
 
     if not import_ok:
-        log.warning(f"Import failed for \"{deezer_title}\"; leaving files for manual review")
+        log.warning(
+            f'Import failed for "{deezer_title}"; leaving files for manual review'
+        )
         return False
 
     # Mark downloaded
@@ -619,12 +668,14 @@ def _download_album(
     if not entry_to_remove.startswith("mb_artist:"):
         _remove_from_priority_file(entry_to_remove)
 
-    log.info(f"Successfully downloaded \"{deezer_title}\"")
+    log.info(f'Successfully downloaded "{deezer_title}"')
     clean_staging()
     return True
 
 
-def _build_release_track_id_map(release_data: dict) -> dict[tuple[int, int], tuple[str, str]]:
+def _build_release_track_id_map(
+    release_data: dict,
+) -> dict[tuple[int, int], tuple[str, str]]:
     """Build mapping of (disc, track_number) -> (recording_mbid, release_track_mbid)."""
     mapping: dict[tuple[int, int], tuple[str, str]] = {}
     media = release_data.get("media", [])
@@ -665,6 +716,100 @@ def _build_release_track_id_map(release_data: dict) -> dict[tuple[int, int], tup
     return mapping
 
 
+def _manual_import_supported_extensions() -> set[str]:
+    """Supported input extensions for manual imports.
+
+    By default the import must already be FLAC/MP3. When explicitly enabled,
+    lossy formats such as M4A/Opus can be converted to MP3 before tagging.
+    """
+    allowed = {".flac", ".mp3"}
+    if cfg.manual_import_convert_to_mp3:
+        allowed |= {".m4a", ".opus", ".aac", ".wav"}
+    return allowed
+
+
+def _validate_manual_import_files(source_dir: Path) -> tuple[bool, str]:
+    """Validate the manual-import input set before tagging.
+
+    Returns (ok, message). If conversion is disabled, any non-FLAC/MP3 file is
+    rejected. When enabled, m4a/opus/aac/wav files are allowed and converted to
+    MP3 before tagging.
+    """
+    if not source_dir.is_dir():
+        return False, f"Source folder not found: {source_dir}"
+
+    audio_files = [f for f in source_dir.rglob("*") if f.is_file() and f.suffix.lower()]
+    if not audio_files:
+        return False, f"No audio files found in {source_dir}"
+
+    unsupported = sorted(
+        {
+            f.name
+            for f in audio_files
+            if f.suffix.lower() not in _manual_import_supported_extensions()
+        }
+    )
+    if unsupported:
+        if cfg.manual_import_convert_to_mp3:
+            return False, (
+                "Manual import file conversion is enabled, but some files are still unsupported: "
+                f"{', '.join(unsupported[:10])}. Supported inputs: FLAC, MP3, M4A, Opus, AAC, WAV."
+            )
+        return False, (
+            "Unsupported manual import file(s): "
+            f"{', '.join(unsupported[:10])}. Only FLAC and MP3 are allowed unless "
+            "AUDIO_MANUAL_IMPORT_CONVERT_TO_MP3=true."
+        )
+
+    return True, "Manual import files allowed"
+
+
+def _convert_manual_import_files_to_mp3(source_dir: Path) -> None:
+    """Convert lossy input files to MP3 in place before metadata tagging."""
+    if not cfg.manual_import_convert_to_mp3:
+        return
+
+    for file_path in sorted(source_dir.rglob("*")):
+        if not file_path.is_file():
+            continue
+        suffix = file_path.suffix.lower()
+        if suffix not in {".m4a", ".opus", ".aac", ".wav"}:
+            continue
+
+        target_path = file_path.with_suffix(".mp3")
+        if target_path.exists() and target_path != file_path:
+            base = file_path.with_suffix("")
+            target_path = base.with_name(
+                f"{base.name}_{int(time.time() * 1000000)}.mp3"
+            )
+
+        log.info(f"Converting manual import audio: {file_path} -> {target_path}")
+        result = subprocess.run(
+            [
+                "ffmpeg",
+                "-y",
+                "-i",
+                str(file_path),
+                "-vn",
+                "-c:a",
+                "libmp3lame",
+                "-q:a",
+                "2",
+                str(target_path),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=180,
+        )
+        if result.returncode != 0:
+            stderr = (result.stderr or result.stdout or "").strip()
+            raise RuntimeError(
+                f"Failed to convert {file_path} to MP3: {stderr or 'ffmpeg returned a non-zero exit code'}"
+            )
+
+        file_path.unlink(missing_ok=True)
+
+
 def import_manual_album(
     source_dir: Path,
     release_group_foreign_id: str,
@@ -688,15 +833,36 @@ def import_manual_album(
     if not source_dir.is_dir():
         return False, f"Source folder not found: {source_dir}"
 
-    audio_files = [f for f in source_dir.rglob("*") if f.is_file() and f.suffix.lower() in AUDIO_EXTENSIONS]
+    ok, message = _validate_manual_import_files(source_dir)
+    if not ok:
+        return False, message
+
+    if cfg.manual_import_convert_to_mp3:
+        try:
+            _convert_manual_import_files_to_mp3(source_dir)
+        except (
+            Exception
+        ) as exc:  # pragma: no cover - exercised via ffmpeg failure in real environments
+            return False, f"Manual import conversion failed: {exc}"
+
+    audio_files = [
+        f
+        for f in source_dir.rglob("*")
+        if f.is_file() and f.suffix.lower() in {".flac", ".mp3"}
+    ]
     if not audio_files:
-        return False, f"No audio files found in {source_dir}"
+        return False, f"No supported audio files found in {source_dir} after validation"
 
     album_ids = get_album_ids_by_release_group(release_group_foreign_id)
     if not album_ids:
-        return False, f"No Lidarr album found for release group {release_group_foreign_id}"
+        return (
+            False,
+            f"No Lidarr album found for release group {release_group_foreign_id}",
+        )
     if len(album_ids) > 1:
-        log.warning(f"Multiple Lidarr albums matched release group {release_group_foreign_id}; using the first")
+        log.warning(
+            f"Multiple Lidarr albums matched release group {release_group_foreign_id}; using the first"
+        )
     album_id = album_ids[0]
 
     album_data = get_album_data(album_id)
@@ -714,9 +880,15 @@ def import_manual_album(
         return False, f"Lidarr album {album_id} has no releases"
 
     if release_foreign_id:
-        release_json = next((r for r in releases if r.get("foreignReleaseId") == release_foreign_id), None)
+        release_json = next(
+            (r for r in releases if r.get("foreignReleaseId") == release_foreign_id),
+            None,
+        )
         if release_json is None:
-            return False, f"Release {release_foreign_id} not found on Lidarr album {album_id}"
+            return (
+                False,
+                f"Release {release_foreign_id} not found on Lidarr album {album_id}",
+            )
     else:
         release_json = next((r for r in releases if r.get("monitored")), releases[0])
         release_foreign_id = release_json.get("foreignReleaseId", "")
@@ -726,11 +898,17 @@ def import_manual_album(
     consolidate_files(source_dir)
     downloaded_timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     _tag_and_enrich(
-        source_dir, artist_name, artist_foreign_id, album_title, release_foreign_id,
-        album_foreign_id, cfg.manual_import_deezer_sentinel, downloaded_timestamp,
+        source_dir,
+        artist_name,
+        artist_foreign_id,
+        album_title,
+        release_foreign_id,
+        album_foreign_id,
+        cfg.manual_import_deezer_sentinel,
+        downloaded_timestamp,
     )
 
-    return True, f"Tagged \"{album_title}\" by \"{artist_name}\" in {source_dir}"
+    return True, f'Tagged "{album_title}" by "{artist_name}" in {source_dir}'
 
 
 def _remove_from_priority_file(entry: str) -> None:
@@ -746,8 +924,11 @@ def _remove_from_priority_file(entry: str) -> None:
 
 
 def _write_result_file(
-    album_id: str, artist_name: str, album_title: str,
-    album_foreign_id: str, result: MatchResult,
+    album_id: str,
+    artist_name: str,
+    album_title: str,
+    album_foreign_id: str,
+    result: MatchResult,
 ) -> None:
     if not cfg.result_file_name:
         return
@@ -762,8 +943,10 @@ def _write_result_file(
             "|-----------|--------|-------|----------|------------------|--------|------------|-----------|\n"
         )
     with open(out_file, "a") as f:
-        f.write(f"| {timestamp} | {artist_name} | {album_title} | {album_id} "
-                f"| {album_foreign_id} | {status} | {result.lidarr_release_foreign_id} | {result.deezer_album_id} |\n")
+        f.write(
+            f"| {timestamp} | {artist_name} | {album_title} | {album_id} "
+            f"| {album_foreign_id} | {status} | {result.lidarr_release_foreign_id} | {result.deezer_album_id} |\n"
+        )
 
 
 def _upsert_missing_file(
@@ -854,7 +1037,9 @@ def _remove_from_missing_file(album_id: str) -> None:
 # ─── Processing loops ─────────────────────────────────────────────────────
 
 
-_UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE)
+_UUID_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE
+)
 
 
 def _is_valid_uuid(value: str) -> bool:
@@ -874,7 +1059,7 @@ def _resolve_priority_entries(entries: list[str]) -> list[tuple[str, str]]:
     seen: set[str] = set()
     for entry in entries:
         if entry.startswith("mb_rg:"):
-            foreign_id = entry[len("mb_rg:"):].strip()
+            foreign_id = entry[len("mb_rg:") :].strip()
             if not _is_valid_uuid(foreign_id):
                 log.warning(f"Invalid UUID in priority entry: {entry}")
                 continue
@@ -888,7 +1073,7 @@ def _resolve_priority_entries(entries: list[str]) -> list[tuple[str, str]]:
             else:
                 log.warning(f"Could not resolve {entry} to any Lidarr album")
         elif entry.startswith("mb_artist:"):
-            foreign_id = entry[len("mb_artist:"):].strip()
+            foreign_id = entry[len("mb_artist:") :].strip()
             if not _is_valid_uuid(foreign_id):
                 log.warning(f"Invalid UUID in priority entry: {entry}")
                 continue
@@ -900,7 +1085,9 @@ def _resolve_priority_entries(entries: list[str]) -> list[tuple[str, str]]:
                         seen.add(aid)
                         results.append((aid, entry))
             else:
-                log.info(f"No wanted albums found for {entry} (all may already be downloaded)")
+                log.info(
+                    f"No wanted albums found for {entry} (all may already be downloaded)"
+                )
         else:
             if entry not in seen:
                 seen.add(entry)
@@ -908,7 +1095,9 @@ def _resolve_priority_entries(entries: list[str]) -> list[tuple[str, str]]:
     return results
 
 
-def process_priority_list(failed_albums: set[str], daily_tracker: DailyLimitTracker, arl_token: str) -> None:
+def process_priority_list(
+    failed_albums: set[str], daily_tracker: DailyLimitTracker, arl_token: str
+) -> None:
     """Process user-provided priority album list."""
     if not cfg.priority_file or not Path(cfg.priority_file).is_file():
         return
@@ -933,13 +1122,23 @@ def process_priority_list(failed_albums: set[str], daily_tracker: DailyLimitTrac
             log.info("Daily limit reached; pausing priority processing")
             break
         if original_entry != album_id:
-            log.debug(f"Processing album {album_id} (from priority entry: {original_entry})")
-        search_and_download(album_id, failed_albums, daily_tracker, arl_token, priority_entry=original_entry)
+            log.debug(
+                f"Processing album {album_id} (from priority entry: {original_entry})"
+            )
+        search_and_download(
+            album_id,
+            failed_albums,
+            daily_tracker,
+            arl_token,
+            priority_entry=original_entry,
+        )
 
 
 def process_wanted_list(
-    list_type: str, failed_albums: set[str],
-    daily_tracker: DailyLimitTracker, arl_token: str,
+    list_type: str,
+    failed_albums: set[str],
+    daily_tracker: DailyLimitTracker,
+    arl_token: str,
 ) -> None:
     """Process Lidarr wanted list (missing or cutoff)."""
     response = get_wanted_albums(list_type, page=1, page_size=1)
@@ -956,8 +1155,16 @@ def process_wanted_list(
 
     for page in range(1, total_pages + 1):
         response = get_wanted_albums(list_type, page=page, page_size=page_size)
-        album_ids = list(set(str(r.get("id", "")) for r in response.get("records", []) if r.get("id")))
-        album_ids = [aid for aid in album_ids if aid not in notfound_ids and aid not in downloaded_ids]
+        album_ids = list(
+            set(
+                str(r.get("id", "")) for r in response.get("records", []) if r.get("id")
+            )
+        )
+        album_ids = [
+            aid
+            for aid in album_ids
+            if aid not in notfound_ids and aid not in downloaded_ids
+        ]
 
         if not album_ids:
             continue
@@ -965,7 +1172,9 @@ def process_wanted_list(
         log.info(f"Processing {len(album_ids)} {list_type} albums")
         for idx, album_id in enumerate(album_ids, 1):
             if idx % 25 == 0:
-                log.info(f"Progress: {idx}/{len(album_ids)} {list_type} albums processed")
+                log.info(
+                    f"Progress: {idx}/{len(album_ids)} {list_type} albums processed"
+                )
             if daily_tracker.is_limit_reached():
                 log.info(f"Daily limit reached; stopping {list_type} processing")
                 return
@@ -1008,7 +1217,9 @@ def manual_import_pre_move_hook(import_dir: Path, hook_arg: str) -> bool:
     release_foreign_id = parts[1].strip() if len(parts) > 1 else ""
 
     if not _is_valid_uuid(release_group_foreign_id):
-        log.warning(f"Manual import: '{hook_arg}' does not contain a valid MusicBrainz release group ID")
+        log.warning(
+            f"Manual import: '{hook_arg}' does not contain a valid MusicBrainz release group ID"
+        )
         try:
             (import_dir / "IMPORT_STATUS.txt").write_text(
                 f"'{hook_arg}' does not contain a valid MusicBrainz release group ID.\n"
@@ -1019,7 +1230,9 @@ def manual_import_pre_move_hook(import_dir: Path, hook_arg: str) -> bool:
             pass
         return False
 
-    success, message = import_manual_album(import_dir, release_group_foreign_id, release_foreign_id)
+    success, message = import_manual_album(
+        import_dir, release_group_foreign_id, release_foreign_id
+    )
     if success:
         log.info(f"Manual import: {message}")
     else:
@@ -1054,7 +1267,9 @@ def main() -> None:
     while True:
         try:
             # Re-read ARL token in case ARLChecker has refreshed it
-            arl_token = cfg.deemix_arl_file.read_text(encoding="utf-8").strip().strip('\r\n"')
+            arl_token = (
+                cfg.deemix_arl_file.read_text(encoding="utf-8").strip().strip('\r\n"')
+            )
 
             folder_cleaner()
             prune_cache()
@@ -1068,7 +1283,9 @@ def main() -> None:
                 process_priority_list(failed_albums, daily_tracker, arl_token)
 
             if limit_reached:
-                log.info("Daily download limit reached; skipping wanted list processing")
+                log.info(
+                    "Daily download limit reached; skipping wanted list processing"
+                )
             elif not cfg.priority_only:
                 process_wanted_list("missing", failed_albums, daily_tracker, arl_token)
                 process_wanted_list("cutoff", failed_albums, daily_tracker, arl_token)
