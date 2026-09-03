@@ -59,6 +59,10 @@ class ReleaseCandidate:
     explicit: bool = False
     alternate_titles: list[str] | None = None
     musicbrainz_barcode: str = ""
+    # Count of tracks on the MB release marked as video recordings. Lidarr's
+    # trackCount excludes these, but Deezer sometimes includes their audio as
+    # part of the album - inflating deezer_track_count above trackCount.
+    video_track_count: int = 0
 
 
 # ─── Sanity checks ────────────────────────────────────────────────────
@@ -125,6 +129,22 @@ def _track_count_is_reasonable(lidarr_count: int, deezer_count: int) -> bool:
     diff = abs(lidarr_count - deezer_count)
     max_count = max(lidarr_count, deezer_count)
     return diff <= 3 or diff <= max_count // 2
+
+
+def _has_video_track_inflation(
+    lidarr_count: int, deezer_count: int, video_track_count: int
+) -> bool:
+    """
+    Detect a Deezer album that likely includes audio for tracks MusicBrainz
+    marks as video-only (e.g. live-video bonus tracks): Lidarr's trackCount
+    already excludes those, so a Deezer album significantly LARGER than
+    trackCount on a release that has video tracks isn't a looser-but-valid
+    match - it's audio for tracks Lidarr will never have a slot for, so every
+    file would come back "unmatched" from a real import.
+    """
+    if video_track_count <= 0 or deezer_count <= lidarr_count:
+        return False
+    return deezer_count >= lidarr_count + video_track_count - 2
 
 
 def _should_skip_by_lyric_type(explicit: bool) -> bool:
@@ -214,6 +234,7 @@ def find_best_match(
         "lyric_type": 0,
         "title_mismatch": 0,
         "track_count_mismatch": 0,
+        "video_track_inflation": 0,
     }
 
     # Try each candidate in rank order
@@ -290,6 +311,17 @@ def find_best_match(
             continue
 
         # Sanity check: track count
+        if _has_video_track_inflation(
+            candidate.track_count, deezer_track_count, candidate.video_track_count
+        ):
+            log.warning(
+                f"Deezer album {deezer_id} has {deezer_track_count} tracks but MusicBrainz release "
+                f"only has {candidate.track_count} audio tracks ({candidate.video_track_count} video "
+                "tracks likely included in the Deezer album) - rejecting"
+            )
+            reject_counts["video_track_inflation"] += 1
+            continue
+
         if not _track_count_is_reasonable(candidate.track_count, deezer_track_count):
             log.warning(
                 f"Deezer album {deezer_id} has {deezer_track_count} tracks but "
@@ -328,6 +360,7 @@ def find_best_match(
         f"lyric type={reject_counts['lyric_type']}",
         f"title mismatch={reject_counts['title_mismatch']}",
         f"track mismatch={reject_counts['track_count_mismatch']}",
+        f"video track inflation={reject_counts['video_track_inflation']}",
         f"previously failed={reject_counts['previously_failed']}",
     ]
     return MatchResult(

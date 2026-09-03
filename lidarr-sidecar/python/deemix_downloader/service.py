@@ -288,6 +288,16 @@ def _build_candidates(
         release_status = mb_data.get("status", "")
         musicbrainz_barcode = str(mb_data.get("barcode", "") or "")
 
+        # Count video-marked recordings (Lidarr's trackCount excludes these,
+        # but Deezer sometimes includes their audio as part of the album).
+        video_track_count = sum(
+            1
+            for medium in mb_data.get("media", [])
+            if isinstance(medium, dict)
+            for track in medium.get("tracks", [])
+            if isinstance(track, dict) and track.get("recording", {}).get("video")
+        )
+
         # Extract Deezer album ID from MB relations
         deezer_album_id = ""
         for rel in mb_data.get("relations", []):
@@ -361,6 +371,7 @@ def _build_candidates(
                 instrumental=instrumental,
                 alternate_titles=alternate_titles,
                 musicbrainz_barcode=musicbrainz_barcode,
+                video_track_count=video_track_count,
             )
         )
 

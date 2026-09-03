@@ -144,6 +144,45 @@ class MatchingTests(unittest.TestCase):
 
         self.assertFalse(result.matched)
 
+    def test_has_video_track_inflation(self):
+        # Nickelback "All the Right Reasons (15th Anniversary Expanded Edition)":
+        # 16 audio tracks + 11 video-only bonus tracks Lidarr doesn't count.
+        self.assertTrue(matching._has_video_track_inflation(16, 27, 11))
+        # No video tracks on the release - never flag.
+        self.assertFalse(matching._has_video_track_inflation(16, 27, 0))
+        # Deezer track count not inflated beyond Lidarr's count - not our concern.
+        self.assertFalse(matching._has_video_track_inflation(16, 14, 11))
+
+    def test_find_best_match_rejects_video_track_inflated_album(self):
+        def fake_get_deezer_album_info(album_id: str):
+            return {
+                "id": album_id,
+                "title": "All the Right Reasons",
+                "nb_tracks": 27,
+                "explicit_lyrics": False,
+                "release_date": "2020-10-02",
+                "upc": "603497847693",
+            }
+
+        candidate = matching.ReleaseCandidate(
+            title="All the Right Reasons",
+            track_count=16,
+            deezer_album_id="176371132",
+            release_status="Official",
+            musicbrainz_barcode="603497847693",
+            video_track_count=11,
+        )
+
+        with (
+            patch.object(matching, "get_deezer_album_info", side_effect=fake_get_deezer_album_info),
+            patch.object(matching.cfg, "require_non_redirect_deezer", False),
+            patch.object(matching.cfg, "require_upc_match", False),
+        ):
+            result = matching.find_best_match([candidate], "All the Right Reasons", set())
+
+        self.assertFalse(result.matched)
+        self.assertIn("video track inflation=1", result.reason)
+
 
 if __name__ == "__main__":
     unittest.main()
