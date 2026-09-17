@@ -282,6 +282,21 @@ def ids_equal(a, b) -> bool:
     return a_str == b_str
 
 
+SECRET_FIELD_NAMES = ("apikey", "password")
+
+
+def is_masked_secret(name, response_value) -> bool:
+    """Arr APIs echo secret fields (apiKey/password, etc.) back masked as '********'."""
+    if not isinstance(response_value, str) or not response_value:
+        return False
+    if not isinstance(name, str):
+        return False
+    normalized = name.lower().replace(" ", "").replace("_", "")
+    if not any(secret in normalized for secret in SECRET_FIELD_NAMES):
+        return False
+    return set(response_value) == {"*"}
+
+
 def compare_values(key, payload_value, response_value, prefix=""):
     mismatches = []
     path = f"{prefix}.{key}" if prefix else key
@@ -304,10 +319,13 @@ def compare_values(key, payload_value, response_value, prefix=""):
                 mismatches.append(f"Missing field: {name}")
                 continue
             for match in matches:
-                if match.get("value") != field.get("value"):
-                    mismatches.append(
-                        f"Value mismatch in field {name} (expected: {field.get('value')}, got: {match.get('value')})"
-                    )
+                if match.get("value") == field.get("value"):
+                    continue
+                if is_masked_secret(name, match.get("value")):
+                    continue
+                mismatches.append(
+                    f"Value mismatch in field {name} (expected: {field.get('value')}, got: {match.get('value')})"
+                )
         return mismatches
 
     if isinstance(payload_value, dict):
@@ -329,6 +347,8 @@ def compare_values(key, payload_value, response_value, prefix=""):
         return []
 
     if response_value != payload_value:
+        if is_masked_secret(key, response_value):
+            return []
         return [
             f"Value mismatch: {path} (expected: {payload_value}, got: {response_value})"
         ]

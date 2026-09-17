@@ -258,6 +258,11 @@
         "minUpgradeFormatScore": 1,
         "formatItems": [
             {
+                "format": 15,
+                "name": "Incorrect Language",
+                "score": -10000
+            },
+            {
                 "format": 14,
                 "name": "HLG",
                 "score": 0
@@ -588,6 +593,11 @@
         "cutoffFormatScore": 0,
         "minUpgradeFormatScore": 1,
         "formatItems": [
+            {
+                "format": 15,
+                "name": "Incorrect Language",
+                "score": -10000
+            },
             {
                 "format": 14,
                 "name": "HLG",

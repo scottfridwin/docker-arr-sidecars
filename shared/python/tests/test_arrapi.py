@@ -11,6 +11,7 @@ from shared.python.arrapi import (
     get_arr_url,
     get_functional_test_response,
     ids_equal,
+    is_masked_secret,
     response_matches_payload,
 )
 
@@ -34,6 +35,40 @@ class TestArrApi(unittest.TestCase):
         payload = {"fields": [{"name": "foo", "value": "bar"}]}
         response = {"fields": [{"name": "foo", "value": "bar"}]}
         self.assertTrue(response_matches_payload(payload, response))
+
+    def test_is_masked_secret(self):
+        self.assertTrue(is_masked_secret("apiKey", "********"))
+        self.assertTrue(is_masked_secret("Password", "****"))
+        self.assertFalse(is_masked_secret("apiKey", "realvalue"))
+        self.assertFalse(is_masked_secret("username", "********"))
+        self.assertFalse(is_masked_secret("apiKey", ""))
+
+    def test_response_matches_payload_fields_array_masked_secret(self):
+        payload = {
+            "fields": [
+                {"name": "apiKey", "value": "supersecret"},
+                {"name": "password", "value": "hunter2"},
+                {"name": "host", "value": "localhost"},
+            ]
+        }
+        response = {
+            "fields": [
+                {"name": "apiKey", "value": "********"},
+                {"name": "password", "value": "********"},
+                {"name": "host", "value": "localhost"},
+            ]
+        }
+        self.assertTrue(response_matches_payload(payload, response))
+
+    def test_response_matches_payload_top_level_masked_secret(self):
+        payload = {"apiKey": "supersecret"}
+        response = {"apiKey": "********"}
+        self.assertTrue(response_matches_payload(payload, response))
+
+    def test_response_matches_payload_non_masked_mismatch_still_fails(self):
+        payload = {"fields": [{"name": "apiKey", "value": "supersecret"}]}
+        response = {"fields": [{"name": "apiKey", "value": "differentvalue"}]}
+        self.assertFalse(response_matches_payload(payload, response))
 
     def test_get_functional_test_response(self):
         with tempfile.TemporaryDirectory() as temp_dir:
