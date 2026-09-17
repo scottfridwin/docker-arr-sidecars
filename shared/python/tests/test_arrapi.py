@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 from shared.python import state as state_module
 from shared.python.arrapi import (
+    find_existing_resource,
     get_arr_api_key,
     get_arr_url,
     get_functional_test_response,
@@ -69,6 +70,23 @@ class TestArrApi(unittest.TestCase):
         payload = {"fields": [{"name": "apiKey", "value": "supersecret"}]}
         response = {"fields": [{"name": "apiKey", "value": "differentvalue"}]}
         self.assertFalse(response_matches_payload(payload, response))
+
+    def test_find_existing_resource_matches_by_id(self):
+        item = {"id": 3, "name": "my-client"}
+        response = [{"id": 3, "name": "other-name"}, {"id": 5, "name": "my-client"}]
+        match = find_existing_resource(item, response)
+        self.assertEqual(match, {"id": 3, "name": "other-name"})
+
+    def test_find_existing_resource_falls_back_to_name(self):
+        item = {"id": 1, "name": "my-client"}
+        response = [{"id": 5, "name": "my-client"}, {"id": 6, "name": "unrelated"}]
+        match = find_existing_resource(item, response)
+        self.assertEqual(match, {"id": 5, "name": "my-client"})
+
+    def test_find_existing_resource_no_match(self):
+        item = {"id": 1, "name": "my-client"}
+        response = [{"id": 5, "name": "unrelated"}]
+        self.assertIsNone(find_existing_resource(item, response))
 
     def test_get_functional_test_response(self):
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -412,6 +412,27 @@ def arr_api_attempt(method: str, url: str, payload: str) -> None:
         attempt += 1
 
 
+def find_existing_resource(item, response):
+    """Match an item against existing resources by id, falling back to name.
+
+    *arr config JSON may reference an id that no longer matches the actual
+    instance (e.g. a hardcoded id in a template file), but the resource may
+    already exist there under the same name. Falling back to a name match
+    avoids creating duplicate entries in that case.
+    """
+    item_id = item.get("id")
+    for existing in response:
+        if isinstance(existing, dict) and ids_equal(item_id, existing.get("id")):
+            return existing
+
+    item_name = item.get("name")
+    if item_name is not None:
+        for existing in response:
+            if isinstance(existing, dict) and existing.get("name") == item_name:
+                return existing
+    return None
+
+
 def update_arr_config(json_file: str, api_path: str, setting_name: str) -> None:
     json_data = read_json_file(json_file)
     debug(f"Configuring {env('ARR_NAME')} {setting_name} Settings")
@@ -434,15 +455,19 @@ def update_arr_config(json_file: str, api_path: str, setting_name: str) -> None:
             item_id = item.get("id")
             if item_id is None:
                 fatal("Element has no 'id' property.")
-            exists = any(
-                ids_equal(item_id, existing.get("id"))
-                for existing in response
-                if isinstance(existing, dict)
-            )
-            if exists:
-                url = f"{api_path}/{item_id}"
-                payload = json.dumps(item)
-                debug(f"TRACE :: Updating existing element (id={item_id}) at {url}")
+            existing_match = find_existing_resource(item, response)
+            if existing_match is not None:
+                resolved_id = existing_match.get("id")
+                if not ids_equal(item_id, resolved_id):
+                    debug(
+                        f"TRACE :: Element id={item_id} not found; matched existing "
+                        f"resource '{item.get('name')}' by name (id={resolved_id}) instead"
+                    )
+                url = f"{api_path}/{resolved_id}"
+                payload_item = dict(item)
+                payload_item["id"] = resolved_id
+                payload = json.dumps(payload_item)
+                debug(f"TRACE :: Updating existing element (id={resolved_id}) at {url}")
                 debug(f"TRACE :: Payload: {payload}")
                 arr_api_attempt("PUT", url, payload)
             else:
@@ -457,3 +482,4 @@ def update_arr_config(json_file: str, api_path: str, setting_name: str) -> None:
         debug("Detected JSON object, sending single PUT...")
         payload = json.dumps(json_data)
         arr_api_attempt("PUT", api_path, payload)
+
