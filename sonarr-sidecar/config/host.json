@@ -6,6 +6,7 @@
     "launchBrowser": true,
     "authenticationMethod": "external",
     "authenticationRequired": "enabled",
+    "allowedHosts": "",
     "analyticsEnabled": true,
     "logLevel": "info",
     "logSizeLimit": 1,
