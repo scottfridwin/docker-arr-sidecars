@@ -72,6 +72,15 @@ def _apply_timezone() -> None:
         warning(f"TZ='{tz}' not found in /usr/share/zoneinfo")
 
 
+def _one_time_timeout() -> int:
+    raw = os.environ.get("ONE_TIME_SERVICE_TIMEOUT", "600")
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        warning(f"Invalid ONE_TIME_SERVICE_TIMEOUT '{raw}', using 600")
+        return 600
+
+
 def _run_one_time_services(service_dir: Path) -> None:
     if not service_dir.exists():
         debug(f"No one-time service directory found at {service_dir}")
@@ -81,16 +90,26 @@ def _run_one_time_services(service_dir: Path) -> None:
         set_unhealthy()
 
     services = sorted(service_dir.glob("*.py"))
+    timeout = _one_time_timeout()
     failures = []
     for service in services:
         info(f"Running one-time service {service.name}")
         child_env = os.environ.copy()
         child_env["SCRIPT_NAME"] = service.stem
-        result = subprocess.run([sys.executable, str(service)], env=child_env)
-        if result.returncode != 0:
+        try:
+            result = subprocess.run(
+                [sys.executable, str(service)], env=child_env, timeout=timeout
+            )
+            returncode = result.returncode
+        except subprocess.TimeoutExpired:
+            # A hung one-time service (e.g. unreachable *arr) must not block the
+            # persistent services forever; treat the timeout as a failure.
+            error(f"One-time service timed out after {timeout}s: {service.name}")
+            returncode = 124
+        if returncode != 0:
             # A failing one-time service must not kill the container: doing so caused an
             # endless restart loop and stopped the persistent services from ever running.
-            error(f"One-time service failed: {service.name} code={result.returncode}")
+            error(f"One-time service failed: {service.name} code={returncode}")
             failures.append(service.name)
             continue
         debug(f"One-time service completed: {service.name}")

@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 from shared.python import state as state_module
 from shared.python.arrapi import (
+    _redact_payload,
     find_existing_resource,
     get_arr_api_key,
     get_arr_url,
@@ -20,6 +21,25 @@ from shared.python.arrapi import (
 class TestArrApi(unittest.TestCase):
     def tearDown(self):
         state_module.init_state()
+
+    def test_redact_payload_masks_secrets(self):
+        import json
+
+        payload = json.dumps(
+            {
+                "apiKey": "topsecret",
+                "name": "qbit",
+                "fields": [
+                    {"name": "password", "value": "hunter2"},
+                    {"name": "host", "value": "qbittorrent"},
+                ],
+            }
+        )
+        out = json.loads(_redact_payload(payload))
+        self.assertEqual(out["apiKey"], "***")
+        self.assertEqual(out["fields"][0]["value"], "***")  # password field masked
+        self.assertEqual(out["fields"][1]["value"], "qbittorrent")  # host preserved
+        self.assertNotIn("hunter2", _redact_payload(payload))
 
     def test_ids_equal(self):
         self.assertTrue(ids_equal(1, "1"))

@@ -14,6 +14,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-pip \
     bash \
     rsgain \
+    tini \
     tzdata
 RUN rm -rf /var/lib/apt/lists/*
 
@@ -119,4 +120,6 @@ ENV AUTOCONFIG_UI_JSON=/app/config/ui.json
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
     CMD test "$(cat /tmp/health 2>/dev/null)" = "healthy"
 
+# tini as PID 1 for signal forwarding + zombie reaping
+ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["python3", "/app/shared/python/entrypoint.py"]

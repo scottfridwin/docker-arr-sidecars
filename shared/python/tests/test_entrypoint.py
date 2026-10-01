@@ -68,7 +68,7 @@ class TestEntrypoint(unittest.TestCase):
                 processes = entrypoint._start_services(service_base_dir)
 
             mock_run.assert_called_once_with(
-                [sys.executable, str(auto_config)], env=ANY
+                [sys.executable, str(auto_config)], env=ANY, timeout=ANY
             )
             self.assertEqual(
                 mock_run.call_args.kwargs["env"]["SCRIPT_NAME"], "AutoConfig"
@@ -110,7 +110,7 @@ class TestEntrypoint(unittest.TestCase):
                 processes = entrypoint._start_services(service_base_dir)
 
             mock_run.assert_called_once_with(
-                [sys.executable, str(auto_config)], env=ANY
+                [sys.executable, str(auto_config)], env=ANY, timeout=ANY
             )
             self.assertEqual(
                 mock_run.call_args.kwargs["env"]["SCRIPT_NAME"], "AutoConfig"

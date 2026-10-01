@@ -2,15 +2,45 @@
 # SPDX-License-Identifier: GPL-3.0-only
 
 import json
+import re
 import time
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-from .config import env, env_bool
+from .config import env, env_bool, env_int
 from .io_utils import load_json_text, parse_xml_config, read_json_file, xml_text
 from .logging_utils import debug, fatal, info, log, warning
 from .state import get_state, init_state, set_state
+
+
+_SENSITIVE_KEY_RE = re.compile(r"pass|secret|token|apikey|api_key|key", re.IGNORECASE)
+
+
+def _redact_payload(payload):
+    """Mask secret-ish values so API keys / download-client passwords never hit logs."""
+    if not payload:
+        return payload
+    try:
+        data = json.loads(payload)
+    except (ValueError, TypeError):
+        return "<unparseable payload redacted>"
+
+    def _scrub(obj):
+        if isinstance(obj, dict):
+            sensitive_field = bool(_SENSITIVE_KEY_RE.search(str(obj.get("name", ""))))
+            out = {}
+            for key, value in obj.items():
+                if _SENSITIVE_KEY_RE.search(key) or (key == "value" and sensitive_field):
+                    out[key] = "***"
+                else:
+                    out[key] = _scrub(value)
+            return out
+        if isinstance(obj, list):
+            return [_scrub(item) for item in obj]
+        return obj
+
+    return json.dumps(_scrub(data))
 
 
 def get_arr_api_key() -> str:
@@ -148,13 +178,19 @@ def verify_arr_api_access() -> None:
             set_state("arrApiVersion", version)
             break
 
-        test_url = f"{arr_url}/api/{version}/system/status?apikey={arr_api_key}"
+        test_url = f"{arr_url}/api/{version}/system/status"
         debug(f'Attempting connection to "{test_url}"...')
 
+        # Bounded wait: never retry forever (that could hang AutoConfig and block the
+        # persistent services from ever starting).
+        deadline = time.monotonic() + env_int("ARR_API_READY_TIMEOUT", 300)
         while True:
             try:
                 status_code, body = http_request("GET", test_url)
             except URLError as exc:
+                if time.monotonic() >= deadline:
+                    warning(f"{env('ARR_NAME')} still unreachable after timeout; giving up on {version}")
+                    break
                 warning(f"curl failed (unreachable) — retrying in 5s... ({exc})")
                 time.sleep(5)
                 continue
@@ -170,6 +206,9 @@ def verify_arr_api_access() -> None:
                 )
                 break
             if status_code == 000:
+                if time.monotonic() >= deadline:
+                    warning(f"{env('ARR_NAME')} still unreachable after timeout; giving up on {version}")
+                    break
                 warning(f"{env('ARR_NAME')} unreachable — retrying in 5s...")
                 time.sleep(5)
                 continue
@@ -221,7 +260,7 @@ def arr_api_request(method: str, path: str, payload: str | None = None) -> None:
     else:
         if payload is not None:
             debug(
-                f"TRACE :: Executing {env('ARR_NAME')} Api call: method '{method}', url: '{full_url}', payload: {payload}"
+                f"TRACE :: Executing {env('ARR_NAME')} Api call: method '{method}', url: '{full_url}', payload: {_redact_payload(payload)}"
             )
         else:
             debug(
@@ -232,7 +271,10 @@ def arr_api_request(method: str, path: str, payload: str | None = None) -> None:
                 status_code, body = http_request(method.upper(), full_url, payload)
             except URLError:
                 warning(f"{env('ARR_NAME')} unreachable — entering recovery loop...")
+                recovery_deadline = time.monotonic() + env_int("ARR_API_READY_TIMEOUT", 300)
                 while True:
+                    if time.monotonic() >= recovery_deadline:
+                        fatal(f"{env('ARR_NAME')} unreachable for {method} {path} after recovery timeout")
                     time.sleep(5)
                     recovery_url = f"{arr_url}/api/{arr_api_version}/system/status"
                     try:
