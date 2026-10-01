@@ -24,18 +24,19 @@ ONE_TIME_DIR = SERVICE_BASE_DIR / "one-time"
 PERSISTENT_DIR = SERVICE_BASE_DIR / "persistent"
 
 
-def set_healthy() -> None:
+def _mark_health(status: str) -> None:
     try:
-        Path("/tmp/health").write_text("healthy", encoding="utf-8")
+        Path("/tmp/health").write_text(status, encoding="utf-8")
     except OSError:
-        warning("Failed to write healthy status file")
+        warning(f"Failed to write {status} status file")
+
+
+def set_healthy() -> None:
+    _mark_health("healthy")
 
 
 def set_unhealthy(exit_code: int = 1) -> None:
-    try:
-        Path("/tmp/health").write_text("unhealthy", encoding="utf-8")
-    except OSError:
-        warning("Failed to write unhealthy status file")
+    _mark_health("unhealthy")
     sys.exit(exit_code)
 
 
@@ -71,6 +72,15 @@ def _apply_timezone() -> None:
         warning(f"TZ='{tz}' not found in /usr/share/zoneinfo")
 
 
+def _one_time_timeout() -> int:
+    raw = os.environ.get("ONE_TIME_SERVICE_TIMEOUT", "600")
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        warning(f"Invalid ONE_TIME_SERVICE_TIMEOUT '{raw}', using 600")
+        return 600
+
+
 def _run_one_time_services(service_dir: Path) -> None:
     if not service_dir.exists():
         debug(f"No one-time service directory found at {service_dir}")
@@ -80,15 +90,35 @@ def _run_one_time_services(service_dir: Path) -> None:
         set_unhealthy()
 
     services = sorted(service_dir.glob("*.py"))
+    timeout = _one_time_timeout()
+    failures = []
     for service in services:
         info(f"Running one-time service {service.name}")
         child_env = os.environ.copy()
         child_env["SCRIPT_NAME"] = service.stem
-        result = subprocess.run([sys.executable, str(service)], env=child_env)
-        if result.returncode != 0:
-            error(f"One-time service failed: {service.name} code={result.returncode}")
-            set_unhealthy(result.returncode)
+        try:
+            result = subprocess.run(
+                [sys.executable, str(service)], env=child_env, timeout=timeout
+            )
+            returncode = result.returncode
+        except subprocess.TimeoutExpired:
+            # A hung one-time service (e.g. unreachable *arr) must not block the
+            # persistent services forever; treat the timeout as a failure.
+            error(f"One-time service timed out after {timeout}s: {service.name}")
+            returncode = 124
+        if returncode != 0:
+            # A failing one-time service must not kill the container: doing so caused an
+            # endless restart loop and stopped the persistent services from ever running.
+            error(f"One-time service failed: {service.name} code={returncode}")
+            failures.append(service.name)
+            continue
         debug(f"One-time service completed: {service.name}")
+    if failures:
+        _mark_health("unhealthy")
+        error(
+            f"One-time service(s) failed: {', '.join(failures)}; continuing with "
+            "persistent services (container stays up, marked unhealthy)"
+        )
 
 
 def _is_persistent_service_enabled(service: Path) -> bool:

@@ -4,15 +4,13 @@ on:
   push:
     branches:
       - main
+      - dev
+    tags:
+      - "v*"
   pull_request:
     branches:
       - main
   workflow_dispatch:
-    inputs:
-      release_tag:
-        description: "Version tag to release (e.g., v2.0.0). Promotes the current main image. Leave empty to just build."
-        required: false
-        type: string
 
 env:
   REGISTRY: ghcr.io
@@ -83,8 +81,8 @@ jobs:
     name: Build ${{ matrix.service }}
     needs: test
     runs-on: ubuntu-latest
-    # Runs on push to main OR manual dispatch with build_branch=true
-    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.event.inputs.release_tag == '')
+    # Build + push on branch/tag pushes and manual runs; PRs only run tests.
+    if: github.event_name != 'pull_request'
     permissions:
       contents: read
       packages: write
@@ -97,21 +95,29 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
 
-      - name: Compute image tags
-        id: tags
+      - name: Ensure release tags point at a commit on main
+        if: startsWith(github.ref, 'refs/tags/v')
         run: |
-          IMAGE="${{ env.REGISTRY }}/${{ env.OWNER }}/${{ matrix.service }}"
-          SHORT_SHA=$(echo "$GITHUB_SHA" | cut -c1-7)
-          TAGS="${IMAGE}:sha-${SHORT_SHA}"
-
-          # Main branch: also tag as "main"
-          if [[ "$GITHUB_REF" == "refs/heads/main" ]]; then
-            TAGS="${TAGS},${IMAGE}:main"
+          git fetch --no-tags origin main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" FETCH_HEAD; then
+            echo "::error::Release tag ${GITHUB_REF_NAME} does not point at a commit on main; refusing to release."
+            exit 1
           fi
 
-          echo "tags=${TAGS}" >> "$GITHUB_OUTPUT"
-          echo "Generated tags: ${TAGS}"
+      - name: Docker metadata (tags + version)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ matrix.service }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=ref,event=branch
+            type=ref,event=pr
+            type=sha,prefix=sha-,format=short
 
       - name: Log in to GHCR
         uses: docker/login-action@v4
@@ -133,103 +139,34 @@ jobs:
           file: ${{ matrix.service }}/Dockerfile
           push: true
           platforms: linux/amd64,linux/arm64
-          tags: ${{ steps.tags.outputs.tags }}
+          build-args: |
+            VERSION=${{ steps.meta.outputs.version }}
+          tags: ${{ steps.meta.outputs.tags }}
           cache-from: type=gha,scope=${{ matrix.service }}
           cache-to: type=gha,mode=max,scope=${{ matrix.service }}
 
   # ----------------------------------------------------------
-  # Release: Promote existing main image with version tags
-  # Triggered via workflow_dispatch with a version tag input.
-  # This re-tags the multi-arch manifest — no rebuild needed.
+  # Release: create a GitHub Release when a v* tag is pushed.
+  # Image tags + version label come from the build job above.
   # ----------------------------------------------------------
   release:
-    name: Release ${{ matrix.service }} as ${{ github.event.inputs.release_tag }}
-    if: github.event_name == 'workflow_dispatch' && github.event.inputs.release_tag != ''
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      packages: write
-
-    strategy:
-      fail-fast: false
-      matrix:
-        service: [lidarr-sidecar, radarr-sidecar, sonarr-sidecar]
-
-    steps:
-      - name: Verify main branch
-        run: |
-          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
-            echo "::error::Release can only be triggered from the main branch (got $GITHUB_REF)"
-            exit 1
-          fi
-
-      - name: Checkout repository
-        uses: actions/checkout@v7.0.1
-        with:
-          fetch-depth: 0
-
-      - name: Install crane
-        uses: imjasonh/setup-crane@v0.7
-
-      - name: Log in to GHCR
-        run: echo "${{ secrets.GITHUB_TOKEN }}" | crane auth login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin
-
-      - name: Promote image
-        run: |
-          IMAGE="${{ env.REGISTRY }}/${{ env.OWNER }}/${{ matrix.service }}"
-          VERSION_TAG="${{ github.event.inputs.release_tag }}"
-          VERSION_NO_V="${VERSION_TAG#v}"
-
-          echo "Promoting ${IMAGE}:main → ${VERSION_TAG}, ${VERSION_NO_V}, latest"
-
-          crane copy "${IMAGE}:main" "${IMAGE}:${VERSION_TAG}"
-          crane copy "${IMAGE}:main" "${IMAGE}:${VERSION_NO_V}"
-          crane copy "${IMAGE}:main" "${IMAGE}:latest"
-
-      - name: Create git tag
-        run: |
-          VERSION_TAG="${{ github.event.inputs.release_tag }}"
-          git tag "$VERSION_TAG" || true
-          git push origin "$VERSION_TAG" || true
-
-  # ----------------------------------------------------------
-  # Release notes: Create GitHub Release after promotion
-  # ----------------------------------------------------------
-  release-notes:
-    name: Create GitHub Release
-    needs: release
+    name: GitHub Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
       contents: write
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v7.0.1
-        with:
-          fetch-depth: 0
-
-      - name: Generate release notes
-        run: |
-          VERSION_TAG="${{ github.event.inputs.release_tag }}"
-          PREV_TAG=$(git tag --sort=-version:refname | grep '^v' | grep -v "^${VERSION_TAG}$" | head -1)
-          if [ -n "$PREV_TAG" ]; then
-            NOTES=$(git log --pretty=format:"- %s (%h)" "${PREV_TAG}..HEAD" | head -50)
-          else
-            NOTES="Initial release"
-          fi
-          echo "$NOTES" > /tmp/release-notes.md
-          echo "" >> /tmp/release-notes.md
-          echo "## Docker Images" >> /tmp/release-notes.md
-          echo "" >> /tmp/release-notes.md
-          echo '```' >> /tmp/release-notes.md
-          echo "docker pull ${{ env.REGISTRY }}/${{ env.OWNER }}/lidarr-sidecar:${VERSION_TAG}" >> /tmp/release-notes.md
-          echo "docker pull ${{ env.REGISTRY }}/${{ env.OWNER }}/radarr-sidecar:${VERSION_TAG}" >> /tmp/release-notes.md
-          echo "docker pull ${{ env.REGISTRY }}/${{ env.OWNER }}/sonarr-sidecar:${VERSION_TAG}" >> /tmp/release-notes.md
-          echo '```' >> /tmp/release-notes.md
-
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.event.inputs.release_tag }}
-          body_path: /tmp/release-notes.md
-          generate_release_notes: false
+          tag_name: ${{ github.ref_name }}
+          generate_release_notes: true
+          body: |
+            ## Docker images
+            ```
+            docker pull ${{ env.REGISTRY }}/${{ env.OWNER }}/radarr-sidecar:${{ github.ref_name }}
+            docker pull ${{ env.REGISTRY }}/${{ env.OWNER }}/sonarr-sidecar:${{ github.ref_name }}
+            docker pull ${{ env.REGISTRY }}/${{ env.OWNER }}/lidarr-sidecar:${{ github.ref_name }}
+            ```

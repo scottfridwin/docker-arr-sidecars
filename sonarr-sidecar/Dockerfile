@@ -1,13 +1,13 @@
 # Use Alpine as base
 FROM alpine:3.24
 
-LABEL org.opencontainers.image.version="2.0.0"
 LABEL org.opencontainers.image.description="Sonarr sidecar - auto-config and import orchestration"
 LABEL org.opencontainers.image.licenses="GPL-3.0-only"
 
 # Install system dependencies
 RUN apk add --no-cache \
     python3 \
+    tini \
     tzdata
 
 # Copy all scripts and config files
@@ -60,5 +60,15 @@ ENV AUTOIMPORT_INTERVAL=5m
 ENV AUTOIMPORT_SHARED_PATH=/sidecar-import
 ENV AUTOIMPORT_WORK_DIR=/work
 
-# Entrypoint
+# Version label is injected at build time (CI passes --build-arg VERSION from the git ref).
+ARG VERSION=0.0.0-dev
+LABEL org.opencontainers.image.version="${VERSION}"
+
+# Surface one-time config failures via the /tmp/health marker the entrypoint writes,
+# instead of crash-looping the container.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
+    CMD test "$(cat /tmp/health 2>/dev/null)" = "healthy"
+
+# Entrypoint (tini as PID 1 for signal forwarding + zombie reaping)
+ENTRYPOINT ["/sbin/tini", "--"]
 CMD ["python3", "/app/shared/python/entrypoint.py"]

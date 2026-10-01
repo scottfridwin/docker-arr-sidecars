@@ -68,7 +68,7 @@ class TestEntrypoint(unittest.TestCase):
                 processes = entrypoint._start_services(service_base_dir)
 
             mock_run.assert_called_once_with(
-                [sys.executable, str(auto_config)], env=ANY
+                [sys.executable, str(auto_config)], env=ANY, timeout=ANY
             )
             self.assertEqual(
                 mock_run.call_args.kwargs["env"]["SCRIPT_NAME"], "AutoConfig"
@@ -110,7 +110,7 @@ class TestEntrypoint(unittest.TestCase):
                 processes = entrypoint._start_services(service_base_dir)
 
             mock_run.assert_called_once_with(
-                [sys.executable, str(auto_config)], env=ANY
+                [sys.executable, str(auto_config)], env=ANY, timeout=ANY
             )
             self.assertEqual(
                 mock_run.call_args.kwargs["env"]["SCRIPT_NAME"], "AutoConfig"
@@ -142,3 +142,33 @@ class TestEntrypoint(unittest.TestCase):
 
             self.assertEqual(processes, {})
             popen_mock.assert_not_called()
+
+    def test_one_time_failure_is_non_fatal_and_marks_unhealthy(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            service_base_dir = Path(tmpdir) / "services"
+            one_time_dir = service_base_dir / "one-time"
+            persistent_dir = service_base_dir / "persistent"
+            one_time_dir.mkdir(parents=True)
+            persistent_dir.mkdir(parents=True)
+
+            (one_time_dir / "AutoConfig.py").write_text("print('x')\n", encoding="utf-8")
+            (persistent_dir / "AutoImport.py").write_text("print('x')\n", encoding="utf-8")
+
+            mock_run = MagicMock()
+            mock_run.return_value.returncode = 1  # one-time service fails
+            mock_popen = MagicMock()
+            mock_popen.pid = 999
+
+            with patch(
+                "shared.python.entrypoint.subprocess.run", mock_run
+            ), patch(
+                "shared.python.entrypoint.subprocess.Popen", return_value=mock_popen
+            ) as popen_mock, patch(
+                "shared.python.entrypoint._mark_health"
+            ) as mark_health:
+                # Must NOT raise SystemExit, and must still start the persistent service.
+                processes = entrypoint._start_services(service_base_dir)
+
+            self.assertIn(999, processes)
+            popen_mock.assert_called_once()
+            mark_health.assert_any_call("unhealthy")

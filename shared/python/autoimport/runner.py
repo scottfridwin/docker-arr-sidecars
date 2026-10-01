@@ -65,27 +65,29 @@ def _log_startup() -> None:
 
 
 def main(strategy: ImportStrategy) -> None:
-    try:
-        _log_startup()
-        _validate_environment()
-        init_state()
-        verify_arr_api_access()
-        create_download_client()
+    _log_startup()
+    _validate_environment()
+    init_state()
+    verify_arr_api_access()
+    create_download_client()
 
-        interval = _parse_interval(env("AUTOIMPORT_INTERVAL", "5m"))
-        iteration = 0
-        while True:
-            iteration += 1
-            debug(f"TRACE :: Starting scan iteration {iteration}")
+    interval = _parse_interval(env("AUTOIMPORT_INTERVAL", "5m"))
+    iteration = 0
+    while True:
+        iteration += 1
+        debug(f"TRACE :: Starting scan iteration {iteration}")
+        try:
             scan_drop_directory(strategy)
+        except Exception as exc:
+            # A single failed scan (transient API/filesystem error) must not crash the
+            # long-running service; log and continue with the next interval.
+            error(f"Scan iteration {iteration} failed: {exc}")
+            debug("TRACE :: " + traceback.format_exc())
+        else:
             debug(
                 f"TRACE :: Scan iteration {iteration} complete; sleeping for {interval} seconds"
             )
-            time.sleep(interval)
-    except Exception as exc:
-        error(f"Unhandled exception in AutoImport: {exc}")
-        debug("TRACE :: " + traceback.format_exc())
-        raise
+        time.sleep(interval)
 
 
 if __name__ == "__main__":

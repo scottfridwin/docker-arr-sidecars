@@ -2,15 +2,45 @@
 # SPDX-License-Identifier: GPL-3.0-only
 
 import json
+import re
 import time
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-from .config import env, env_bool
+from .config import env, env_bool, env_int
 from .io_utils import load_json_text, parse_xml_config, read_json_file, xml_text
 from .logging_utils import debug, fatal, info, log, warning
 from .state import get_state, init_state, set_state
+
+
+_SENSITIVE_KEY_RE = re.compile(r"pass|secret|token|apikey|api_key|key", re.IGNORECASE)
+
+
+def _redact_payload(payload):
+    """Mask secret-ish values so API keys / download-client passwords never hit logs."""
+    if not payload:
+        return payload
+    try:
+        data = json.loads(payload)
+    except (ValueError, TypeError):
+        return "<unparseable payload redacted>"
+
+    def _scrub(obj):
+        if isinstance(obj, dict):
+            sensitive_field = bool(_SENSITIVE_KEY_RE.search(str(obj.get("name", ""))))
+            out = {}
+            for key, value in obj.items():
+                if _SENSITIVE_KEY_RE.search(key) or (key == "value" and sensitive_field):
+                    out[key] = "***"
+                else:
+                    out[key] = _scrub(value)
+            return out
+        if isinstance(obj, list):
+            return [_scrub(item) for item in obj]
+        return obj
+
+    return json.dumps(_scrub(data))
 
 
 def get_arr_api_key() -> str:
@@ -99,6 +129,9 @@ def get_functional_test_response(method: str, path: str):
 
 
 def arr_task_status_check() -> None:
+    # Bounded wait: a stuck/long unrelated task (e.g. ProcessMonitoredDownloads)
+    # must not block config changes indefinitely; proceed after the timeout.
+    deadline = time.monotonic() + env_int("ARR_TASK_WAIT_TIMEOUT", 120)
     alerted = False
     while True:
         arr_api_request("GET", "command")
@@ -112,6 +145,12 @@ def arr_task_status_check() -> None:
             if isinstance(item, dict) and item.get("status") == "started"
         )
         if active >= 1:
+            if time.monotonic() >= deadline:
+                warning(
+                    f"{env('ARR_NAME')} still has {active} active task(s) after "
+                    "wait timeout; proceeding anyway"
+                )
+                break
             if not alerted:
                 alerted = True
                 info(
@@ -148,13 +187,19 @@ def verify_arr_api_access() -> None:
             set_state("arrApiVersion", version)
             break
 
-        test_url = f"{arr_url}/api/{version}/system/status?apikey={arr_api_key}"
+        test_url = f"{arr_url}/api/{version}/system/status"
         debug(f'Attempting connection to "{test_url}"...')
 
+        # Bounded wait: never retry forever (that could hang AutoConfig and block the
+        # persistent services from ever starting).
+        deadline = time.monotonic() + env_int("ARR_API_READY_TIMEOUT", 300)
         while True:
             try:
                 status_code, body = http_request("GET", test_url)
             except URLError as exc:
+                if time.monotonic() >= deadline:
+                    warning(f"{env('ARR_NAME')} still unreachable after timeout; giving up on {version}")
+                    break
                 warning(f"curl failed (unreachable) — retrying in 5s... ({exc})")
                 time.sleep(5)
                 continue
@@ -170,6 +215,9 @@ def verify_arr_api_access() -> None:
                 )
                 break
             if status_code == 000:
+                if time.monotonic() >= deadline:
+                    warning(f"{env('ARR_NAME')} still unreachable after timeout; giving up on {version}")
+                    break
                 warning(f"{env('ARR_NAME')} unreachable — retrying in 5s...")
                 time.sleep(5)
                 continue
@@ -221,7 +269,7 @@ def arr_api_request(method: str, path: str, payload: str | None = None) -> None:
     else:
         if payload is not None:
             debug(
-                f"TRACE :: Executing {env('ARR_NAME')} Api call: method '{method}', url: '{full_url}', payload: {payload}"
+                f"TRACE :: Executing {env('ARR_NAME')} Api call: method '{method}', url: '{full_url}', payload: {_redact_payload(payload)}"
             )
         else:
             debug(
@@ -232,7 +280,10 @@ def arr_api_request(method: str, path: str, payload: str | None = None) -> None:
                 status_code, body = http_request(method.upper(), full_url, payload)
             except URLError:
                 warning(f"{env('ARR_NAME')} unreachable — entering recovery loop...")
+                recovery_deadline = time.monotonic() + env_int("ARR_API_READY_TIMEOUT", 300)
                 while True:
+                    if time.monotonic() >= recovery_deadline:
+                        fatal(f"{env('ARR_NAME')} unreachable for {method} {path} after recovery timeout")
                     time.sleep(5)
                     recovery_url = f"{arr_url}/api/{arr_api_version}/system/status"
                     try:
@@ -282,6 +333,21 @@ def ids_equal(a, b) -> bool:
     return a_str == b_str
 
 
+SECRET_FIELD_NAMES = ("apikey", "password")
+
+
+def is_masked_secret(name, response_value) -> bool:
+    """Arr APIs echo secret fields (apiKey/password, etc.) back masked as '********'."""
+    if not isinstance(response_value, str) or not response_value:
+        return False
+    if not isinstance(name, str):
+        return False
+    normalized = name.lower().replace(" ", "").replace("_", "")
+    if not any(secret in normalized for secret in SECRET_FIELD_NAMES):
+        return False
+    return set(response_value) == {"*"}
+
+
 def compare_values(key, payload_value, response_value, prefix=""):
     mismatches = []
     path = f"{prefix}.{key}" if prefix else key
@@ -304,10 +370,13 @@ def compare_values(key, payload_value, response_value, prefix=""):
                 mismatches.append(f"Missing field: {name}")
                 continue
             for match in matches:
-                if match.get("value") != field.get("value"):
-                    mismatches.append(
-                        f"Value mismatch in field {name} (expected: {field.get('value')}, got: {match.get('value')})"
-                    )
+                if match.get("value") == field.get("value"):
+                    continue
+                if is_masked_secret(name, match.get("value")):
+                    continue
+                mismatches.append(
+                    f"Value mismatch in field {name} (expected: {field.get('value')}, got: {match.get('value')})"
+                )
         return mismatches
 
     if isinstance(payload_value, dict):
@@ -329,6 +398,8 @@ def compare_values(key, payload_value, response_value, prefix=""):
         return []
 
     if response_value != payload_value:
+        if is_masked_secret(key, response_value):
+            return []
         return [
             f"Value mismatch: {path} (expected: {payload_value}, got: {response_value})"
         ]
@@ -392,6 +463,27 @@ def arr_api_attempt(method: str, url: str, payload: str) -> None:
         attempt += 1
 
 
+def find_existing_resource(item, response):
+    """Match an item against existing resources by id, falling back to name.
+
+    *arr config JSON may reference an id that no longer matches the actual
+    instance (e.g. a hardcoded id in a template file), but the resource may
+    already exist there under the same name. Falling back to a name match
+    avoids creating duplicate entries in that case.
+    """
+    item_id = item.get("id")
+    for existing in response:
+        if isinstance(existing, dict) and ids_equal(item_id, existing.get("id")):
+            return existing
+
+    item_name = item.get("name")
+    if item_name is not None:
+        for existing in response:
+            if isinstance(existing, dict) and existing.get("name") == item_name:
+                return existing
+    return None
+
+
 def update_arr_config(json_file: str, api_path: str, setting_name: str) -> None:
     json_data = read_json_file(json_file)
     debug(f"Configuring {env('ARR_NAME')} {setting_name} Settings")
@@ -414,15 +506,19 @@ def update_arr_config(json_file: str, api_path: str, setting_name: str) -> None:
             item_id = item.get("id")
             if item_id is None:
                 fatal("Element has no 'id' property.")
-            exists = any(
-                ids_equal(item_id, existing.get("id"))
-                for existing in response
-                if isinstance(existing, dict)
-            )
-            if exists:
-                url = f"{api_path}/{item_id}"
-                payload = json.dumps(item)
-                debug(f"TRACE :: Updating existing element (id={item_id}) at {url}")
+            existing_match = find_existing_resource(item, response)
+            if existing_match is not None:
+                resolved_id = existing_match.get("id")
+                if not ids_equal(item_id, resolved_id):
+                    debug(
+                        f"TRACE :: Element id={item_id} not found; matched existing "
+                        f"resource '{item.get('name')}' by name (id={resolved_id}) instead"
+                    )
+                url = f"{api_path}/{resolved_id}"
+                payload_item = dict(item)
+                payload_item["id"] = resolved_id
+                payload = json.dumps(payload_item)
+                debug(f"TRACE :: Updating existing element (id={resolved_id}) at {url}")
                 debug(f"TRACE :: Payload: {payload}")
                 arr_api_attempt("PUT", url, payload)
             else:
@@ -437,3 +533,4 @@ def update_arr_config(json_file: str, api_path: str, setting_name: str) -> None:
         debug("Detected JSON object, sending single PUT...")
         payload = json.dumps(json_data)
         arr_api_attempt("PUT", api_path, payload)
+
