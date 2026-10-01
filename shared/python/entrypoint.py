@@ -24,18 +24,19 @@ ONE_TIME_DIR = SERVICE_BASE_DIR / "one-time"
 PERSISTENT_DIR = SERVICE_BASE_DIR / "persistent"
 
 
-def set_healthy() -> None:
+def _mark_health(status: str) -> None:
     try:
-        Path("/tmp/health").write_text("healthy", encoding="utf-8")
+        Path("/tmp/health").write_text(status, encoding="utf-8")
     except OSError:
-        warning("Failed to write healthy status file")
+        warning(f"Failed to write {status} status file")
+
+
+def set_healthy() -> None:
+    _mark_health("healthy")
 
 
 def set_unhealthy(exit_code: int = 1) -> None:
-    try:
-        Path("/tmp/health").write_text("unhealthy", encoding="utf-8")
-    except OSError:
-        warning("Failed to write unhealthy status file")
+    _mark_health("unhealthy")
     sys.exit(exit_code)
 
 
@@ -80,15 +81,25 @@ def _run_one_time_services(service_dir: Path) -> None:
         set_unhealthy()
 
     services = sorted(service_dir.glob("*.py"))
+    failures = []
     for service in services:
         info(f"Running one-time service {service.name}")
         child_env = os.environ.copy()
         child_env["SCRIPT_NAME"] = service.stem
         result = subprocess.run([sys.executable, str(service)], env=child_env)
         if result.returncode != 0:
+            # A failing one-time service must not kill the container: doing so caused an
+            # endless restart loop and stopped the persistent services from ever running.
             error(f"One-time service failed: {service.name} code={result.returncode}")
-            set_unhealthy(result.returncode)
+            failures.append(service.name)
+            continue
         debug(f"One-time service completed: {service.name}")
+    if failures:
+        _mark_health("unhealthy")
+        error(
+            f"One-time service(s) failed: {', '.join(failures)}; continuing with "
+            "persistent services (container stays up, marked unhealthy)"
+        )
 
 
 def _is_persistent_service_enabled(service: Path) -> bool:

@@ -60,5 +60,10 @@ ENV AUTOIMPORT_INTERVAL=5m
 ENV AUTOIMPORT_SHARED_PATH=/sidecar-import
 ENV AUTOIMPORT_WORK_DIR=/work
 
+# Surface one-time config failures via the /tmp/health marker the entrypoint writes,
+# instead of crash-looping the container.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
+    CMD test "$(cat /tmp/health 2>/dev/null)" = "healthy"
+
 # Entrypoint
 CMD ["python3", "/app/shared/python/entrypoint.py"]

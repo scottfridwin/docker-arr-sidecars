@@ -114,4 +114,9 @@ ENV AUTOCONFIG_QUALITYPROFILE_JSON=/app/config/qualityprofile.json
 ENV AUTOCONFIG_UI=false
 ENV AUTOCONFIG_UI_JSON=/app/config/ui.json
 
+# Surface one-time config failures via the /tmp/health marker the entrypoint writes,
+# instead of crash-looping the container.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
+    CMD test "$(cat /tmp/health 2>/dev/null)" = "healthy"
+
 CMD ["python3", "/app/shared/python/entrypoint.py"]

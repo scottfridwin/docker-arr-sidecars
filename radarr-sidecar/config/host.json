@@ -5,7 +5,7 @@
     "enableSsl": false,
     "launchBrowser": true,
     "authenticationMethod": "external",
-    "authenticationRequired": "disabledForLocalAddresses",
+    "authenticationRequired": "enabled",
     "analyticsEnabled": true,
     "logLevel": "info",
     "logSizeLimit": 1,
