@@ -129,6 +129,9 @@ def get_functional_test_response(method: str, path: str):
 
 
 def arr_task_status_check() -> None:
+    # Bounded wait: a stuck/long unrelated task (e.g. ProcessMonitoredDownloads)
+    # must not block config changes indefinitely; proceed after the timeout.
+    deadline = time.monotonic() + env_int("ARR_TASK_WAIT_TIMEOUT", 120)
     alerted = False
     while True:
         arr_api_request("GET", "command")
@@ -142,6 +145,12 @@ def arr_task_status_check() -> None:
             if isinstance(item, dict) and item.get("status") == "started"
         )
         if active >= 1:
+            if time.monotonic() >= deadline:
+                warning(
+                    f"{env('ARR_NAME')} still has {active} active task(s) after "
+                    "wait timeout; proceeding anyway"
+                )
+                break
             if not alerted:
                 alerted = True
                 info(
