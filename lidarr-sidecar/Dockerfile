@@ -1,7 +1,6 @@
 # ===== Final Stage =====
 FROM debian:13.6-slim
 
-LABEL org.opencontainers.image.version="2.0.0"
 LABEL org.opencontainers.image.description="Lidarr sidecar - automated Deezer downloads via MusicBrainz links"
 LABEL org.opencontainers.image.licenses="GPL-3.0-only"
 
@@ -114,6 +113,10 @@ ENV AUTOCONFIG_QUALITYPROFILE=true
 ENV AUTOCONFIG_QUALITYPROFILE_JSON=/app/config/qualityprofile.json
 ENV AUTOCONFIG_UI=false
 ENV AUTOCONFIG_UI_JSON=/app/config/ui.json
+
+# Version label is injected at build time (CI passes --build-arg VERSION from the git ref).
+ARG VERSION=0.0.0-dev
+LABEL org.opencontainers.image.version="${VERSION}"
 
 # Surface one-time config failures via the /tmp/health marker the entrypoint writes,
 # instead of crash-looping the container.

@@ -1,7 +1,6 @@
 # Use Alpine as base
 FROM alpine:3.24
 
-LABEL org.opencontainers.image.version="2.0.0"
 LABEL org.opencontainers.image.description="Radarr sidecar - auto-config and import orchestration"
 LABEL org.opencontainers.image.licenses="GPL-3.0-only"
 
@@ -60,6 +59,10 @@ ENV AUTOIMPORT_IMPORT_MARKER=import-
 ENV AUTOIMPORT_INTERVAL=5m
 ENV AUTOIMPORT_SHARED_PATH=/sidecar-import
 ENV AUTOIMPORT_WORK_DIR=/work
+
+# Version label is injected at build time (CI passes --build-arg VERSION from the git ref).
+ARG VERSION=0.0.0-dev
+LABEL org.opencontainers.image.version="${VERSION}"
 
 # Surface one-time config failures via the /tmp/health marker the entrypoint writes,
 # instead of crash-looping the container.
