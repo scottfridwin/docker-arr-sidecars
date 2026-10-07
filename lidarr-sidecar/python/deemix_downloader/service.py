@@ -40,6 +40,7 @@ from .download import (
     get_file_disc_track_numbers,
     move_to_import,
     prune_cache,
+    remove_existing_import_flac_files,
     setup_working_dirs,
     tag_flac_artist,
     tag_flac_musicbrainz,
@@ -571,6 +572,12 @@ def _download_album(
             if cfg.download_quality_fallback and quality == "flac":
                 log.warning(
                     f"Failed after {download_try} attempts, trying mp3 fallback"
+                )
+                remove_existing_import_flac_files(
+                    artist_name,
+                    album_title,
+                    release_year,
+                    album_foreign_id,
                 )
                 clean_staging()
                 quality = "mp3"
