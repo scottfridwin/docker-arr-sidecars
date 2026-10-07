@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import time
 from urllib.parse import quote_plus
 from typing import Any
 
@@ -81,13 +82,68 @@ def notify_lidarr_import(import_path: str) -> None:
     log.debug(f"Sent import notification to Lidarr for: {import_path}")
 
 
+def _collect_rejections(items: list[Any]) -> list[str]:
+    """Flatten per-item Lidarr rejection reasons into readable strings."""
+    rejections: list[str] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        path_val = item.get("path") or item.get("name") or "item"
+        for rej in item.get("rejections", []) or []:
+            reason = rej.get("reason") if isinstance(rej, dict) else str(rej)
+            rejections.append(f"{path_val}: {reason}")
+    return rejections
+
+
+def _extract_track_ids(item: dict[str, Any]) -> list[int]:
+    """Pull the matched Lidarr track ids out of a manual-import item."""
+    track_ids: list[int] = []
+    for track in item.get("tracks", []) or []:
+        if isinstance(track, dict) and track.get("id") is not None:
+            track_ids.append(int(track["id"]))
+    return track_ids
+
+
+def _album_trackfile_count(album_id: int | str) -> int:
+    """Return how many track files Lidarr currently has registered for an album."""
+    arr_api_request("GET", f"trackfile?albumId={album_id}")
+    response = get_state("arrApiResponse")
+    return len(response) if isinstance(response, list) else 0
+
+
+def _await_command(command_id: int, timeout: int) -> tuple[bool, str]:
+    """Poll a Lidarr command to a terminal state; return (succeeded, detail)."""
+    terminal = {"completed", "failed", "aborted", "cancelled", "orphaned"}
+    deadline = time.monotonic() + timeout
+    while True:
+        arr_api_request("GET", f"command/{command_id}")
+        command = get_state("arrApiResponse")
+        status = command.get("status") if isinstance(command, dict) else None
+        if status in terminal:
+            if status == "completed":
+                return True, "completed"
+            detail = ""
+            if isinstance(command, dict):
+                detail = command.get("exception") or command.get("message") or ""
+            return False, f"ManualImport command {status}: {detail}".strip()
+        if time.monotonic() >= deadline:
+            return False, f"ManualImport command did not finish within {timeout}s"
+        time.sleep(2)
+
+
 def manual_import_release(
     import_path: str,
     artist_id: int | str,
     album_id: int | str,
     release_id: int | str,
 ) -> tuple[bool, list[str]]:
-    """Run a deterministic manual import by forcing artist/album/release for each file."""
+    """Run a deterministic manual import by forcing artist/album/release for each file.
+
+    The GET /manualimport preview and the POST /manualimport reprocess only
+    recompute track matching and rejections; neither imports anything. The
+    actual import must be queued as a ManualImport *command*, so after a clean
+    reprocess we submit that command and confirm Lidarr registered track files.
+    """
     folder = quote_plus(import_path)
     path = (
         f"manualimport?folder={folder}"
@@ -129,6 +185,8 @@ def manual_import_release(
     if not updates:
         return False, ["No valid manual import updates could be generated"]
 
+    # Reprocess under the forced artist/album/release to surface rejections and
+    # to obtain the per-file track mapping needed by the ManualImport command.
     arr_api_request("POST", "manualimport", json.dumps(updates))
     post_response = get_state("arrApiResponse")
     try:
@@ -139,16 +197,80 @@ def manual_import_release(
     if not isinstance(results, list):
         return False, ["Unexpected manual import response from Lidarr"]
 
-    rejections: list[str] = []
-    for item in results:
-        if not isinstance(item, dict):
-            continue
-        path_val = item.get("path") or item.get("name") or "item"
-        for rej in item.get("rejections", []) or []:
-            reason = rej.get("reason") if isinstance(rej, dict) else str(rej)
-            rejections.append(f"{path_val}: {reason}")
+    rejections = _collect_rejections(results)
+    if rejections:
+        return False, rejections
 
-    return len(rejections) == 0, rejections
+    return submit_manual_import(
+        results, artist_id, album_id, release_id
+    )
+
+
+def submit_manual_import(
+    items: list[dict[str, Any]],
+    artist_id: int | str,
+    album_id: int | str,
+    release_id: int | str,
+    import_mode: str = "move",
+) -> tuple[bool, list[str]]:
+    """Queue a ManualImport command for already-identified items and confirm it.
+
+    `items` must be the reprocessed manual-import items (each carrying its
+    matched `tracks`). Returns (imported, rejections); `imported` is only True
+    once Lidarr reports the command completed and track files are registered.
+    """
+    files: list[dict[str, Any]] = []
+    for item in items:
+        if not isinstance(item, dict) or item.get("additionalFile"):
+            continue
+        track_ids = _extract_track_ids(item)
+        if not track_ids:
+            continue
+        files.append({
+            "path": item.get("path", ""),
+            "artistId": int(artist_id),
+            "albumId": int(album_id),
+            "albumReleaseId": int(release_id),
+            "trackIds": track_ids,
+            "quality": item.get("quality"),
+            "releaseGroup": item.get("releaseGroup", ""),
+            "indexerFlags": item.get("indexerFlags", 0),
+            "downloadId": item.get("downloadId", "") or "",
+            "disableReleaseSwitching": True,
+        })
+
+    if not files:
+        return False, ["No audio files could be mapped to tracks for manual import"]
+
+    before_count = _album_trackfile_count(album_id)
+
+    command = {
+        "name": "ManualImport",
+        "importMode": import_mode,
+        "replaceExistingFiles": True,
+        "files": files,
+    }
+    arr_api_request("POST", "command", json.dumps(command))
+    command_response = get_state("arrApiResponse")
+    command_id = (
+        command_response.get("id") if isinstance(command_response, dict) else None
+    )
+    if command_id is None:
+        return False, ["Lidarr did not return a command id for ManualImport"]
+
+    timeout = int(os.environ.get("ARR_COMMAND_WAIT_TIMEOUT", "300"))
+    ok, detail = _await_command(int(command_id), timeout)
+    if not ok:
+        return False, [detail]
+
+    after_count = _album_trackfile_count(album_id)
+    if after_count <= before_count:
+        return False, [
+            "ManualImport command completed but no new track files were "
+            f"registered (before={before_count}, after={after_count})"
+        ]
+
+    return True, []
 
 
 def get_wanted_albums(
