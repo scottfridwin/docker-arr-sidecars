@@ -62,7 +62,7 @@ def verify_flac(file_path: Path) -> bool:
         result = subprocess.run(
             ["flac", "--totally-silent", "-t", str(file_path)],
             capture_output=True,
-            timeout=60,
+            timeout=300,
         )
         return result.returncode == 0
     except (subprocess.TimeoutExpired, FileNotFoundError):
@@ -423,6 +423,44 @@ def apply_beets(
     return False
 
 
+def get_import_path(
+    artist_name: str,
+    album_title: str,
+    release_year: str,
+    album_foreign_id: str = "",
+) -> Path:
+    """Return the shared import folder for an album."""
+    artist_clean = clean_path_string(artist_name[:100])
+    album_clean = clean_path_string(album_title[:100])
+    year_part = f" ({release_year})" if release_year else ""
+    mbid_part = f" [{album_foreign_id}]" if album_foreign_id else ""
+
+    folder_name = f"{artist_clean} - {album_clean}{year_part}{mbid_part}"
+    return cfg.shared_lidarr_path / folder_name
+
+
+def remove_existing_import_flac_files(
+    artist_name: str,
+    album_title: str,
+    release_year: str,
+    album_foreign_id: str = "",
+) -> int:
+    """Remove stale FLAC files from this album's shared import folder."""
+    dest = get_import_path(artist_name, album_title, release_year, album_foreign_id)
+    if not dest.is_dir():
+        return 0
+
+    removed = 0
+    for file_path in dest.iterdir():
+        if file_path.is_file() and file_path.suffix.lower() == ".flac":
+            file_path.unlink()
+            removed += 1
+
+    if removed:
+        log.info(f"Removed {removed} existing FLAC file(s) from {dest}")
+    return removed
+
+
 def move_to_import(
     artist_name: str,
     album_title: str,
@@ -435,13 +473,7 @@ def move_to_import(
     The MBID suffix lets Lidarr positively identify the album even when
     artist/album names contain special characters it can't parse.
     """
-    artist_clean = clean_path_string(artist_name[:100])
-    album_clean = clean_path_string(album_title[:100])
-    year_part = f" ({release_year})" if release_year else ""
-    mbid_part = f" [{album_foreign_id}]" if album_foreign_id else ""
-
-    folder_name = f"{artist_clean} - {album_clean}{year_part}{mbid_part}"
-    dest = cfg.shared_lidarr_path / folder_name
+    dest = get_import_path(artist_name, album_title, release_year, album_foreign_id)
     dest.mkdir(parents=True, exist_ok=True)
 
     for f in cfg.staging_dir.iterdir():

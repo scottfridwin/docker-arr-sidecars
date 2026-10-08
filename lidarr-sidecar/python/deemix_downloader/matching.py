@@ -113,18 +113,14 @@ def _title_is_reasonable(
     return False
 
 
-def _track_count_is_reasonable(lidarr_count: int, deezer_count: int) -> bool:
+def _track_count_matches(mb_count: int, deezer_count: int) -> bool:
+    """MusicBrainz is assumed authoritative: a release and the Deezer album it is
+    linked to must have the same track count. Any difference means the link points
+    at a different edition, so the match is rejected rather than imported.
     """
-    Check that track counts are within reason.
-    Allow up to 50% difference or 3 tracks absolute (whichever is more generous).
-    This catches cases where a Deezer link points to a single instead of an album.
-    """
-    if lidarr_count <= 0 or deezer_count <= 0:
+    if mb_count <= 0 or deezer_count <= 0:
         return True
-
-    diff = abs(lidarr_count - deezer_count)
-    max_count = max(lidarr_count, deezer_count)
-    return diff <= 3 or diff <= max_count // 2
+    return mb_count == deezer_count
 
 
 def _should_skip_by_lyric_type(explicit: bool) -> bool:
@@ -289,11 +285,14 @@ def find_best_match(
             reject_counts["title_mismatch"] += 1
             continue
 
-        # Sanity check: track count
-        if not _track_count_is_reasonable(candidate.track_count, deezer_track_count):
+        # Trust MusicBrainz: the linked Deezer album must have the SAME track
+        # count as the release. A mismatch is a bad MusicBrainz<->Deezer link and
+        # is rejected loudly rather than downloading an edition we can't import.
+        if not _track_count_matches(candidate.track_count, deezer_track_count):
             log.warning(
-                f"Deezer album {deezer_id} has {deezer_track_count} tracks but "
-                f"expected ~{candidate.track_count} - possible bad MusicBrainz link"
+                f'Rejecting Deezer link for "{deezer_title}" ({deezer_id}): '
+                f"track-count mismatch (MusicBrainz release={candidate.track_count}, "
+                f"Deezer={deezer_track_count}) - bad MusicBrainz-Deezer link"
             )
             reject_counts["track_count_mismatch"] += 1
             continue
