@@ -130,5 +130,45 @@ class ManualImportReleaseTests(unittest.TestCase):
         self.assertIn("no new track files", rejections[0])
 
 
+class ScanImportVerifyTests(unittest.TestCase):
+    def _run(self, responses):
+        state = {"i": 0}
+
+        def fake_get_state(key):
+            if key != "arrApiResponse":
+                return None
+            value = responses[state["i"]]
+            state["i"] += 1
+            return value
+
+        with patch.object(lidarr_api, "arr_api_request"), patch.object(
+            lidarr_api, "get_state", side_effect=fake_get_state
+        ), patch.object(lidarr_api.time, "sleep"):
+            return lidarr_api.scan_import_and_verify("/sidecar-import/a", 22909)
+
+    def test_scan_success_when_trackfiles_increase(self):
+        responses = [
+            [],                              # before -> 0
+            {"id": 5, "status": "queued"},   # POST command
+            {"status": "completed"},         # command finished
+            [{"id": 1}, {"id": 2}],          # after -> 2 files
+        ]
+        imported, errors = self._run(responses)
+        self.assertTrue(imported)
+        self.assertEqual(errors, [])
+
+    def test_scan_failure_when_no_new_trackfiles(self):
+        responses = [
+            [],                              # before -> 0
+            {"id": 5, "status": "queued"},   # POST command
+            {"status": "completed"},         # command finished
+            [],                              # after -> still 0
+        ]
+        imported, errors = self._run(responses)
+        self.assertFalse(imported)
+        self.assertEqual(len(errors), 1)
+        self.assertIn("no new track files", errors[0])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -82,6 +82,37 @@ def notify_lidarr_import(import_path: str) -> None:
     log.debug(f"Sent import notification to Lidarr for: {import_path}")
 
 
+def scan_import_and_verify(
+    import_path: str, album_id: int | str
+) -> tuple[bool, list[str]]:
+    """Run DownloadedAlbumsScan and confirm it actually registered track files.
+
+    Unlike notify_lidarr_import (fire-and-forget), this polls the command to
+    completion and checks the album's track-file count increased, so a scan that
+    imports nothing is reported as a failure instead of a false success.
+    """
+    before_count = _album_trackfile_count(album_id)
+    payload = json.dumps({"name": "DownloadedAlbumsScan", "path": import_path})
+    arr_api_request("POST", "command", payload)
+    response = get_state("arrApiResponse")
+    command_id = response.get("id") if isinstance(response, dict) else None
+    if command_id is None:
+        return False, ["Lidarr did not return a command id for DownloadedAlbumsScan"]
+
+    timeout = int(os.environ.get("ARR_COMMAND_WAIT_TIMEOUT", "300"))
+    ok, detail = _await_command(int(command_id), timeout)
+    if not ok:
+        return False, [detail]
+
+    after_count = _album_trackfile_count(album_id)
+    if after_count <= before_count:
+        return False, [
+            "DownloadedAlbumsScan completed but no new track files were "
+            f"registered (before={before_count}, after={after_count})"
+        ]
+    return True, []
+
+
 def _collect_rejections(items: list[Any]) -> list[str]:
     """Flatten per-item Lidarr rejection reasons into readable strings."""
     rejections: list[str] = []
@@ -125,9 +156,9 @@ def _await_command(command_id: int, timeout: int) -> tuple[bool, str]:
             detail = ""
             if isinstance(command, dict):
                 detail = command.get("exception") or command.get("message") or ""
-            return False, f"ManualImport command {status}: {detail}".strip()
+            return False, f"command {status}: {detail}".strip()
         if time.monotonic() >= deadline:
-            return False, f"ManualImport command did not finish within {timeout}s"
+            return False, f"command did not finish within {timeout}s"
         time.sleep(2)
 
 

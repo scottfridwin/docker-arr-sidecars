@@ -144,6 +144,81 @@ class MatchingTests(unittest.TestCase):
 
         self.assertFalse(result.matched)
 
+    def test_find_best_match_rejects_track_count_mismatch(self):
+        # MusicBrainz release says 13 tracks but the linked Deezer album has 12:
+        # a bad MB<->Deezer link that must be rejected rather than imported.
+        def fake_get_deezer_album_info(album_id: str):
+            return {
+                "id": album_id,
+                "title": "The Blessed Unrest",
+                "nb_tracks": 12,
+                "explicit_lyrics": False,
+                "release_date": "2013-01-01",
+                "upc": "111111111111",
+            }
+
+        candidate = matching.ReleaseCandidate(
+            title="The Blessed Unrest",
+            track_count=13,
+            deezer_album_id="500",
+            release_status="Official",
+            musicbrainz_barcode="111111111111",
+        )
+
+        with (
+            patch.object(matching, "get_deezer_album_info", side_effect=fake_get_deezer_album_info),
+            patch.object(matching.cfg, "require_non_redirect_deezer", False),
+            patch.object(matching.cfg, "require_upc_match", True),
+        ):
+            result = matching.find_best_match([candidate], "The Blessed Unrest", set())
+
+        self.assertFalse(result.matched)
+        self.assertIn("track mismatch=1", result.reason)
+
+    def test_find_best_match_prefers_release_matching_deezer_track_count(self):
+        # Two linked releases (12 and 13 tracks); the Deezer album has 12, so the
+        # 12-track release must be chosen even though ranking prefers more tracks.
+        def fake_get_deezer_album_info(album_id: str):
+            return {
+                "id": album_id,
+                "title": "The Blessed Unrest",
+                "nb_tracks": 12,
+                "explicit_lyrics": False,
+                "release_date": "2013-01-01",
+                "upc": "111111111111",
+            }
+
+        deluxe = matching.ReleaseCandidate(
+            title="The Blessed Unrest",
+            track_count=13,
+            foreign_id="deluxe-mbid",
+            release_id="900",
+            deezer_album_id="500",
+            release_status="Official",
+            musicbrainz_barcode="111111111111",
+        )
+        standard = matching.ReleaseCandidate(
+            title="The Blessed Unrest",
+            track_count=12,
+            foreign_id="standard-mbid",
+            release_id="901",
+            deezer_album_id="500",
+            release_status="Official",
+            musicbrainz_barcode="111111111111",
+        )
+
+        with (
+            patch.object(matching, "get_deezer_album_info", side_effect=fake_get_deezer_album_info),
+            patch.object(matching.cfg, "require_non_redirect_deezer", False),
+            patch.object(matching.cfg, "require_upc_match", True),
+        ):
+            result = matching.find_best_match(
+                [deluxe, standard], "The Blessed Unrest", set()
+            )
+
+        self.assertTrue(result.matched)
+        self.assertEqual(result.lidarr_release_foreign_id, "standard-mbid")
+
 
 if __name__ == "__main__":
     unittest.main()

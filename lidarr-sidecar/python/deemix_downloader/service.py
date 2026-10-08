@@ -55,6 +55,7 @@ from .lidarr_api import (
     get_wanted_albums,
     manual_import_release,
     notify_lidarr_import,
+    scan_import_and_verify,
 )
 from .logging import log
 from .matching import MatchResult, ReleaseCandidate, find_best_match
@@ -638,8 +639,13 @@ def _download_album(
             log.warning(
                 "Manual import strategy requested but missing internal IDs; using scan import"
             )
-            notify_lidarr_import(str(dest))
-            import_ok = True
+            if album_id:
+                import_ok, scan_errors = scan_import_and_verify(str(dest), album_id)
+                for message in scan_errors:
+                    log.error(f"  scan: {message}")
+            else:
+                notify_lidarr_import(str(dest))
+                import_ok = True
         else:
             import_ok, rejections = manual_import_release(
                 import_path=str(dest),
@@ -647,20 +653,24 @@ def _download_album(
                 album_id=album_id,
                 release_id=release_lidarr_id,
             )
-        if not import_ok:
-            log.warning("Manual import had rejections:")
-            for rejection in rejections[:20]:
-                log.warning(f"  - {rejection}")
-            if cfg.import_manual_fallback_to_scan:
-                log.warning("Falling back to DownloadedAlbumsScan import")
-                notify_lidarr_import(str(dest))
-                import_ok = True
+            if not import_ok:
+                log.error(
+                    f'Manual import rejected "{deezer_title}" (forced MusicBrainz '
+                    "release does not match the downloaded files):"
+                )
+                for rejection in rejections[:20]:
+                    log.error(f"  - {rejection}")
+                if cfg.import_manual_fallback_to_scan:
+                    log.warning("Attempting verified DownloadedAlbumsScan fallback")
+                    import_ok, scan_errors = scan_import_and_verify(str(dest), album_id)
+                    for message in scan_errors:
+                        log.error(f"  scan fallback: {message}")
     else:
         notify_lidarr_import(str(dest))
 
     if not import_ok:
-        log.warning(
-            f'Import failed for "{deezer_title}"; leaving files for manual review'
+        log.error(
+            f'Import FAILED for "{deezer_title}"; leaving files in {dest} for manual review'
         )
         return False
 
