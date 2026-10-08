@@ -672,6 +672,8 @@ def _download_album(
         log.error(
             f'Import FAILED for "{deezer_title}"; leaving files in {dest} for manual review'
         )
+        cfg.failed_dir.mkdir(parents=True, exist_ok=True)
+        (cfg.failed_dir / deezer_album_id).touch()
         return False
 
     # Mark downloaded
