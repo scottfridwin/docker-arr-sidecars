@@ -60,6 +60,10 @@ ENV AUTOIMPORT_INTERVAL=5m
 ENV AUTOIMPORT_SHARED_PATH=/sidecar-import
 ENV AUTOIMPORT_WORK_DIR=/work
 
+# Runs as an unprivileged user by default; deployments can override it with `user:`
+RUN addgroup -S -g 1000 sidecar && adduser -S -D -H -u 1000 -G sidecar sidecar
+USER 1000:1000
+
 # Surface one-time config failures via the /tmp/health marker the entrypoint writes,
 # instead of crash-looping the container.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
@@ -72,8 +76,10 @@ CMD ["python3", "/app/shared/python/entrypoint.py"]
 # Test stage: CI builds this target on every platform before publishing.
 # The shared tests also load the Lidarr modules, which need requests and mutagen.
 FROM runtime AS test
+USER root
 RUN apk add --no-cache py3-requests py3-mutagen
-COPY . /src
+USER 1000:1000
+COPY --chown=1000:1000 . /src
 WORKDIR /src
 RUN PYTHONPATH=/src python3 -m unittest discover -s shared/python/tests -p 'test_*.py'
 

@@ -112,6 +112,10 @@ ENV AUTOCONFIG_QUALITYPROFILE_JSON=/app/config/qualityprofile.json
 ENV AUTOCONFIG_UI=false
 ENV AUTOCONFIG_UI_JSON=/app/config/ui.json
 
+# Runs as an unprivileged user by default; deployments can override it with `user:`
+RUN groupadd --system --gid 1000 sidecar && useradd --system --uid 1000 --gid 1000 --no-create-home sidecar
+USER 1000:1000
+
 # Surface one-time config failures via the /tmp/health marker the entrypoint writes,
 # instead of crash-looping the container.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
@@ -123,7 +127,7 @@ CMD ["python3", "/app/shared/python/entrypoint.py"]
 
 # Test stage: CI builds this target on every platform before publishing
 FROM runtime AS test
-COPY . /src
+COPY --chown=1000:1000 . /src
 WORKDIR /src
 RUN PYTHONPATH=/src python3 -m unittest discover -s shared/python/tests -p 'test_*.py' \
     && PYTHONPATH=/src python3 -m unittest discover -s lidarr-sidecar/python/tests -p 'test_*.py'

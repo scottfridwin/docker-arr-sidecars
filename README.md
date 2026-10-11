@@ -47,8 +47,8 @@ All sidecars use the same entrypoint, which:
 
 ## Quick start
 
-The sidecars read the API key from the *arr's `config.xml`, so mount it read-only. They run as any user; use the same
-user and group as the *arr so imported files get the right owner.
+The sidecars read the API key from the *arr's `config.xml`, so mount it read-only. They run as UID/GID `1000` by
+default, never as root; set `user:` to the same user and group as the *arr so imported files get the right owner.
 
 ```yaml
 services:
