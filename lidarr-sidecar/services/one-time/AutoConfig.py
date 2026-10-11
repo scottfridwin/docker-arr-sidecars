@@ -13,13 +13,12 @@ import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 os.environ.setdefault("SCRIPT_NAME", "AutoConfig")
 
-from shared.python.autoconfig import main as shared_main
+import time
+
 from shared.python.arrapi import update_arr_config, verify_arr_api_access
 from shared.python.config import env, env_bool, env_int
 from shared.python.logging_utils import debug, info
 from shared.python.state import init_state
-
-import time
 
 
 def main() -> None:
@@ -53,9 +52,7 @@ def main() -> None:
 
     delay = env_int("AUTOCONFIG_DELAY", 0)
     if delay > 0:
-        info(
-            f"Delaying for {delay} seconds to allow {env('ARR_NAME')} to fully initialize database"
-        )
+        info(f"Delaying for {delay} seconds to allow {env('ARR_NAME')} to fully initialize database")
         time.sleep(delay)
 
     init_state()
@@ -63,13 +60,9 @@ def main() -> None:
 
     # Shared endpoints (same as Radarr/Sonarr)
     if env_bool("AUTOCONFIG_CUSTOMFORMAT"):
-        update_arr_config(
-            env("AUTOCONFIG_CUSTOMFORMAT_JSON"), "customformat", "Custom Format(s)"
-        )
+        update_arr_config(env("AUTOCONFIG_CUSTOMFORMAT_JSON"), "customformat", "Custom Format(s)")
     if env_bool("AUTOCONFIG_DOWNLOADCLIENT"):
-        update_arr_config(
-            env("AUTOCONFIG_DOWNLOADCLIENT_JSON"), "downloadclient", "Download Client"
-        )
+        update_arr_config(env("AUTOCONFIG_DOWNLOADCLIENT_JSON"), "downloadclient", "Download Client")
     if env_bool("AUTOCONFIG_HOST"):
         update_arr_config(env("AUTOCONFIG_HOST_JSON"), "config/host", "Host")
     if env_bool("AUTOCONFIG_MEDIAMANAGEMENT"):
@@ -81,9 +74,7 @@ def main() -> None:
 
     # Lidarr-specific endpoints
     if env_bool("AUTOCONFIG_METADATA"):
-        update_arr_config(
-            env("AUTOCONFIG_METADATA_JSON"), "metadata", "Metadata"
-        )
+        update_arr_config(env("AUTOCONFIG_METADATA_JSON"), "metadata", "Metadata")
     if env_bool("AUTOCONFIG_METADATAPROFILE"):
         update_arr_config(
             env("AUTOCONFIG_METADATAPROFILE_JSON"),

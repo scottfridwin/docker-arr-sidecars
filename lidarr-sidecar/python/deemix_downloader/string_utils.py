@@ -8,9 +8,7 @@ from __future__ import annotations
 import re
 
 # Roman numeral pattern for validation
-_ROMAN_PATTERN = re.compile(
-    r"^M{0,3}(CM|CD|D?C{0,3})(XC|XL|L?X{0,3})(IX|IV|V?I{0,3})$"
-)
+_ROMAN_PATTERN = re.compile(r"^M{0,3}(CM|CD|D?C{0,3})(XC|XL|L?X{0,3})(IX|IV|V?I{0,3})$")
 _ROMAN_VALUES = {"I": 1, "V": 5, "X": 10, "L": 50, "C": 100, "D": 500, "M": 1000}
 
 # Edition patterns to remove (ordered by specificity - most specific first)
@@ -71,9 +69,7 @@ _FEATURE_DASH_RE = re.compile(
     r"\s+.*$",
     re.IGNORECASE,
 )
-_FEATURE_BARE_RE = re.compile(
-    r"\s+(?:feat\.?|ft\.?|featuring|duet\s+with)\s+.*$", re.IGNORECASE
-)
+_FEATURE_BARE_RE = re.compile(r"\s+(?:feat\.?|ft\.?|featuring|duet\s+with)\s+.*$", re.IGNORECASE)
 _FEATURE_WITH_RE = re.compile(r"\s+with\s+[A-Z]\S+.*$")
 _FEATURE_PARODY_RE = re.compile(
     r"\s+(?:parody|an\s+adaptation|lyrical\s+adapt(?:ation|ion))\s+of\s+\"[^\"]+\".*$",
@@ -105,13 +101,16 @@ def normalize_string(s: str) -> str:
 
     # Smart quotes → plain, dashes → hyphen, special chars
     replacements = {
-        "\u2018": "'", "\u2019": "'",  # smart single quotes
-        "\u201c": '"', "\u201d": '"',  # smart double quotes
-        "\u2013": "-", "\u2010": "-",  # en dash, hyphen
-        "\u00ba": "\u00b0",            # masculine ordinal → degree
+        "\u2018": "'",
+        "\u2019": "'",  # smart single quotes
+        "\u201c": '"',
+        "\u201d": '"',  # smart double quotes
+        "\u2013": "-",
+        "\u2010": "-",  # en dash, hyphen
+        "\u00ba": "\u00b0",  # masculine ordinal → degree
         "&": "and",
-        "\u2026": "...",               # ellipsis
-        "\xa0": " ",                   # non-breaking space
+        "\u2026": "...",  # ellipsis
+        "\xa0": " ",  # non-breaking space
     }
     for old, new in replacements.items():
         s = s.replace(old, new)
@@ -152,7 +151,7 @@ def clean_path_string(s: str) -> str:
     """
     s = s.strip()
     # Replace filesystem-illegal chars (Linux: /, Windows: \ : * ? < > |)
-    s = re.sub(r'[/\\:*?<>|]', "_", s)
+    s = re.sub(r"[/\\:*?<>|]", "_", s)
     # Remove control characters and non-printable
     s = "".join(c for c in s if c.isprintable())
     # Collapse multiple spaces/underscores
@@ -218,6 +217,3 @@ def calculate_priority(input_str: str, prefs: str) -> int:
         if tok in priority_map and priority_map[tok] < best:
             best = priority_map[tok]
     return best
-
-
-

@@ -47,9 +47,8 @@ def prune_cache() -> None:
             return
         max_age_secs = max_days * 86400
         for item in cfg.cache_dir.iterdir():
-            if item.name.startswith(prefix) and item.is_file():
-                if now - item.stat().st_mtime > max_age_secs:
-                    item.unlink(missing_ok=True)
+            if item.name.startswith(prefix) and item.is_file() and now - item.stat().st_mtime > max_age_secs:
+                item.unlink(missing_ok=True)
 
     _prune("mb-", cfg.cache_max_age_musicbrainz)
     _prune("deezer-", cfg.cache_max_age_deezer)
@@ -223,7 +222,7 @@ def tag_mp3_mutagen(
 ) -> None:
     """Tag an MP3 file using mutagen directly (replaces MutagenTagger.py subprocess calls)."""
     try:
-        from mutagen.id3 import ID3, ID3NoHeaderError, TALB, TPE1, TPE2, TXXX
+        from mutagen.id3 import ID3, TALB, TPE1, TPE2, TXXX, ID3NoHeaderError
 
         try:
             tags = ID3(str(file_path))
@@ -275,7 +274,7 @@ def tag_mp3_mutagen(
             tags.add(TXXX(encoding=3, desc="MUSICBRAINZ_ARTISTID", text=[artist_foreign_id]))
 
         tags.save(str(file_path))
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - tagging is best effort
         log.warning(f"Failed to tag MP3 {file_path.name}: {e}")
 
 
@@ -316,7 +315,7 @@ def get_file_disc_track_numbers(file_path: Path) -> tuple[int | None, int | None
             track_val = trck.text[0] if trck and getattr(trck, "text", None) else ""
             disc_val = tpos.text[0] if tpos and getattr(tpos, "text", None) else ""
             return _parse_tag_number(disc_val) or 1, _parse_tag_number(track_val)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - unreadable tags fall back to the file name
         log.debug(f"Could not read track/disc tags for {file_path.name}: {e}")
 
     return None, None
@@ -371,12 +370,17 @@ def apply_beets(
 
         cmd = [
             "beet",
-            "-c", str(beets_config_path),
-            "-l", str(lib_path),
-            "-d", str(directory),
+            "-c",
+            str(beets_config_path),
+            "-l",
+            str(lib_path),
+            "-d",
+            str(directory),
             *verbosity,
-            "import", "-qCw",
-            "-S", release_foreign_id,
+            "import",
+            "-qCw",
+            "-S",
+            release_foreign_id,
             str(directory),
         ]
 

@@ -18,7 +18,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../.
 os.environ.setdefault("SCRIPT_NAME", "ARLChecker")
 
 from shared.python.config import env
-from shared.python.logging_utils import debug, error, info, fatal
+from shared.python.logging_utils import debug, error, fatal, info
 
 
 def _parse_interval(value: str) -> float:
@@ -27,9 +27,7 @@ def _parse_interval(value: str) -> float:
         fatal("ARLUPDATE_INTERVAL is not set")
     match = re.fullmatch(r"(\d+)([smhd])", value.strip())
     if not match:
-        fatal(
-            f"ARLUPDATE_INTERVAL is invalid ('{value}'). Must be <number>[s|m|h|d]"
-        )
+        fatal(f"ARLUPDATE_INTERVAL is invalid ('{value}'). Must be <number>[s|m|h|d]")
     num = int(match.group(1))
     unit = match.group(2)
     multipliers = {"s": 1, "m": 60, "h": 3600, "d": 86400}
@@ -45,22 +43,18 @@ def _validate_arl_file(path: str) -> None:
     current_uid = os.getuid()
 
     if file_stat.st_uid != current_uid:
-        fatal(
-            f"ARL file '{path}' is not owned by the current user (uid {current_uid})"
-        )
+        fatal(f"ARL file '{path}' is not owned by the current user (uid {current_uid})")
 
     perms = stat.S_IMODE(file_stat.st_mode)
     if perms != 0o600:
-        fatal(
-            f"ARL file '{path}' has incorrect permissions ({oct(perms)}). Expected 0600."
-        )
+        fatal(f"ARL file '{path}' has incorrect permissions ({oct(perms)}). Expected 0600.")
 
 
 def _check_token(arl_file: str) -> bool:
     """Read and validate the ARL token via Deezer API."""
-    from requests import Session
+    from requests import RequestException, Session
 
-    with open(arl_file, "r", encoding="utf-8") as f:
+    with open(arl_file, encoding="utf-8") as f:
         token = f.read().strip().strip('"')
 
     if not token:
@@ -73,7 +67,7 @@ def _check_token(arl_file: str) -> bool:
 
     try:
         res = session.post(
-            "http://www.deezer.com/ajax/gw-light.php",
+            "https://www.deezer.com/ajax/gw-light.php",
             cookies={"arl": token},
             data={
                 "api_token": "null",
@@ -81,10 +75,11 @@ def _check_token(arl_file: str) -> bool:
                 "input": "3",
                 "method": "deezer.getUserData",
             },
+            timeout=30,
         )
         res.raise_for_status()
         data = res.json()
-    except Exception as e:
+    except (RequestException, ValueError) as e:
         error(f"Error connecting to Deezer: {e}")
         return False
 

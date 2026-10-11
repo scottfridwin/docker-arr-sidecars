@@ -1,128 +1,98 @@
 # docker-arr-sidecars
 
-[![Build and Publish](https://github.com/scottfridwin/docker-arr-sidecars/actions/workflows/build-publish.yml/badge.svg?branch=main)](https://github.com/scottfridwin/docker-arr-sidecars/actions/workflows/build-publish.yml)
-[![Latest Release](https://img.shields.io/github/v/release/scottfridwin/docker-arr-sidecars?sort=semver)](https://github.com/scottfridwin/docker-arr-sidecars/releases)
-[![License: GPL-3.0-only](https://img.shields.io/github/license/scottfridwin/docker-arr-sidecars)](LICENSE)
+[![Build](https://img.shields.io/github/actions/workflow/status/scottfridwin/docker-arr-sidecars/build.yml?branch=main&label=build)](https://github.com/scottfridwin/docker-arr-sidecars/actions/workflows/build.yml)
+[![Release](https://img.shields.io/github/v/release/scottfridwin/docker-arr-sidecars?sort=semver)](https://github.com/scottfridwin/docker-arr-sidecars/releases/latest)
+[![License](https://img.shields.io/github/license/scottfridwin/docker-arr-sidecars)](LICENSE)
 
-Sidecar containers for the *Arr ecosystem focused on reducing manual setup and repetitive import workflows.
+Sidecar containers for [Lidarr](https://lidarr.audio/), [Radarr](https://radarr.video/) and
+[Sonarr](https://sonarr.tv/) that remove manual setup and repetitive import work.
 
-- **Lidarr sidecar**: AutoConfig + Deezer/Deemix album automation with import orchestration
-- **Radarr sidecar**: AutoConfig + drop-folder based auto-import
-- **Sonarr sidecar**: AutoConfig + drop-folder based auto-import
+- **Lidarr sidecar**: applies your settings at startup, and downloads wanted albums from Deezer (matched through
+  MusicBrainz links) and imports them
+- **Radarr sidecar**: applies your settings at startup, and imports movies dropped into a folder
+- **Sonarr sidecar**: applies your settings at startup, and imports series dropped into a folder
 
-Repository: <https://github.com/scottfridwin/docker-arr-sidecars>
+> [!NOTE]
+> **AI disclosure:** This project is built and maintained with substantial help from AI coding assistants (GitHub
+> Copilot). AI is used to write and modify the code, tests, documentation and CI configuration, and to manage the
+> repository. Dependency updates are merged and released automatically, without human review, when the automated
+> tests pass. Review the code and test it in your own environment before relying on it.
 
-## Published Images
+## Images
 
-| Sidecar | GHCR Package | Pull |
-|---|---|---|
-| Lidarr | <https://github.com/scottfridwin/docker-arr-sidecars/pkgs/container/lidarr-sidecar> | `docker pull ghcr.io/scottfridwin/lidarr-sidecar:latest` |
-| Radarr | <https://github.com/scottfridwin/docker-arr-sidecars/pkgs/container/radarr-sidecar> | `docker pull ghcr.io/scottfridwin/radarr-sidecar:latest` |
-| Sonarr | <https://github.com/scottfridwin/docker-arr-sidecars/pkgs/container/sonarr-sidecar> | `docker pull ghcr.io/scottfridwin/sonarr-sidecar:latest` |
+| Sidecar | Image | Docs |
+| --- | --- | --- |
+| Lidarr | [`ghcr.io/scottfridwin/lidarr-sidecar`](https://github.com/scottfridwin/docker-arr-sidecars/pkgs/container/lidarr-sidecar) | [lidarr-sidecar/README.md](lidarr-sidecar/README.md) |
+| Radarr | [`ghcr.io/scottfridwin/radarr-sidecar`](https://github.com/scottfridwin/docker-arr-sidecars/pkgs/container/radarr-sidecar) | [radarr-sidecar/README.md](radarr-sidecar/README.md) |
+| Sonarr | [`ghcr.io/scottfridwin/sonarr-sidecar`](https://github.com/scottfridwin/docker-arr-sidecars/pkgs/container/sonarr-sidecar) | [sonarr-sidecar/README.md](sonarr-sidecar/README.md) |
 
-## What Each Sidecar Does
+All three images are built for `linux/amd64` and `linux/arm64` and share one version number. Each release is tagged
+`X.Y.Z`, `X.Y`, `X` and `latest`; pin a major version such as `:3` to get fixes without breaking changes. Every image
+has an SBOM and a signed build provenance attestation.
 
-| Sidecar | One-time services | Persistent services |
-|---|---|---|
-| Lidarr | AutoConfig | ARLChecker, DeemixDownloader |
+## What each sidecar does
+
+| Sidecar | At startup | Runs continuously |
+| --- | --- | --- |
+| Lidarr | AutoConfig | ARLChecker, DeemixDownloader (and ManualImport if enabled) |
 | Radarr | AutoConfig | AutoImport |
 | Sonarr | AutoConfig | AutoImport |
 
-All sidecars use a shared Python entrypoint that:
+All sidecars use the same entrypoint, which:
 
-- validates required environment and mounted config
-- runs one-time services first
-- supervises persistent services
-- marks health via `/tmp/health`
+- checks the required environment and mounted config
+- runs the startup services first, then starts the continuous services
+- stops the container if a continuous service exits, so Docker's restart policy starts it fresh
+- reports a failed startup through Docker's health check (*unhealthy*) instead of a restart loop
 
-## Quick Start (Compose)
+## Quick start
+
+The sidecars read the API key from the *arr's `config.xml`, so mount it read-only. They run as any user; use the same
+user and group as the *arr so imported files get the right owner.
 
 ```yaml
 services:
-  lidarr-sidecar:
-    image: ghcr.io/scottfridwin/lidarr-sidecar:latest
-    environment:
-      - LOG_LEVEL=INFO
-    volumes:
-      - /path/to/lidarr/config.xml:/lidarr/config.xml:ro
-      - /secure/path/deemix_arl_token:/deemix_arl_token:rw
-      - /path/to/work:/work
-      - /path/to/shared/import:/sidecar-import
-
   radarr-sidecar:
-    image: ghcr.io/scottfridwin/radarr-sidecar:latest
+    image: ghcr.io/scottfridwin/radarr-sidecar:3
+    user: "1000:1000"
+    read_only: true
+    tmpfs:
+      - /tmp:uid=1000,gid=1000
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     environment:
-      - LOG_LEVEL=INFO
+      - ARR_HOST=radarr
       - AUTOIMPORT_GROUP=1000
     volumes:
       - /path/to/radarr/config.xml:/radarr/config.xml:ro
       - /path/to/drop:/drop
       - /path/to/work:/work
       - /path/to/shared/import:/sidecar-import
-
-  sonarr-sidecar:
-    image: ghcr.io/scottfridwin/sonarr-sidecar:latest
-    environment:
-      - LOG_LEVEL=INFO
-      - AUTOIMPORT_GROUP=1000
-    volumes:
-      - /path/to/sonarr/config.xml:/sonarr/config.xml:ro
-      - /path/to/drop:/drop
-      - /path/to/work:/work
-      - /path/to/shared/import:/sidecar-import
+    restart: unless-stopped
 ```
 
-## Sidecar Docs
+The Sonarr sidecar is the same with `sonarr` in place of `radarr`. The Lidarr sidecar also needs the Deezer ARL token
+file; see [lidarr-sidecar/README.md](lidarr-sidecar/README.md) for its mounts and settings.
 
-- [lidarr-sidecar/README.md](lidarr-sidecar/README.md)
-- [radarr-sidecar/README.md](radarr-sidecar/README.md)
-- [sonarr-sidecar/README.md](sonarr-sidecar/README.md)
+## Security notes
 
-Each sidecar README includes:
+- The Lidarr ARL token file must be owned by the container's user and have mode `0600`; the sidecar refuses to start
+  otherwise.
+- Radarr and Sonarr AutoImport need `AUTOIMPORT_GROUP` and check group ownership and permissions before moving files.
+- API keys, passwords and tokens are masked in logs.
+- See [SECURITY.md](SECURITY.md) for reporting vulnerabilities and verifying images.
 
-- service behavior
-- required mounts
-- key environment variables
-- package and pull references
+## Further reading
 
-## Tagging and Release Model
-
-CI builds on pushes to `main` and publishes multi-arch images (`linux/amd64`, `linux/arm64`) to GHCR.
-
-Image tags used by the workflow:
-
-- `sha-<shortsha>` for commit builds
-- `main` for branch tip builds
-- `latest` and version tags (`vX.Y.Z`, `X.Y.Z`) when promoted via manual release dispatch
-
-See workflow: [.github/workflows/build-publish.yml](.github/workflows/build-publish.yml)
-
-## Development
-
-Run unit tests locally:
-
-```bash
-python3 -m unittest discover -s shared/python/tests -p 'test_*.py' -v
-python3 -m unittest discover -s lidarr-sidecar/python/tests -p 'test_*.py' -v
-```
-
-Build locally:
-
-```bash
-docker build -t lidarr-sidecar ./lidarr-sidecar
-docker build -t radarr-sidecar ./radarr-sidecar
-docker build -t sonarr-sidecar ./sonarr-sidecar
-```
-
-## Security Notes
-
-- Lidarr ARL token file must be owned by the runtime user and permissioned `0600`.
-- Radarr/Sonarr AutoImport expects `AUTOIMPORT_GROUP` to be set and enforces group ownership/permissions before moving files.
+- [Development](docs/development.md)
 
 ## Acknowledgements
 
-This project was inspired by RandomNinjaAtk's [arr-scripts](https://github.com/RandomNinjaAtk/arr-scripts). Some logic was adapted and refactored into containerized sidecars.
+This project was inspired by RandomNinjaAtk's [arr-scripts](https://github.com/RandomNinjaAtk/arr-scripts). Some logic
+was adapted and refactored into containerized sidecars.
 
 ## License
 
-GPL-3.0-only. See [LICENSE](LICENSE).
+[GPL-3.0](LICENSE)

@@ -19,7 +19,6 @@ class TestLoggingUtils(unittest.TestCase):
 
     def test_fatal_exits(self):
         fake_stderr = io.StringIO()
-        with patch("sys.stderr", fake_stderr):
-            with self.assertRaises(SystemExit):
-                logging_utils.fatal("boom")
+        with patch("sys.stderr", fake_stderr), self.assertRaises(SystemExit):
+            logging_utils.fatal("boom")
         self.assertIn("ERROR :: boom", fake_stderr.getvalue())

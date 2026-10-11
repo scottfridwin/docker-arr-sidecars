@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: GPL-3.0-only
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
 
 
 def _identity_parse(target_name: str) -> tuple[str, str]:

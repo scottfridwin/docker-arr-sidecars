@@ -17,9 +17,7 @@ class TestAutoConfig(unittest.TestCase):
     @patch("shared.python.autoconfig.verify_arr_api_access")
     @patch("shared.python.autoconfig.update_arr_config")
     @patch("shared.python.autoconfig.time.sleep", return_value=None)
-    def test_main_calls_update_arr_config_for_enabled_settings(
-        self, sleep_mock, update_mock, verify_mock
-    ):
+    def test_main_calls_update_arr_config_for_enabled_settings(self, sleep_mock, update_mock, verify_mock):
         os.environ.update(
             {
                 "AUTOCONFIG_DELAY": "0",
@@ -47,9 +45,7 @@ class TestAutoConfig(unittest.TestCase):
 
         self.assertEqual(verify_mock.call_count, 1)
         self.assertEqual(update_mock.call_count, 8)
-        update_mock.assert_any_call(
-            "/app/config/customformat.json", "customformat", "Custom Format(s)"
-        )
+        update_mock.assert_any_call("/app/config/customformat.json", "customformat", "Custom Format(s)")
         update_mock.assert_any_call("/app/config/host.json", "config/host", "Host")
         update_mock.assert_any_call("/app/config/ui.json", "config/ui", "UI")
         sleep_mock.assert_not_called()

@@ -29,17 +29,19 @@ class TestEntrypoint(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             config_path = Path(tmpdir) / "config.xml"
             config_path.write_text("<Config></Config>", encoding="utf-8")
-            with patch.dict(
-                os.environ,
-                {
-                    "ARR_CONFIG_PATH": str(config_path),
-                    "UMASK": "bad",
-                    "LOG_LEVEL": "INFO",
-                },
-                clear=False,
+            with (
+                patch.dict(
+                    os.environ,
+                    {
+                        "ARR_CONFIG_PATH": str(config_path),
+                        "UMASK": "bad",
+                        "LOG_LEVEL": "INFO",
+                    },
+                    clear=False,
+                ),
+                self.assertRaises(SystemExit),
             ):
-                with self.assertRaises(SystemExit):
-                    entrypoint._validate_environment()
+                entrypoint._validate_environment()
 
     def test_start_services_spawns_python_files(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -58,29 +60,24 @@ class TestEntrypoint(unittest.TestCase):
             mock_run.return_value.returncode = 0
             mock_popen = MagicMock()
             mock_popen.pid = 1234
-            with patch(
-                "shared.python.entrypoint.subprocess.run",
-                mock_run,
-            ), patch(
-                "shared.python.entrypoint.subprocess.Popen",
-                return_value=mock_popen,
-            ) as popen_mock:
+            with (
+                patch(
+                    "shared.python.entrypoint.subprocess.run",
+                    mock_run,
+                ),
+                patch(
+                    "shared.python.entrypoint.subprocess.Popen",
+                    return_value=mock_popen,
+                ) as popen_mock,
+            ):
                 processes = entrypoint._start_services(service_base_dir)
 
-            mock_run.assert_called_once_with(
-                [sys.executable, str(auto_config)], env=ANY, timeout=ANY
-            )
-            self.assertEqual(
-                mock_run.call_args.kwargs["env"]["SCRIPT_NAME"], "AutoConfig"
-            )
+            mock_run.assert_called_once_with([sys.executable, str(auto_config)], env=ANY, timeout=ANY)
+            self.assertEqual(mock_run.call_args.kwargs["env"]["SCRIPT_NAME"], "AutoConfig")
             self.assertIn(1234, processes)
             popen_mock.assert_called_once()
-            popen_mock.assert_called_once_with(
-                [sys.executable, str(auto_import)], env=ANY
-            )
-            self.assertEqual(
-                popen_mock.call_args.kwargs["env"]["SCRIPT_NAME"], "AutoImport"
-            )
+            popen_mock.assert_called_once_with([sys.executable, str(auto_import)], env=ANY)
+            self.assertEqual(popen_mock.call_args.kwargs["env"]["SCRIPT_NAME"], "AutoImport")
 
     def test_start_services_runs_one_time_service_before_long_running(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -100,29 +97,24 @@ class TestEntrypoint(unittest.TestCase):
             mock_popen = MagicMock()
             mock_popen.pid = 4321
 
-            with patch(
-                "shared.python.entrypoint.subprocess.run",
-                mock_run,
-            ), patch(
-                "shared.python.entrypoint.subprocess.Popen",
-                return_value=mock_popen,
-            ) as popen_mock:
+            with (
+                patch(
+                    "shared.python.entrypoint.subprocess.run",
+                    mock_run,
+                ),
+                patch(
+                    "shared.python.entrypoint.subprocess.Popen",
+                    return_value=mock_popen,
+                ) as popen_mock,
+            ):
                 processes = entrypoint._start_services(service_base_dir)
 
-            mock_run.assert_called_once_with(
-                [sys.executable, str(auto_config)], env=ANY, timeout=ANY
-            )
-            self.assertEqual(
-                mock_run.call_args.kwargs["env"]["SCRIPT_NAME"], "AutoConfig"
-            )
+            mock_run.assert_called_once_with([sys.executable, str(auto_config)], env=ANY, timeout=ANY)
+            self.assertEqual(mock_run.call_args.kwargs["env"]["SCRIPT_NAME"], "AutoConfig")
             self.assertIn(4321, processes)
             popen_mock.assert_called_once()
-            popen_mock.assert_called_once_with(
-                [sys.executable, str(auto_import)], env=ANY
-            )
-            self.assertEqual(
-                popen_mock.call_args.kwargs["env"]["SCRIPT_NAME"], "AutoImport"
-            )
+            popen_mock.assert_called_once_with([sys.executable, str(auto_import)], env=ANY)
+            self.assertEqual(popen_mock.call_args.kwargs["env"]["SCRIPT_NAME"], "AutoImport")
 
     def test_start_services_skips_disabled_persistent_service(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -135,9 +127,10 @@ class TestEntrypoint(unittest.TestCase):
             manual_import = persistent_dir / "ManualImport.py"
             manual_import.write_text("print('import')\n", encoding="utf-8")
 
-            with patch.dict(
-                os.environ, {"SERVICE_MANUALIMPORT_ENABLED": "false"}, clear=False
-            ), patch("shared.python.entrypoint.subprocess.Popen") as popen_mock:
+            with (
+                patch.dict(os.environ, {"SERVICE_MANUALIMPORT_ENABLED": "false"}, clear=False),
+                patch("shared.python.entrypoint.subprocess.Popen") as popen_mock,
+            ):
                 processes = entrypoint._start_services(service_base_dir)
 
             self.assertEqual(processes, {})
@@ -159,13 +152,11 @@ class TestEntrypoint(unittest.TestCase):
             mock_popen = MagicMock()
             mock_popen.pid = 999
 
-            with patch(
-                "shared.python.entrypoint.subprocess.run", mock_run
-            ), patch(
-                "shared.python.entrypoint.subprocess.Popen", return_value=mock_popen
-            ) as popen_mock, patch(
-                "shared.python.entrypoint._mark_health"
-            ) as mark_health:
+            with (
+                patch("shared.python.entrypoint.subprocess.run", mock_run),
+                patch("shared.python.entrypoint.subprocess.Popen", return_value=mock_popen) as popen_mock,
+                patch("shared.python.entrypoint._mark_health") as mark_health,
+            ):
                 # Must NOT raise SystemExit, and must still start the persistent service.
                 processes = entrypoint._start_services(service_base_dir)
 

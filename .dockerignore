@@ -1,3 +1,6 @@
-Dockerfile
-functionalTest/*
-test/*
+.git
+.github
+.devcontainer
+.ruff_cache
+**/__pycache__
+docs

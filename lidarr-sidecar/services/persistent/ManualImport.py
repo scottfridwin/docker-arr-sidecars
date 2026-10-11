@@ -17,14 +17,14 @@ import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 os.environ["SCRIPT_NAME"] = "ManualImport"
 
-from shared.python.autoimport.runner import main
-from shared.python.autoimport.strategy import ImportStrategy
-
 from python.deemix_downloader.service import (
     manual_import_pre_move_hook,
     parse_manual_import_folder_name,
     setup_beets,
 )
+
+from shared.python.autoimport.runner import main
+from shared.python.autoimport.strategy import ImportStrategy
 
 
 def lidarr_manual_import_strategy() -> ImportStrategy:

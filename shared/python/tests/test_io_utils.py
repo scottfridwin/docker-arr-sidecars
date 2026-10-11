@@ -17,9 +17,11 @@ class TestIOUtils(unittest.TestCase):
         self.assertEqual(load_json_text('{"a": 1}'), {"a": 1})
 
     def test_load_json_text_invalid_raises(self):
-        with patch("shared.python.io_utils.fatal", side_effect=ValueError("bad json")):
-            with self.assertRaises(ValueError):
-                load_json_text("{invalid}")
+        with (
+            patch("shared.python.io_utils.fatal", side_effect=ValueError("bad json")),
+            self.assertRaises(ValueError),
+        ):
+            load_json_text("{invalid}")
 
     def test_read_json_file(self):
         with tempfile.TemporaryDirectory() as temp_dir:

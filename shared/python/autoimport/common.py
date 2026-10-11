@@ -9,7 +9,7 @@ from shutil import move
 
 from shared.python.arrapi import arr_api_request
 from shared.python.config import env
-from shared.python.logging_utils import debug, error, fatal, info, warning
+from shared.python.logging_utils import debug, fatal, info, warning
 from shared.python.state import get_state, set_state
 
 
@@ -26,9 +26,7 @@ def _write_atomic(path: Path, text: str) -> None:
 def _load_cached_paths(cache_file: Path) -> list[str]:
     if not cache_file.exists():
         return []
-    return [
-        line for line in cache_file.read_text(encoding="utf-8").splitlines() if line
-    ]
+    return [line for line in cache_file.read_text(encoding="utf-8").splitlines() if line]
 
 
 def _save_cached_paths(cache_file: Path, paths: list[str]) -> None:
@@ -49,9 +47,7 @@ def _fetch_paginated_resource_paths(strategy, cache_file: Path) -> list[str]:
     page_size = int(env("AUTOIMPORT_API_PAGE_SIZE", "100"))
     page = 1
     resource_paths: list[str] = []
-    debug(
-        f"TRACE :: Fetching paginated {strategy.resource_endpoint} (pageSize={page_size})"
-    )
+    debug(f"TRACE :: Fetching paginated {strategy.resource_endpoint} (pageSize={page_size})")
 
     while True:
         query = f"{strategy.resource_endpoint}?page={page}&pageSize={page_size}"
@@ -60,9 +56,7 @@ def _fetch_paginated_resource_paths(strategy, cache_file: Path) -> list[str]:
             arr_api_request("GET", query)
         except SystemExit:
             if page == 1:
-                debug(
-                    "TRACE :: Pagination unavailable or failed; falling back to unpaged resource fetch"
-                )
+                debug("TRACE :: Pagination unavailable or failed; falling back to unpaged resource fetch")
                 return _fetch_unpaged_resource_paths(strategy, cache_file)
             fatal(f"Failed to paginate {strategy.resource_endpoint} after page {page}")
 
@@ -80,30 +74,18 @@ def _fetch_paginated_resource_paths(strategy, cache_file: Path) -> list[str]:
                 "TRACE :: API returned more results than requested pageSize; "
                 "pagination appears unsupported; treating current response as full resource list"
             )
-            resource_paths.extend(
-                item.get("path")
-                for item in response
-                if isinstance(item, dict) and item.get("path")
-            )
+            resource_paths.extend(item.get("path") for item in response if isinstance(item, dict) and item.get("path"))
             _save_cached_paths(cache_file, [str(path) for path in resource_paths])
-            info(
-                f"{strategy.resource_endpoint.capitalize()} cache refreshed with {len(resource_paths)} entries"
-            )
+            info(f"{strategy.resource_endpoint.capitalize()} cache refreshed with {len(resource_paths)} entries")
             return resource_paths
 
-        resource_paths.extend(
-            item.get("path")
-            for item in response
-            if isinstance(item, dict) and item.get("path")
-        )
+        resource_paths.extend(item.get("path") for item in response if isinstance(item, dict) and item.get("path"))
         if len(response) < page_size:
             break
         page += 1
 
     _save_cached_paths(cache_file, [str(path) for path in resource_paths])
-    info(
-        f"{strategy.resource_endpoint.capitalize()} cache refreshed with {len(resource_paths)} entries"
-    )
+    info(f"{strategy.resource_endpoint.capitalize()} cache refreshed with {len(resource_paths)} entries")
     return resource_paths
 
 
@@ -113,15 +95,9 @@ def _fetch_unpaged_resource_paths(strategy, cache_file: Path) -> list[str]:
     if not isinstance(response, list):
         fatal(f"Failed to fetch resource list from {env('ARR_NAME')} API")
 
-    resource_paths = [
-        item.get("path")
-        for item in response
-        if isinstance(item, dict) and item.get("path")
-    ]
+    resource_paths = [item.get("path") for item in response if isinstance(item, dict) and item.get("path")]
     _save_cached_paths(cache_file, [str(path) for path in resource_paths])
-    info(
-        f"{strategy.resource_endpoint.capitalize()} cache refreshed with {len(resource_paths)} entries"
-    )
+    info(f"{strategy.resource_endpoint.capitalize()} cache refreshed with {len(resource_paths)} entries")
     return resource_paths
 
 
@@ -140,14 +116,8 @@ def create_download_client() -> None:
     if not isinstance(response, list):
         fatal("Invalid downloadclient response from ARR API")
 
-    if any(
-        client.get("name") == download_client_name
-        for client in response
-        if isinstance(client, dict)
-    ):
-        info(
-            f"{download_client_name} download client already exists, skipping creation."
-        )
+    if any(client.get("name") == download_client_name for client in response if isinstance(client, dict)):
+        info(f"{download_client_name} download client already exists, skipping creation.")
         debug("TRACE :: Exiting create_download_client...")
         return
 
@@ -209,9 +179,7 @@ def check_permissions(path: str) -> bool:
     root_path = Path(path)
     ok, report = _permission_issues(root_path)
     if ok:
-        debug(
-            f"DEBUG :: All files in {root_path} have correct group and group rw permissions"
-        )
+        debug(f"DEBUG :: All files in {root_path} have correct group and group rw permissions")
         set_state("permissionIssues", "")
     else:
         warning(f"Permission/group check failed for {root_path}")
@@ -252,9 +220,7 @@ def ensure_resource_paths(strategy) -> list[str]:
     current_time = os.path.getmtime(cache_file)
     age = time.time() - current_time
     if age > cache_hours * 3600:
-        debug(
-            f"DEBUG :: {strategy.cache_filename} cache older than {cache_hours}h, refreshing..."
-        )
+        debug(f"DEBUG :: {strategy.cache_filename} cache older than {cache_hours}h, refreshing...")
         return _refresh_resource_cache(strategy, cache_file)
 
     return _load_cached_paths(cache_file)
@@ -280,12 +246,8 @@ def process_import(import_dir: str, strategy) -> None:
         debug(f"Match found: {match_key} -> {match_path}")
         if not check_permissions(import_dir):
             issues = get_state("permissionIssues")
-            _write_status(
-                Path(import_dir), f"Permission or ownership issues detected:\n{issues}"
-            )
-        elif strategy.pre_move_hook is not None and not strategy.pre_move_hook(
-            Path(import_dir), hook_arg
-        ):
+            _write_status(Path(import_dir), f"Permission or ownership issues detected:\n{issues}")
+        elif strategy.pre_move_hook is not None and not strategy.pre_move_hook(Path(import_dir), hook_arg):
             debug(f"Pre-move hook rejected import for '{hook_arg}'")
             new_dir = Path(env("AUTOIMPORT_DROP_DIR")) / raw_target_name
             _move_directory(Path(import_dir), new_dir)
@@ -293,9 +255,7 @@ def process_import(import_dir: str, strategy) -> None:
             dest_dir = Path(env("AUTOIMPORT_SHARED_PATH")) / raw_target_name
             debug(f"Moving '{import_dir}' to '{dest_dir}'")
             _move_directory(Path(import_dir), dest_dir)
-            debug(
-                "DEBUG :: No notification behavior configured; import move is complete"
-            )
+            debug("DEBUG :: No notification behavior configured; import move is complete")
     else:
         debug(f"No match found for '{match_key}'")
         _write_status(
@@ -310,9 +270,7 @@ def process_import(import_dir: str, strategy) -> None:
 
 
 def scan_drop_directory(strategy) -> None:
-    info(
-        f"Scanning {env('AUTOIMPORT_DROP_DIR')} for directories marked with '{env('AUTOIMPORT_IMPORT_MARKER')}'"
-    )
+    info(f"Scanning {env('AUTOIMPORT_DROP_DIR')} for directories marked with '{env('AUTOIMPORT_IMPORT_MARKER')}'")
     drop_dir = Path(env("AUTOIMPORT_DROP_DIR"))
     marker = env("AUTOIMPORT_IMPORT_MARKER")
     entries = sorted(drop_dir.iterdir())

@@ -58,17 +58,37 @@ class Config:
     apply_replaygain: bool = field(default_factory=lambda: _env_bool("AUDIO_APPLY_REPLAYGAIN", True))
     download_attempt_threshold: int = field(default_factory=lambda: _env_int("AUDIO_DOWNLOAD_ATTEMPT_THRESHOLD", 10))
     download_quality_fallback: bool = field(default_factory=lambda: _env_bool("AUDIO_DOWNLOAD_QUALITY_FALLBACK", True))
-    download_client_name: str = field(default_factory=lambda: _env("AUDIO_DOWNLOADCLIENT_NAME", "lidarr-deemix-sidecar"))
+    download_client_name: str = field(
+        default_factory=lambda: _env("AUDIO_DOWNLOADCLIENT_NAME", "lidarr-deemix-sidecar")
+    )
 
     # Lyric/content preferences
     lyric_type: str = field(default_factory=lambda: _env("AUDIO_LYRIC_TYPE", "prefer-explicit"))
-    commentary_keywords: list[str] = field(default_factory=lambda: [k.strip().lower() for k in _env("AUDIO_COMMENTARY_KEYWORDS", "commentary,commentaries,directors commentary,audio commentary,with commentary,track by track").split(",")])
-    deprioritize_commentary: bool = field(default_factory=lambda: _env_bool("AUDIO_DEPRIORITIZE_COMMENTARY_RELEASES", True))
+    commentary_keywords: list[str] = field(
+        default_factory=lambda: [
+            k.strip().lower()
+            for k in _env(
+                "AUDIO_COMMENTARY_KEYWORDS",
+                "commentary,commentaries,directors commentary,audio commentary,with commentary,track by track",
+            ).split(",")
+        ]
+    )
+    deprioritize_commentary: bool = field(
+        default_factory=lambda: _env_bool("AUDIO_DEPRIORITIZE_COMMENTARY_RELEASES", True)
+    )
     ignore_instrumental: bool = field(default_factory=lambda: _env_bool("AUDIO_IGNORE_INSTRUMENTAL_RELEASES", True))
-    instrumental_keywords: list[str] = field(default_factory=lambda: [k.strip() for k in _env("AUDIO_INSTRUMENTAL_KEYWORDS", "Instrumental,Score").split(",")])
+    instrumental_keywords: list[str] = field(
+        default_factory=lambda: [
+            k.strip() for k in _env("AUDIO_INSTRUMENTAL_KEYWORDS", "Instrumental,Score").split(",")
+        ]
+    )
 
     # Country/format preferences
-    preferred_countries: str = field(default_factory=lambda: _env("AUDIO_PREFERRED_COUNTRIES", "[Worldwide]|United States|United Kingdom|Australia|Europe|Canada|[BLANK]"))
+    preferred_countries: str = field(
+        default_factory=lambda: _env(
+            "AUDIO_PREFERRED_COUNTRIES", "[Worldwide]|United States|United Kingdom|Australia|Europe|Canada|[BLANK]"
+        )
+    )
     preferred_formats: str = field(default_factory=lambda: _env("AUDIO_PREFERRED_FORMATS", "Digital Media|CD"))
 
     # Intervals / limits
@@ -88,9 +108,7 @@ class Config:
     require_non_redirect_deezer: bool = field(
         default_factory=lambda: _env_bool("AUDIO_REQUIRE_NON_REDIRECT_DEEZER", True)
     )
-    require_upc_match: bool = field(
-        default_factory=lambda: _env_bool("AUDIO_REQUIRE_UPC_MATCH", True)
-    )
+    require_upc_match: bool = field(default_factory=lambda: _env_bool("AUDIO_REQUIRE_UPC_MATCH", True))
 
     # Deemix/Beets custom configs
     deemix_custom_config: str = field(default_factory=lambda: _env("AUDIO_DEEMIX_CUSTOM_CONFIG", ""))
@@ -98,7 +116,9 @@ class Config:
 
     # Priority
     priority_only: bool = field(default_factory=lambda: _env_bool("AUDIO_PRIORITY_ONLY", False))
-    priority_exempt_from_limit: bool = field(default_factory=lambda: _env_bool("AUDIO_PRIORITY_EXEMPT_FROM_LIMIT", False))
+    priority_exempt_from_limit: bool = field(
+        default_factory=lambda: _env_bool("AUDIO_PRIORITY_EXEMPT_FROM_LIMIT", False)
+    )
 
     # Import behavior
     import_strategy: str = field(default_factory=lambda: _env("AUDIO_IMPORT_STRATEGY", "scan").strip().lower())
@@ -108,12 +128,12 @@ class Config:
 
     # Result file
     result_file_name: str = field(default_factory=lambda: _env("AUDIO_RESULT_FILE_NAME", "results.md"))
-    missing_result_file_name: str = field(
-        default_factory=lambda: _env("AUDIO_MISSING_RESULT_FILE_NAME", "missing.md")
-    )
+    missing_result_file_name: str = field(default_factory=lambda: _env("AUDIO_MISSING_RESULT_FILE_NAME", "missing.md"))
 
     # Manual import (user-supplied CD rips not available on Deezer)
-    manual_import_deezer_sentinel: str = field(default_factory=lambda: _env("AUDIO_MANUAL_IMPORT_DEEZER_SENTINEL", "None"))
+    manual_import_deezer_sentinel: str = field(
+        default_factory=lambda: _env("AUDIO_MANUAL_IMPORT_DEEZER_SENTINEL", "None")
+    )
     manual_import_convert_to_mp3: bool = field(
         default_factory=lambda: _env_bool("AUDIO_MANUAL_IMPORT_CONVERT_TO_MP3", False)
     )

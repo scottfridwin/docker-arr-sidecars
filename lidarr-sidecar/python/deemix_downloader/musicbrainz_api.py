@@ -25,10 +25,12 @@ def _get_session() -> requests.Session:
     global _session
     if _session is None:
         _session = requests.Session()
-        _session.headers.update({
-            "User-Agent": MB_USER_AGENT,
-            "Accept": "application/json",
-        })
+        _session.headers.update(
+            {
+                "User-Agent": MB_USER_AGENT,
+                "Accept": "application/json",
+            }
+        )
     return _session
 
 
@@ -100,6 +102,7 @@ def _write_cached_json(cache_file: Path, data: dict, *, shorter_cache: bool = Fa
         if shorter_cache:
             # Set mtime to be 23 days old so it expires in ~7 days instead of 30
             import os as _os
+
             age_offset = (cfg.cache_max_age_musicbrainz - 7) * 86400
             now = time.time()
             _os.utime(cache_file, (now - age_offset, now - age_offset))
@@ -127,10 +130,7 @@ def fetch_musicbrainz_release(mbid: str) -> dict | None:
 
     if data is not None:
         # Use shorter cache for releases without Deezer links (they may get updated)
-        has_deezer = any(
-            "deezer.com" in (r.get("url", {}).get("resource", ""))
-            for r in data.get("relations", [])
-        )
+        has_deezer = any("deezer.com" in (r.get("url", {}).get("resource", "")) for r in data.get("relations", []))
         _write_cached_json(cache_file, data, shorter_cache=not has_deezer)
 
     return data

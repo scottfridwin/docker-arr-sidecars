@@ -1,5 +1,5 @@
 # ===== Final Stage =====
-FROM debian:13.7-slim
+FROM debian:13.7-slim@sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f AS runtime
 
 LABEL org.opencontainers.image.description="Lidarr sidecar - automated Deezer downloads via MusicBrainz links"
 LABEL org.opencontainers.image.licenses="GPL-3.0-only"
@@ -18,10 +18,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN rm -rf /var/lib/apt/lists/*
 
 # Install Python packages
-RUN pip install --no-cache-dir --prefer-binary --break-system-packages \
-    requests \
-    mutagen \
-    deemix
+COPY lidarr-sidecar/requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir --prefer-binary --break-system-packages -r /tmp/requirements.txt
 
 # Copy scripts and config
 COPY lidarr-sidecar/ /app/
@@ -114,10 +112,6 @@ ENV AUTOCONFIG_QUALITYPROFILE_JSON=/app/config/qualityprofile.json
 ENV AUTOCONFIG_UI=false
 ENV AUTOCONFIG_UI_JSON=/app/config/ui.json
 
-# Version label is injected at build time (CI passes --build-arg VERSION from the git ref).
-ARG VERSION=0.0.0-dev
-LABEL org.opencontainers.image.version="${VERSION}"
-
 # Surface one-time config failures via the /tmp/health marker the entrypoint writes,
 # instead of crash-looping the container.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
@@ -126,3 +120,12 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
 # tini as PID 1 for signal forwarding + zombie reaping
 ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["python3", "/app/shared/python/entrypoint.py"]
+
+# Test stage: CI builds this target on every platform before publishing
+FROM runtime AS test
+COPY . /src
+WORKDIR /src
+RUN PYTHONPATH=/src python3 -m unittest discover -s shared/python/tests -p 'test_*.py' \
+    && PYTHONPATH=/src python3 -m unittest discover -s lidarr-sidecar/python/tests -p 'test_*.py'
+
+FROM runtime

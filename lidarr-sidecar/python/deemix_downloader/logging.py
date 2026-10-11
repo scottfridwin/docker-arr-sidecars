@@ -15,9 +15,7 @@ class _Logger:
     LEVELS = {"TRACE": 0, "DEBUG": 1, "INFO": 2, "WARNING": 3, "ERROR": 4}
 
     def __init__(self):
-        self._level = self.LEVELS.get(
-            os.environ.get("LOG_LEVEL", "INFO").upper(), 2
-        )
+        self._level = self.LEVELS.get(os.environ.get("LOG_LEVEL", "INFO").upper(), 2)
         self._script_name = "DeemixDownloader"
 
     def _log(self, level: str, msg: str) -> None:

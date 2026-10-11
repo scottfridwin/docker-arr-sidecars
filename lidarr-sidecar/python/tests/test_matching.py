@@ -15,11 +15,14 @@ class MatchingTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             cfg = Config()
             cfg.work_path = Path(tmpdir)
-            with patch.object(musicbrainz_api, "cfg", cfg), patch.object(
-                musicbrainz_api,
-                "call_musicbrainz_api",
-                return_value={},
-            ) as mock_call:
+            with (
+                patch.object(musicbrainz_api, "cfg", cfg),
+                patch.object(
+                    musicbrainz_api,
+                    "call_musicbrainz_api",
+                    return_value={},
+                ) as mock_call,
+            ):
                 musicbrainz_api.fetch_musicbrainz_release("example-mbid")
 
         self.assertTrue(mock_call.called)
@@ -212,9 +215,7 @@ class MatchingTests(unittest.TestCase):
             patch.object(matching.cfg, "require_non_redirect_deezer", False),
             patch.object(matching.cfg, "require_upc_match", True),
         ):
-            result = matching.find_best_match(
-                [deluxe, standard], "The Blessed Unrest", set()
-            )
+            result = matching.find_best_match([deluxe, standard], "The Blessed Unrest", set())
 
         self.assertTrue(result.matched)
         self.assertEqual(result.lidarr_release_foreign_id, "standard-mbid")
