@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: GPL-3.0-only
 
 import json
-from pathlib import Path
 import xml.etree.ElementTree as ET
+from pathlib import Path
 
 from .logging_utils import fatal
 
@@ -33,7 +33,7 @@ def parse_xml_config(path: str):
     if not file_path.is_file():
         fatal(f"Config file not found: {path}")
     try:
-        tree = ET.parse(file_path)
+        tree = ET.parse(file_path)  # noqa: S314 - the *arr's own config.xml, mounted read-only
         return tree.getroot()
     except ET.ParseError as exc:
         fatal(f"Failed to parse XML config at {path}: {exc}")

@@ -1,5 +1,5 @@
 # Use Alpine as base
-FROM alpine:3.24
+FROM alpine:3.24@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6 AS runtime
 
 LABEL org.opencontainers.image.description="Radarr sidecar - auto-config and import orchestration"
 LABEL org.opencontainers.image.licenses="GPL-3.0-only"
@@ -60,10 +60,6 @@ ENV AUTOIMPORT_INTERVAL=5m
 ENV AUTOIMPORT_SHARED_PATH=/sidecar-import
 ENV AUTOIMPORT_WORK_DIR=/work
 
-# Version label is injected at build time (CI passes --build-arg VERSION from the git ref).
-ARG VERSION=0.0.0-dev
-LABEL org.opencontainers.image.version="${VERSION}"
-
 # Surface one-time config failures via the /tmp/health marker the entrypoint writes,
 # instead of crash-looping the container.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
@@ -72,3 +68,13 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
 # Entrypoint (tini as PID 1 for signal forwarding + zombie reaping)
 ENTRYPOINT ["/sbin/tini", "--"]
 CMD ["python3", "/app/shared/python/entrypoint.py"]
+
+# Test stage: CI builds this target on every platform before publishing.
+# The shared tests also load the Lidarr modules, which need requests and mutagen.
+FROM runtime AS test
+RUN apk add --no-cache py3-requests py3-mutagen
+COPY . /src
+WORKDIR /src
+RUN PYTHONPATH=/src python3 -m unittest discover -s shared/python/tests -p 'test_*.py'
+
+FROM runtime

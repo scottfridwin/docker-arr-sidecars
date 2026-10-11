@@ -12,7 +12,7 @@ from pathlib import Path
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR.parent.parent))
 
-from shared.python.logging_utils import debug, error, info, warning
+from shared.python.logging_utils import debug, error, info, warning  # noqa: E402
 
 VALID_LOG_LEVELS = ("TRACE", "DEBUG", "INFO", "WARNING", "ERROR")
 
@@ -43,9 +43,7 @@ def set_unhealthy(exit_code: int = 1) -> None:
 def _validate_environment() -> None:
     log_level = os.environ.get("LOG_LEVEL", "INFO").upper()
     if log_level not in VALID_LOG_LEVELS:
-        error(
-            f"Invalid LOG_LEVEL value: '{log_level}'. Must be one of: {', '.join(VALID_LOG_LEVELS)}"
-        )
+        error(f"Invalid LOG_LEVEL value: '{log_level}'. Must be one of: {', '.join(VALID_LOG_LEVELS)}")
         set_unhealthy()
 
     arr_config_path = os.environ.get("ARR_CONFIG_PATH")
@@ -97,9 +95,7 @@ def _run_one_time_services(service_dir: Path) -> None:
         child_env = os.environ.copy()
         child_env["SCRIPT_NAME"] = service.stem
         try:
-            result = subprocess.run(
-                [sys.executable, str(service)], env=child_env, timeout=timeout
-            )
+            result = subprocess.run([sys.executable, str(service)], env=child_env, timeout=timeout)
             returncode = result.returncode
         except subprocess.TimeoutExpired:
             # A hung one-time service (e.g. unreachable *arr) must not block the

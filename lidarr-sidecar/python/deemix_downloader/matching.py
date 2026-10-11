@@ -83,9 +83,7 @@ def _title_is_reasonable(
     """
     titles_to_compare = [lidarr_title]
     if alternate_titles:
-        titles_to_compare.extend(
-            title for title in alternate_titles if title and title not in titles_to_compare
-        )
+        titles_to_compare.extend(title for title in alternate_titles if title and title not in titles_to_compare)
 
     if not deezer_title:
         return True
@@ -127,9 +125,7 @@ def _should_skip_by_lyric_type(explicit: bool) -> bool:
     """Check if album should be skipped based on lyric type filter."""
     if cfg.lyric_type == "require-clean" and explicit:
         return True
-    if cfg.lyric_type == "require-explicit" and not explicit:
-        return True
-    return False
+    return cfg.lyric_type == "require-explicit" and not explicit
 
 
 def _normalize_upc(value: str) -> str:
@@ -279,8 +275,8 @@ def find_best_match(
             candidate.alternate_titles,
         ):
             log.warning(
-                f"Deezer album {deezer_id} title \"{deezer_title}\" doesn't match "
-                f"expected \"{search_title}\" - possible bad MusicBrainz link"
+                f'Deezer album {deezer_id} title "{deezer_title}" doesn\'t match '
+                f'expected "{search_title}" - possible bad MusicBrainz link'
             )
             reject_counts["title_mismatch"] += 1
             continue
@@ -298,10 +294,7 @@ def find_best_match(
             continue
 
         # All checks pass
-        log.info(
-            f"Matched: \"{deezer_title}\" ({actual_deezer_id}) "
-            f"[tracks: {deezer_track_count}, year: {deezer_year}]"
-        )
+        log.info(f'Matched: "{deezer_title}" ({actual_deezer_id}) [tracks: {deezer_track_count}, year: {deezer_year}]')
         match_result = MatchResult(
             deezer_album_id=actual_deezer_id,
             deezer_title=deezer_title,
@@ -329,6 +322,4 @@ def find_best_match(
         f"track mismatch={reject_counts['track_count_mismatch']}",
         f"previously failed={reject_counts['previously_failed']}",
     ]
-    return MatchResult(
-        reason="All Deezer links failed sanity checks: " + ", ".join(summary_parts)
-    )
+    return MatchResult(reason="All Deezer links failed sanity checks: " + ", ".join(summary_parts))

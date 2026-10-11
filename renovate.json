@@ -1,19 +1,23 @@
 {
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
-    "config:recommended"
+    "config:recommended",
+    "helpers:pinGitHubActionDigests"
   ],
   "prCreation": "immediate",
+  "automerge": true,
+  "automergeType": "pr",
+  "minimumReleaseAge": "3 days",
+  "internalChecksFilter": "strict",
+  "osvVulnerabilityAlerts": true,
   "customManagers": [
     {
       "customType": "regex",
-      "managerFilePatterns": [
-        "/(^|/)compose\\.ya?ml$/",
-        "/(^|/)docker-compose\\.ya?ml$/"
-      ],
+      "description": "Images pinned in workflows with a '# renovate:' comment",
+      "managerFilePatterns": ["/^\\.github/workflows/[^/]+\\.ya?ml$/"],
       "matchStrings": [
-        "image:\\s*(?<depName>[^\\s:@]+)(?::(?<currentValue>[^\\s@]+))?"
-      ],
-      "datasourceTemplate": "docker"
+        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\s+\\w+:\\s*[^:\\s]+:(?<currentValue>[^@\\s]+)(@(?<currentDigest>sha256:[a-f0-9]+))?"
+      ]
     }
   ],
   "assignees": [

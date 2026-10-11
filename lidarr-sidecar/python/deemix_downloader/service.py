@@ -13,6 +13,7 @@ Orchestrates:
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
@@ -30,7 +31,6 @@ from shared.python.state import init_state
 
 from .config import cfg
 from .download import (
-    AUDIO_EXTENSIONS,
     apply_beets,
     apply_replaygain,
     clean_staging,
@@ -182,11 +182,7 @@ def setup_beets() -> None:
     if cfg.beets_custom_config:
         try:
             custom_path = Path(cfg.beets_custom_config)
-            content = (
-                custom_path.read_text()
-                if custom_path.is_file()
-                else cfg.beets_custom_config
-            )
+            content = custom_path.read_text() if custom_path.is_file() else cfg.beets_custom_config
             import subprocess
 
             result = subprocess.run(
@@ -258,9 +254,7 @@ def _get_failed_albums() -> set[str]:
 # ─── Build release candidates from Lidarr album data ────────────────────
 
 
-def _build_candidates(
-    album_data: dict, album_release_year: str
-) -> list[ReleaseCandidate]:
+def _build_candidates(album_data: dict, album_release_year: str) -> list[ReleaseCandidate]:
     """
     Build ReleaseCandidate objects from Lidarr album releases.
     Fetches MusicBrainz data to extract Deezer links.
@@ -275,9 +269,7 @@ def _build_candidates(
         foreign_release_id = release_json.get("foreignReleaseId", "")
         release_format = release_json.get("format", "")
         countries = release_json.get("country", [])
-        countries_str = (
-            ",".join(countries) if isinstance(countries, list) else str(countries or "")
-        )
+        countries_str = ",".join(countries) if isinstance(countries, list) else str(countries or "")
 
         format_priority = calculate_priority(release_format, cfg.preferred_formats)
         country_priority = calculate_priority(countries_str, cfg.preferred_countries)
@@ -314,17 +306,13 @@ def _build_candidates(
         if isinstance(release_group, dict):
             release_group_id = release_group.get("id", "")
             if release_group_id:
-                log.debug(
-                    f"Fetching MusicBrainz aliases for release-group {release_group_id}"
-                )
+                log.debug(f"Fetching MusicBrainz aliases for release-group {release_group_id}")
                 release_group_data = fetch_musicbrainz_release_group(release_group_id)
                 if release_group_data is not None:
                     aliases = release_group_data.get("aliases", [])
                     if isinstance(aliases, list):
                         alternate_titles = [
-                            alias.get("name", "")
-                            for alias in aliases
-                            if isinstance(alias, dict) and alias.get("name")
+                            alias.get("name", "") for alias in aliases if isinstance(alias, dict) and alias.get("name")
                         ]
                         if alternate_titles:
                             log.debug(
@@ -334,17 +322,12 @@ def _build_candidates(
 
         # Check commentary
         contains_commentary = bool(
-            _COMMENTARY_RE
-            and (_COMMENTARY_RE.search(title) or _COMMENTARY_RE.search(disambiguation))
+            _COMMENTARY_RE and (_COMMENTARY_RE.search(title) or _COMMENTARY_RE.search(disambiguation))
         )
 
         # Check instrumental
         instrumental = bool(
-            _INSTRUMENTAL_RE
-            and (
-                _INSTRUMENTAL_RE.search(title)
-                or _INSTRUMENTAL_RE.search(disambiguation)
-            )
+            _INSTRUMENTAL_RE and (_INSTRUMENTAL_RE.search(title) or _INSTRUMENTAL_RE.search(disambiguation))
         )
 
         candidates.append(
@@ -389,9 +372,7 @@ def search_and_download(
     artist_name = artist_data.get("artistName", "")
     artist_foreign_id = artist_data.get("foreignArtistId", "")
     album_title_raw = album_data.get("title", "")
-    album_title = remove_punctuation(
-        normalize_string(album_title_raw)
-    )  # For matching comparison
+    album_title = remove_punctuation(normalize_string(album_title_raw))  # For matching comparison
     album_foreign_id = album_data.get("foreignAlbumId", "")
     album_release_date = album_data.get("releaseDate", "") or ""
     album_release_year = album_release_date[:4] if album_release_date else ""
@@ -441,9 +422,7 @@ def search_and_download(
             daily_tracker.increment()
     else:
         log.info(f"No match: {result.reason}")
-        _upsert_missing_file(
-            album_id, artist_name, album_title, album_foreign_id, result.reason
-        )
+        _upsert_missing_file(album_id, artist_name, album_title, album_foreign_id, result.reason)
         # Mark as not found (unless it's a new release)
         is_new = False
         if album_release_date:
@@ -515,9 +494,7 @@ def _tag_and_enrich(
     # Beets
     beets_ok = False
     if cfg.apply_beets:
-        beets_ok = apply_beets(
-            directory, release_foreign_id, BEETS_CONFIG_PATH, BEETS_DIR
-        )
+        beets_ok = apply_beets(directory, release_foreign_id, BEETS_CONFIG_PATH, BEETS_DIR)
 
     # Artist tags: only reassert the album-level Lidarr artist when Beets didn't
     # run or failed. Otherwise, leave Beets' own per-track match in place, since
@@ -529,9 +506,7 @@ def _tag_and_enrich(
             if f.suffix.lower() == ".flac":
                 tag_flac_artist(f, artist_name, artist_foreign_id)
             elif f.suffix.lower() == ".mp3":
-                tag_mp3_mutagen(
-                    f, artist_name=artist_name, artist_foreign_id=artist_foreign_id
-                )
+                tag_mp3_mutagen(f, artist_name=artist_name, artist_foreign_id=artist_foreign_id)
 
 
 def _download_album(
@@ -571,9 +546,7 @@ def _download_album(
 
         if download_try >= cfg.download_attempt_threshold:
             if cfg.download_quality_fallback and quality == "flac":
-                log.warning(
-                    f"Failed after {download_try} attempts, trying mp3 fallback"
-                )
+                log.warning(f"Failed after {download_try} attempts, trying mp3 fallback")
                 remove_existing_import_flac_files(
                     artist_name,
                     album_title,
@@ -636,9 +609,7 @@ def _download_album(
     import_ok = True
     if cfg.import_strategy == "manual":
         if not (artist_id and album_id and release_lidarr_id):
-            log.warning(
-                "Manual import strategy requested but missing internal IDs; using scan import"
-            )
+            log.warning("Manual import strategy requested but missing internal IDs; using scan import")
             if album_id:
                 import_ok, scan_errors = scan_import_and_verify(str(dest), album_id)
                 for message in scan_errors:
@@ -669,9 +640,7 @@ def _download_album(
         notify_lidarr_import(str(dest))
 
     if not import_ok:
-        log.error(
-            f'Import FAILED for "{deezer_title}"; leaving files in {dest} for manual review'
-        )
+        log.error(f'Import FAILED for "{deezer_title}"; leaving files in {dest} for manual review')
         cfg.failed_dir.mkdir(parents=True, exist_ok=True)
         (cfg.failed_dir / deezer_album_id).touch()
         return False
@@ -761,13 +730,7 @@ def _validate_manual_import_files(source_dir: Path) -> tuple[bool, str]:
     if not audio_files:
         return False, f"No audio files found in {source_dir}"
 
-    unsupported = sorted(
-        {
-            f.name
-            for f in audio_files
-            if f.suffix.lower() not in _manual_import_supported_extensions()
-        }
-    )
+    unsupported = sorted({f.name for f in audio_files if f.suffix.lower() not in _manual_import_supported_extensions()})
     if unsupported:
         if cfg.manual_import_convert_to_mp3:
             return False, (
@@ -798,9 +761,7 @@ def _convert_manual_import_files_to_mp3(source_dir: Path) -> None:
         target_path = file_path.with_suffix(".mp3")
         if target_path.exists() and target_path != file_path:
             base = file_path.with_suffix("")
-            target_path = base.with_name(
-                f"{base.name}_{int(time.time() * 1000000)}.mp3"
-            )
+            target_path = base.with_name(f"{base.name}_{int(time.time() * 1000000)}.mp3")
 
         log.info(f"Converting manual import audio: {file_path} -> {target_path}")
         result = subprocess.run(
@@ -859,16 +820,10 @@ def import_manual_album(
     if cfg.manual_import_convert_to_mp3:
         try:
             _convert_manual_import_files_to_mp3(source_dir)
-        except (
-            Exception
-        ) as exc:  # pragma: no cover - exercised via ffmpeg failure in real environments
+        except Exception as exc:  # noqa: BLE001  # pragma: no cover - exercised via ffmpeg failure in real environments
             return False, f"Manual import conversion failed: {exc}"
 
-    audio_files = [
-        f
-        for f in source_dir.rglob("*")
-        if f.is_file() and f.suffix.lower() in {".flac", ".mp3"}
-    ]
+    audio_files = [f for f in source_dir.rglob("*") if f.is_file() and f.suffix.lower() in {".flac", ".mp3"}]
     if not audio_files:
         return False, f"No supported audio files found in {source_dir} after validation"
 
@@ -879,9 +834,7 @@ def import_manual_album(
             f"No Lidarr album found for release group {release_group_foreign_id}",
         )
     if len(album_ids) > 1:
-        log.warning(
-            f"Multiple Lidarr albums matched release group {release_group_foreign_id}; using the first"
-        )
+        log.warning(f"Multiple Lidarr albums matched release group {release_group_foreign_id}; using the first")
     album_id = album_ids[0]
 
     album_data = get_album_data(album_id)
@@ -938,9 +891,7 @@ def _remove_from_priority_file(entry: str) -> None:
         path = Path(cfg.priority_file)
         lines = path.read_text().splitlines()
         # Compare with inline comments stripped, same as process_priority_list parsing
-        path.write_text(
-            "\n".join(l for l in lines if l.split("#", 1)[0].strip() != entry) + "\n"
-        )
+        path.write_text("\n".join(line for line in lines if line.split("#", 1)[0].strip() != entry) + "\n")
     except OSError:
         pass
 
@@ -1008,9 +959,7 @@ def _upsert_missing_file(
         except OSError:
             rows = []
 
-    rows.append(
-        f"| {timestamp} | {artist_name} | {album_title} | {album_id} | {album_foreign_id} | {reason} |"
-    )
+    rows.append(f"| {timestamp} | {artist_name} | {album_title} | {album_id} | {album_foreign_id} | {reason} |")
 
     try:
         out_file.parent.mkdir(parents=True, exist_ok=True)
@@ -1050,18 +999,14 @@ def _remove_from_missing_file(album_id: str) -> None:
         if existing_album_id != album_id:
             kept.append(line)
 
-    try:
+    with contextlib.suppress(OSError):
         out_file.write_text("\n".join(kept).rstrip() + "\n")
-    except OSError:
-        pass
 
 
 # ─── Processing loops ─────────────────────────────────────────────────────
 
 
-_UUID_RE = re.compile(
-    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE
-)
+_UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE)
 
 
 def _is_valid_uuid(value: str) -> bool:
@@ -1107,9 +1052,7 @@ def _resolve_priority_entries(entries: list[str]) -> list[tuple[str, str]]:
                         seen.add(aid)
                         results.append((aid, entry))
             else:
-                log.info(
-                    f"No wanted albums found for {entry} (all may already be downloaded)"
-                )
+                log.info(f"No wanted albums found for {entry} (all may already be downloaded)")
         else:
             if entry not in seen:
                 seen.add(entry)
@@ -1117,18 +1060,16 @@ def _resolve_priority_entries(entries: list[str]) -> list[tuple[str, str]]:
     return results
 
 
-def process_priority_list(
-    failed_albums: set[str], daily_tracker: DailyLimitTracker, arl_token: str
-) -> None:
+def process_priority_list(failed_albums: set[str], daily_tracker: DailyLimitTracker, arl_token: str) -> None:
     """Process user-provided priority album list."""
     if not cfg.priority_file or not Path(cfg.priority_file).is_file():
         return
 
     lines = Path(cfg.priority_file).read_text().splitlines()
     raw_entries: list[str] = []
-    for l in lines:
+    for line in lines:
         # Strip inline comments (e.g. "mb_rg:uuid # My Album")
-        entry = l.split("#", 1)[0].strip()
+        entry = line.split("#", 1)[0].strip()
         if entry:
             raw_entries.append(entry)
     if not raw_entries:
@@ -1144,9 +1085,7 @@ def process_priority_list(
             log.info("Daily limit reached; pausing priority processing")
             break
         if original_entry != album_id:
-            log.debug(
-                f"Processing album {album_id} (from priority entry: {original_entry})"
-            )
+            log.debug(f"Processing album {album_id} (from priority entry: {original_entry})")
         search_and_download(
             album_id,
             failed_albums,
@@ -1177,16 +1116,8 @@ def process_wanted_list(
 
     for page in range(1, total_pages + 1):
         response = get_wanted_albums(list_type, page=page, page_size=page_size)
-        album_ids = list(
-            set(
-                str(r.get("id", "")) for r in response.get("records", []) if r.get("id")
-            )
-        )
-        album_ids = [
-            aid
-            for aid in album_ids
-            if aid not in notfound_ids and aid not in downloaded_ids
-        ]
+        album_ids = list(set(str(r.get("id", "")) for r in response.get("records", []) if r.get("id")))
+        album_ids = [aid for aid in album_ids if aid not in notfound_ids and aid not in downloaded_ids]
 
         if not album_ids:
             continue
@@ -1194,9 +1125,7 @@ def process_wanted_list(
         log.info(f"Processing {len(album_ids)} {list_type} albums")
         for idx, album_id in enumerate(album_ids, 1):
             if idx % 25 == 0:
-                log.info(
-                    f"Progress: {idx}/{len(album_ids)} {list_type} albums processed"
-                )
+                log.info(f"Progress: {idx}/{len(album_ids)} {list_type} albums processed")
             if daily_tracker.is_limit_reached():
                 log.info(f"Daily limit reached; stopping {list_type} processing")
                 return
@@ -1239,30 +1168,22 @@ def manual_import_pre_move_hook(import_dir: Path, hook_arg: str) -> bool:
     release_foreign_id = parts[1].strip() if len(parts) > 1 else ""
 
     if not _is_valid_uuid(release_group_foreign_id):
-        log.warning(
-            f"Manual import: '{hook_arg}' does not contain a valid MusicBrainz release group ID"
-        )
-        try:
+        log.warning(f"Manual import: '{hook_arg}' does not contain a valid MusicBrainz release group ID")
+        with contextlib.suppress(OSError):
             (import_dir / "IMPORT_STATUS.txt").write_text(
                 f"'{hook_arg}' does not contain a valid MusicBrainz release group ID.\n"
                 "Expected folder name: <artist folder name>--<release-group-mbid>[--<release-mbid>]",
                 encoding="utf-8",
             )
-        except OSError:
-            pass
         return False
 
-    success, message = import_manual_album(
-        import_dir, release_group_foreign_id, release_foreign_id
-    )
+    success, message = import_manual_album(import_dir, release_group_foreign_id, release_foreign_id)
     if success:
         log.info(f"Manual import: {message}")
     else:
         log.warning(f"Manual import: {message}")
-        try:
+        with contextlib.suppress(OSError):
             (import_dir / "IMPORT_STATUS.txt").write_text(message, encoding="utf-8")
-        except OSError:
-            pass
     return success
 
 
@@ -1289,9 +1210,7 @@ def main() -> None:
     while True:
         try:
             # Re-read ARL token in case ARLChecker has refreshed it
-            arl_token = (
-                cfg.deemix_arl_file.read_text(encoding="utf-8").strip().strip('\r\n"')
-            )
+            arl_token = cfg.deemix_arl_file.read_text(encoding="utf-8").strip().strip('\r\n"')
 
             folder_cleaner()
             prune_cache()
@@ -1305,13 +1224,11 @@ def main() -> None:
                 process_priority_list(failed_albums, daily_tracker, arl_token)
 
             if limit_reached:
-                log.info(
-                    "Daily download limit reached; skipping wanted list processing"
-                )
+                log.info("Daily download limit reached; skipping wanted list processing")
             elif not cfg.priority_only:
                 process_wanted_list("missing", failed_albums, daily_tracker, arl_token)
                 process_wanted_list("cutoff", failed_albums, daily_tracker, arl_token)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - one bad pass must not stop the service
             log.error(f"Unexpected error in main loop: {e}")
 
         if cfg.interval.lower() == "none" or cfg.interval_seconds == 0:

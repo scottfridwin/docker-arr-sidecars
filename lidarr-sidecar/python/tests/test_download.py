@@ -40,9 +40,7 @@ class DownloadTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             cfg = Config(shared_lidarr_path=Path(tmpdir))
             with patch.object(download, "cfg", cfg):
-                import_path = download.get_import_path(
-                    "Madonna", "I’m Breathless", "1990", "example-mbid"
-                )
+                import_path = download.get_import_path("Madonna", "I’m Breathless", "1990", "example-mbid")
                 import_path.mkdir()
                 flac_file = import_path / "01 - Track.FLAC"
                 mp3_file = import_path / "01 - Track.mp3"

@@ -13,16 +13,12 @@ class TestConfig(unittest.TestCase):
             self.assertEqual(env("MISSING_VAR", "bar"), "bar")
 
     def test_env_bool_true_values(self):
-        with patch.dict(
-            os.environ, {"BOOL_TRUE": "true", "BOOL_TRUE_CAP": "True"}, clear=False
-        ):
+        with patch.dict(os.environ, {"BOOL_TRUE": "true", "BOOL_TRUE_CAP": "True"}, clear=False):
             self.assertTrue(env_bool("BOOL_TRUE"))
             self.assertTrue(env_bool("BOOL_TRUE_CAP"))
 
     def test_env_bool_false_values(self):
-        with patch.dict(
-            os.environ, {"BOOL_FALSE": "false", "BOOL_OTHER": "no"}, clear=False
-        ):
+        with patch.dict(os.environ, {"BOOL_FALSE": "false", "BOOL_OTHER": "no"}, clear=False):
             self.assertFalse(env_bool("BOOL_FALSE"))
             self.assertFalse(env_bool("BOOL_OTHER"))
 
@@ -37,7 +33,9 @@ class TestConfig(unittest.TestCase):
     def test_env_int_invalid_raises(self):
         import shared.python.logging_utils as logging_utils
 
-        with patch.dict(os.environ, {"INT_BAD": "abc"}, clear=False):
-            with patch.object(logging_utils, "fatal", side_effect=ValueError("bad")):
-                with self.assertRaises(ValueError):
-                    env_int("INT_BAD")
+        with (
+            patch.dict(os.environ, {"INT_BAD": "abc"}, clear=False),
+            patch.object(logging_utils, "fatal", side_effect=ValueError("bad")),
+            self.assertRaises(ValueError),
+        ):
+            env_int("INT_BAD")

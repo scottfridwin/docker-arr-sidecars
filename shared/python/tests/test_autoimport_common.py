@@ -7,6 +7,9 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from shared.python.autoimport import common
+from shared.python.autoimport.strategy import ImportStrategy
+
 
 def _load_lidarr_service_module():
     workspace = Path(__file__).resolve().parents[3]
@@ -14,9 +17,7 @@ def _load_lidarr_service_module():
     if str(python_root) not in sys.path:
         sys.path.insert(0, str(python_root))
     path = python_root / "deemix_downloader" / "service.py"
-    spec = importlib.util.spec_from_file_location(
-        "deemix_downloader.service", str(path)
-    )
+    spec = importlib.util.spec_from_file_location("deemix_downloader.service", str(path))
     if spec is None or spec.loader is None:
         raise ImportError(f"Cannot import Lidarr service from {path}")
     module = importlib.util.module_from_spec(spec)
@@ -25,16 +26,10 @@ def _load_lidarr_service_module():
     return module
 
 
-from shared.python.autoimport import common
-from shared.python.autoimport.strategy import ImportStrategy
-
-
 def _load_sonarr_strategy():
     workspace = Path(__file__).resolve().parents[3]
     path = workspace / "sonarr-sidecar" / "services" / "persistent" / "AutoImport.py"
-    spec = importlib.util.spec_from_file_location(
-        "sonarr_autoimport_strategy", str(path)
-    )
+    spec = importlib.util.spec_from_file_location("sonarr_autoimport_strategy", str(path))
     if spec is None or spec.loader is None:
         raise ImportError(f"Cannot import Sonarr strategy from {path}")
     module = importlib.util.module_from_spec(spec)
@@ -53,14 +48,14 @@ radarr_strategy = ImportStrategy(
 
 class TestAutoImportCommon(unittest.TestCase):
     def test_cache_path_and_save_load(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            with patch.dict(os.environ, {"AUTOIMPORT_WORK_DIR": tmpdir}, clear=False):
-                cache_path = common._cache_path("moviepaths")
-                self.assertTrue(str(cache_path).endswith("moviepaths"))
-                common._save_cached_paths(cache_path, ["/tmp/one", "/tmp/two"])
-                self.assertEqual(
-                    common._load_cached_paths(cache_path), ["/tmp/one", "/tmp/two"]
-                )
+        with (
+            tempfile.TemporaryDirectory() as tmpdir,
+            patch.dict(os.environ, {"AUTOIMPORT_WORK_DIR": tmpdir}, clear=False),
+        ):
+            cache_path = common._cache_path("moviepaths")
+            self.assertTrue(str(cache_path).endswith("moviepaths"))
+            common._save_cached_paths(cache_path, ["/tmp/one", "/tmp/two"])
+            self.assertEqual(common._load_cached_paths(cache_path), ["/tmp/one", "/tmp/two"])
 
     def test_find_match_returns_matching_path(self):
         paths = ["/mnt/share/TestMovie", "/mnt/share/OtherMovie"]
@@ -69,9 +64,7 @@ class TestAutoImportCommon(unittest.TestCase):
         self.assertIsNone(common._find_match("MissingMovie", paths))
 
     def test_get_import_target_name_strips_marker(self):
-        with patch.dict(
-            os.environ, {"AUTOIMPORT_IMPORT_MARKER": "IMPORT_"}, clear=False
-        ):
+        with patch.dict(os.environ, {"AUTOIMPORT_IMPORT_MARKER": "IMPORT_"}, clear=False):
             self.assertEqual(
                 common.get_import_target_name("/tmp/IMPORT_BridgesOfMadisonCounty"),
                 "BridgesOfMadisonCounty",
@@ -92,13 +85,11 @@ class TestAutoImportCommon(unittest.TestCase):
             def fake_arr_api_request(method, endpoint, payload=None):
                 calls.append((method, endpoint, payload))
 
-            with patch.object(
-                common, "arr_api_request", side_effect=fake_arr_api_request
+            with (
+                patch.object(common, "arr_api_request", side_effect=fake_arr_api_request),
+                patch.object(common, "get_state", return_value=[{"name": "test-client"}]),
             ):
-                with patch.object(
-                    common, "get_state", return_value=[{"name": "test-client"}]
-                ):
-                    common.create_download_client()
+                common.create_download_client()
 
             self.assertEqual(calls, [("GET", "downloadclient", None)])
 
@@ -110,9 +101,7 @@ class TestAutoImportCommon(unittest.TestCase):
             os.makedirs(shared_dir, exist_ok=True)
             import_dir = os.path.join(drop_dir, "IMPORT_MySeries")
             os.makedirs(import_dir, exist_ok=True)
-            with open(
-                os.path.join(import_dir, "README.txt"), "w", encoding="utf-8"
-            ) as fh:
+            with open(os.path.join(import_dir, "README.txt"), "w", encoding="utf-8") as fh:
                 fh.write("content")
 
             env_vars = {
@@ -125,20 +114,18 @@ class TestAutoImportCommon(unittest.TestCase):
                 "ARR_NAME": "Sonarr",
             }
 
-            with patch.dict(os.environ, env_vars, clear=False):
-                with patch.object(
-                    common, "ensure_resource_paths", return_value=["/tv/MySeries"]
-                ):
-                    with patch.object(common, "check_permissions", return_value=True):
-                        arr_calls = []
+            with (
+                patch.dict(os.environ, env_vars, clear=False),
+                patch.object(common, "ensure_resource_paths", return_value=["/tv/MySeries"]),
+                patch.object(common, "check_permissions", return_value=True),
+            ):
+                arr_calls = []
 
-                        def fake_arr_api_request(method, endpoint, payload=None):
-                            arr_calls.append((method, endpoint, payload))
+                def fake_arr_api_request(method, endpoint, payload=None):
+                    arr_calls.append((method, endpoint, payload))
 
-                        with patch.object(
-                            common, "arr_api_request", side_effect=fake_arr_api_request
-                        ):
-                            common.process_import(import_dir, sonarr_strategy())
+                with patch.object(common, "arr_api_request", side_effect=fake_arr_api_request):
+                    common.process_import(import_dir, sonarr_strategy())
 
             self.assertFalse(os.path.exists(import_dir))
             self.assertTrue(os.path.isdir(os.path.join(shared_dir, "MySeries")))
@@ -163,21 +150,17 @@ class TestAutoImportCommon(unittest.TestCase):
                 "ARR_NAME": "Sonarr",
             }
 
-            with patch.dict(os.environ, env_vars, clear=False):
-                with patch.object(
-                    common, "ensure_resource_paths", return_value=["/tv/OtherSeries"]
-                ):
-                    with patch.object(common, "check_permissions", return_value=True):
-                        with patch.object(common, "arr_api_request"):
-                            common.process_import(import_dir, sonarr_strategy())
+            with (
+                patch.dict(os.environ, env_vars, clear=False),
+                patch.object(common, "ensure_resource_paths", return_value=["/tv/OtherSeries"]),
+                patch.object(common, "check_permissions", return_value=True),
+                patch.object(common, "arr_api_request"),
+            ):
+                common.process_import(import_dir, sonarr_strategy())
 
             self.assertFalse(os.path.exists(import_dir))
             self.assertTrue(os.path.isdir(os.path.join(drop_dir, "UniqueSeries")))
-            self.assertTrue(
-                os.path.exists(
-                    os.path.join(drop_dir, "UniqueSeries", "IMPORT_STATUS.txt")
-                )
-            )
+            self.assertTrue(os.path.exists(os.path.join(drop_dir, "UniqueSeries", "IMPORT_STATUS.txt")))
 
     def test_write_status_ignores_permission_errors(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -185,9 +168,7 @@ class TestAutoImportCommon(unittest.TestCase):
             import_dir.mkdir()
             status_file = import_dir / "IMPORT_STATUS.txt"
 
-            with patch.object(
-                Path, "write_text", side_effect=PermissionError("denied")
-            ):
+            with patch.object(Path, "write_text", side_effect=PermissionError("denied")):
                 common._write_status(import_dir, "status message")
 
             self.assertFalse(status_file.exists())
@@ -217,15 +198,14 @@ class TestAutoImportCommon(unittest.TestCase):
                 "ARR_NAME": "Lidarr",
             }
 
-            with patch.dict(os.environ, env_vars, clear=False):
-                with patch.object(
-                    common, "ensure_resource_paths", return_value=["/music/Artist"]
-                ), patch.object(common, "check_permissions", return_value=True):
-                    common.process_import(import_dir, strategy)
+            with (
+                patch.dict(os.environ, env_vars, clear=False),
+                patch.object(common, "ensure_resource_paths", return_value=["/music/Artist"]),
+                patch.object(common, "check_permissions", return_value=True),
+            ):
+                common.process_import(import_dir, strategy)
 
-            self.assertTrue(
-                os.path.isdir(os.path.join(shared_dir, "Artist--release-group"))
-            )
+            self.assertTrue(os.path.isdir(os.path.join(shared_dir, "Artist--release-group")))
 
     def test_fetch_paginated_resource_paths_falls_back_when_page_size_ignored(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -244,17 +224,11 @@ class TestAutoImportCommon(unittest.TestCase):
                     call_sequence.append((method, endpoint, payload))
                     common.set_state("arrApiResponse", large_page)
 
-                with patch.object(
-                    common, "arr_api_request", side_effect=fake_arr_api_request
-                ):
-                    paths = common._fetch_paginated_resource_paths(
-                        radarr_strategy, cache_file
-                    )
+                with patch.object(common, "arr_api_request", side_effect=fake_arr_api_request):
+                    paths = common._fetch_paginated_resource_paths(radarr_strategy, cache_file)
 
                 self.assertEqual(paths, [item["path"] for item in large_page])
-                self.assertEqual(
-                    call_sequence, [("GET", "movie?page=1&pageSize=100", None)]
-                )
+                self.assertEqual(call_sequence, [("GET", "movie?page=1&pageSize=100", None)])
 
     def test_fetch_paginated_resource_paths_falls_back_for_sonarr_series_endpoint(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -273,17 +247,11 @@ class TestAutoImportCommon(unittest.TestCase):
                     call_sequence.append((method, endpoint, payload))
                     common.set_state("arrApiResponse", large_page)
 
-                with patch.object(
-                    common, "arr_api_request", side_effect=fake_arr_api_request
-                ):
-                    paths = common._fetch_paginated_resource_paths(
-                        sonarr_strategy(), cache_file
-                    )
+                with patch.object(common, "arr_api_request", side_effect=fake_arr_api_request):
+                    paths = common._fetch_paginated_resource_paths(sonarr_strategy(), cache_file)
 
                 self.assertEqual(paths, [item["path"] for item in large_page])
-                self.assertEqual(
-                    call_sequence, [("GET", "series?page=1&pageSize=100", None)]
-                )
+                self.assertEqual(call_sequence, [("GET", "series?page=1&pageSize=100", None)])
 
     def test_manual_import_rejects_non_mp3_flac_files_when_conversion_disabled(self):
         service = _load_lidarr_service_module()

@@ -1,14 +1,13 @@
 # SPDX-License-Identifier: GPL-3.0-only
 
-import os
 import re
 import time
 import traceback
 from pathlib import Path
 
+from shared.python.arrapi import verify_arr_api_access
 from shared.python.autoimport.common import create_download_client, scan_drop_directory
 from shared.python.autoimport.strategy import ImportStrategy
-from shared.python.arrapi import verify_arr_api_access
 from shared.python.config import env
 from shared.python.logging_utils import debug, error, fatal, info
 from shared.python.state import init_state
@@ -45,13 +44,11 @@ def _validate_environment() -> None:
         elif not Path(value).is_dir():
             fatal(f"{key} '{value}' does not exist")
     if missing:
-        fatal(
-            f"Missing required environment variables: {', '.join(sorted(set(missing)))}"
-        )
+        fatal(f"Missing required environment variables: {', '.join(sorted(set(missing)))}")
 
 
 def _log_startup() -> None:
-    info(f"Starting AutoImport")
+    info("Starting AutoImport")
     debug(f"AUTOIMPORT_CACHE_HOURS={env('AUTOIMPORT_CACHE_HOURS')}")
     debug(f"AUTOIMPORT_DROP_DIR={env('AUTOIMPORT_DROP_DIR')}")
     debug(f"AUTOIMPORT_DOWNLOADCLIENT_NAME={env('AUTOIMPORT_DOWNLOADCLIENT_NAME')}")
@@ -78,15 +75,13 @@ def main(strategy: ImportStrategy) -> None:
         debug(f"TRACE :: Starting scan iteration {iteration}")
         try:
             scan_drop_directory(strategy)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             # A single failed scan (transient API/filesystem error) must not crash the
             # long-running service; log and continue with the next interval.
             error(f"Scan iteration {iteration} failed: {exc}")
             debug("TRACE :: " + traceback.format_exc())
         else:
-            debug(
-                f"TRACE :: Scan iteration {iteration} complete; sleeping for {interval} seconds"
-            )
+            debug(f"TRACE :: Scan iteration {iteration} complete; sleeping for {interval} seconds")
         time.sleep(interval)
 
 

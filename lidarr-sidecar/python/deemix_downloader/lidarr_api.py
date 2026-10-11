@@ -16,17 +16,16 @@ import json
 import os
 import sys
 import time
-from urllib.parse import quote_plus
 from typing import Any
+from urllib.parse import quote_plus
 
 # Add the app root so shared modules can be found
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
 from shared.python.arrapi import (
     arr_api_request,
-    verify_arr_api_access,
 )
-from shared.python.state import get_state, init_state, set_state
+from shared.python.state import get_state
 
 from .config import cfg
 from .logging import log
@@ -53,23 +52,25 @@ def add_download_client() -> None:
 
     log.debug(f"{cfg.download_client_name} not found, creating...")
 
-    payload = json.dumps({
-        "enable": True,
-        "protocol": "usenet",
-        "priority": 10,
-        "removeCompletedDownloads": True,
-        "removeFailedDownloads": True,
-        "name": cfg.download_client_name,
-        "fields": [
-            {"name": "nzbFolder", "value": str(cfg.shared_lidarr_path)},
-            {"name": "watchFolder", "value": str(cfg.shared_lidarr_path)},
-        ],
-        "implementationName": "Usenet Blackhole",
-        "implementation": "UsenetBlackhole",
-        "configContract": "UsenetBlackholeSettings",
-        "infoLink": "https://wiki.servarr.com/lidarr/supported#usenetblackhole",
-        "tags": [],
-    })
+    payload = json.dumps(
+        {
+            "enable": True,
+            "protocol": "usenet",
+            "priority": 10,
+            "removeCompletedDownloads": True,
+            "removeFailedDownloads": True,
+            "name": cfg.download_client_name,
+            "fields": [
+                {"name": "nzbFolder", "value": str(cfg.shared_lidarr_path)},
+                {"name": "watchFolder", "value": str(cfg.shared_lidarr_path)},
+            ],
+            "implementationName": "Usenet Blackhole",
+            "implementation": "UsenetBlackhole",
+            "configContract": "UsenetBlackholeSettings",
+            "infoLink": "https://wiki.servarr.com/lidarr/supported#usenetblackhole",
+            "tags": [],
+        }
+    )
 
     arr_api_request("POST", "downloadclient", payload)
     log.debug(f"Successfully added {cfg.download_client_name} download client")
@@ -82,9 +83,7 @@ def notify_lidarr_import(import_path: str) -> None:
     log.debug(f"Sent import notification to Lidarr for: {import_path}")
 
 
-def scan_import_and_verify(
-    import_path: str, album_id: int | str
-) -> tuple[bool, list[str]]:
+def scan_import_and_verify(import_path: str, album_id: int | str) -> tuple[bool, list[str]]:
     """Run DownloadedAlbumsScan and confirm it actually registered track files.
 
     Unlike notify_lidarr_import (fire-and-forget), this polls the command to
@@ -176,12 +175,7 @@ def manual_import_release(
     reprocess we submit that command and confirm Lidarr registered track files.
     """
     folder = quote_plus(import_path)
-    path = (
-        f"manualimport?folder={folder}"
-        f"&artistId={artist_id}"
-        "&filterExistingFiles=false"
-        "&replaceExistingFiles=true"
-    )
+    path = f"manualimport?folder={folder}&artistId={artist_id}&filterExistingFiles=false&replaceExistingFiles=true"
     arr_api_request("GET", path)
     response = get_state("arrApiResponse")
 
@@ -197,21 +191,23 @@ def manual_import_release(
     for item in items:
         if not isinstance(item, dict):
             continue
-        updates.append({
-            "id": item.get("id"),
-            "path": item.get("path", ""),
-            "name": item.get("name", ""),
-            "artistId": int(artist_id),
-            "albumId": int(album_id),
-            "albumReleaseId": int(release_id),
-            "quality": item.get("quality"),
-            "releaseGroup": item.get("releaseGroup", ""),
-            "indexerFlags": item.get("indexerFlags", 0),
-            "downloadId": item.get("downloadId", ""),
-            "additionalFile": bool(item.get("additionalFile", False)),
-            "replaceExistingFiles": True,
-            "disableReleaseSwitching": True,
-        })
+        updates.append(
+            {
+                "id": item.get("id"),
+                "path": item.get("path", ""),
+                "name": item.get("name", ""),
+                "artistId": int(artist_id),
+                "albumId": int(album_id),
+                "albumReleaseId": int(release_id),
+                "quality": item.get("quality"),
+                "releaseGroup": item.get("releaseGroup", ""),
+                "indexerFlags": item.get("indexerFlags", 0),
+                "downloadId": item.get("downloadId", ""),
+                "additionalFile": bool(item.get("additionalFile", False)),
+                "replaceExistingFiles": True,
+                "disableReleaseSwitching": True,
+            }
+        )
 
     if not updates:
         return False, ["No valid manual import updates could be generated"]
@@ -232,9 +228,7 @@ def manual_import_release(
     if rejections:
         return False, rejections
 
-    return submit_manual_import(
-        results, artist_id, album_id, release_id
-    )
+    return submit_manual_import(results, artist_id, album_id, release_id)
 
 
 def submit_manual_import(
@@ -257,18 +251,20 @@ def submit_manual_import(
         track_ids = _extract_track_ids(item)
         if not track_ids:
             continue
-        files.append({
-            "path": item.get("path", ""),
-            "artistId": int(artist_id),
-            "albumId": int(album_id),
-            "albumReleaseId": int(release_id),
-            "trackIds": track_ids,
-            "quality": item.get("quality"),
-            "releaseGroup": item.get("releaseGroup", ""),
-            "indexerFlags": item.get("indexerFlags", 0),
-            "downloadId": item.get("downloadId", "") or "",
-            "disableReleaseSwitching": True,
-        })
+        files.append(
+            {
+                "path": item.get("path", ""),
+                "artistId": int(artist_id),
+                "albumId": int(album_id),
+                "albumReleaseId": int(release_id),
+                "trackIds": track_ids,
+                "quality": item.get("quality"),
+                "releaseGroup": item.get("releaseGroup", ""),
+                "indexerFlags": item.get("indexerFlags", 0),
+                "downloadId": item.get("downloadId", "") or "",
+                "disableReleaseSwitching": True,
+            }
+        )
 
     if not files:
         return False, ["No audio files could be mapped to tracks for manual import"]
@@ -283,9 +279,7 @@ def submit_manual_import(
     }
     arr_api_request("POST", "command", json.dumps(command))
     command_response = get_state("arrApiResponse")
-    command_id = (
-        command_response.get("id") if isinstance(command_response, dict) else None
-    )
+    command_id = command_response.get("id") if isinstance(command_response, dict) else None
     if command_id is None:
         return False, ["Lidarr did not return a command id for ManualImport"]
 
@@ -304,9 +298,7 @@ def submit_manual_import(
     return True, []
 
 
-def get_wanted_albums(
-    list_type: str, page: int = 1, page_size: int = 1000, include_artist: bool = False
-) -> dict:
+def get_wanted_albums(list_type: str, page: int = 1, page_size: int = 1000, include_artist: bool = False) -> dict:
     """
     Fetch a page of wanted albums from Lidarr.
     list_type: "missing" or "cutoff"
@@ -369,15 +361,12 @@ def get_album_ids_by_artist(foreign_artist_id: str) -> list[str]:
         page = 1
         total_pages = 1
         while page <= total_pages:
-            response = get_wanted_albums(
-                list_type, page=page, page_size=page_size, include_artist=True
-            )
+            response = get_wanted_albums(list_type, page=page, page_size=page_size, include_artist=True)
             total_records = response.get("totalRecords", 0) if isinstance(response, dict) else 0
             total_pages = max(1, (total_records + page_size - 1) // page_size)
             records = response.get("records", []) if isinstance(response, dict) else []
             album_ids.extend(
-                str(r["id"]) for r in records
-                if r.get("artist", {}).get("foreignArtistId") == foreign_artist_id
+                str(r["id"]) for r in records if r.get("artist", {}).get("foreignArtistId") == foreign_artist_id
             )
             page += 1
     return album_ids

@@ -7,8 +7,6 @@ from __future__ import annotations
 
 import json
 import time
-from pathlib import Path
-from typing import Any
 
 import requests
 
@@ -22,9 +20,7 @@ def _get_session() -> requests.Session:
     global _session
     if _session is None:
         _session = requests.Session()
-        _session.headers.update(
-            {"User-Agent": "Mozilla/5.0 (compatible; deemix-sidecar/1.0)"}
-        )
+        _session.headers.update({"User-Agent": "Mozilla/5.0 (compatible; deemix-sidecar/1.0)"})
     return _session
 
 
@@ -51,14 +47,10 @@ def call_deezer_api(url: str) -> dict | list | None:
                 return data
             else:
                 log.warning(
-                    f"Deezer API returned HTTP {resp.status_code} for {url}, "
-                    f"retrying ({attempt}/{max_retries})..."
+                    f"Deezer API returned HTTP {resp.status_code} for {url}, retrying ({attempt}/{max_retries})..."
                 )
         except (requests.RequestException, ValueError) as e:
-            log.warning(
-                f"Deezer API request failed for {url}: {e}, "
-                f"retrying ({attempt}/{max_retries})..."
-            )
+            log.warning(f"Deezer API request failed for {url}: {e}, retrying ({attempt}/{max_retries})...")
         time.sleep(1)
 
     log.warning(f"Failed to get valid response from Deezer API after {max_retries} attempts for {url}")

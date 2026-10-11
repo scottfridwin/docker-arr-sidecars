@@ -1,15 +1,11 @@
 {
-	"name": "dev-radarr-sidecar",
-	"image": "mcr.microsoft.com/devcontainers/base:alpine",
-	"postCreateCommand": "sudo apk add --no-cache py3-requests",
-	"customizations": {
-		"vscode": {
-			"extensions": [
-				"foxundermoon.shell-format@7.2.5",
-				"redhat.vscode-yaml",
-				"ms-python.black-formatter",
-				"DavidAnson.vscode-markdownlint"
-			]
-		}
-	}
+  "name": "docker-arr-sidecars",
+  "image": "mcr.microsoft.com/devcontainers/python:3-3.14-trixie",
+  "containerEnv": { "PYTHONPATH": "${containerWorkspaceFolder}" },
+  "postCreateCommand": "pip install -r lidarr-sidecar/requirements.txt -r requirements-dev.txt",
+  "customizations": {
+    "vscode": {
+      "extensions": ["charliermarsh.ruff", "redhat.vscode-yaml", "DavidAnson.vscode-markdownlint"]
+    }
+  }
 }

@@ -8,11 +8,10 @@ from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-from .config import env, env_bool, env_int
+from .config import env, env_int
 from .io_utils import load_json_text, parse_xml_config, read_json_file, xml_text
 from .logging_utils import debug, fatal, info, log, warning
-from .state import get_state, init_state, set_state
-
+from .state import get_state, set_state
 
 _SENSITIVE_KEY_RE = re.compile(r"pass|secret|token|apikey|api_key|key", re.IGNORECASE)
 
@@ -93,23 +92,19 @@ def http_request(method: str, url: str, payload: str | None = None):
         headers["Content-Type"] = "application/json"
         data = payload.encode("utf-8")
 
+    if not url.startswith(("http://", "https://")):
+        raise ValueError(f"Refusing non-HTTP URL: {url}")
     timeout = int(env("ARR_API_TIMEOUT", "60"))
-    request_obj = Request(url, data=data, headers=headers, method=method)
-    debug(
-        f"TRACE :: HTTP request method='{method}', url='{url}', timeout={timeout}"
-    )
+    request_obj = Request(url, data=data, headers=headers, method=method)  # noqa: S310 - scheme checked above
+    debug(f"TRACE :: HTTP request method='{method}', url='{url}', timeout={timeout}")
     try:
-        with urlopen(request_obj, timeout=timeout) as response:
+        with urlopen(request_obj, timeout=timeout) as response:  # noqa: S310 - scheme checked above
             body = response.read()
-            debug(
-                f"TRACE :: HTTP response from {url}: status={response.getcode()} body_length={len(body)}"
-            )
+            debug(f"TRACE :: HTTP response from {url}: status={response.getcode()} body_length={len(body)}")
             return response.getcode(), body
     except HTTPError as exc:
         body = exc.read()
-        debug(
-            f"TRACE :: HTTPError for {method} {url} status={exc.code} message={exc.reason}"
-        )
+        debug(f"TRACE :: HTTPError for {method} {url} status={exc.code} message={exc.reason}")
         return exc.code, body
     except URLError as exc:
         debug(f"TRACE :: URLError for {method} {url}: {exc}")
@@ -139,23 +134,14 @@ def arr_task_status_check() -> None:
         if not isinstance(task_list, list):
             fatal(f"{env('ARR_NAME')} API returned invalid task list for command")
 
-        active = sum(
-            1
-            for item in task_list
-            if isinstance(item, dict) and item.get("status") == "started"
-        )
+        active = sum(1 for item in task_list if isinstance(item, dict) and item.get("status") == "started")
         if active >= 1:
             if time.monotonic() >= deadline:
-                warning(
-                    f"{env('ARR_NAME')} still has {active} active task(s) after "
-                    "wait timeout; proceeding anyway"
-                )
+                warning(f"{env('ARR_NAME')} still has {active} active task(s) after wait timeout; proceeding anyway")
                 break
             if not alerted:
                 alerted = True
-                info(
-                    f"{env('ARR_NAME')} busy :: Waiting for {active} active {env('ARR_NAME')} tasks to complete..."
-                )
+                info(f"{env('ARR_NAME')} busy :: Waiting for {active} active {env('ARR_NAME')} tasks to complete...")
             time.sleep(2)
             continue
         break
@@ -172,18 +158,14 @@ def verify_arr_api_access() -> None:
         fatal("verifyArrApiAccess requires both URL and API key")
 
     supported_versions = [
-        version.strip()
-        for version in env("ARR_SUPPORTED_API_VERSIONS", "v3,v1").split(",")
-        if version.strip()
+        version.strip() for version in env("ARR_SUPPORTED_API_VERSIONS", "v3,v1").split(",") if version.strip()
     ]
     if not supported_versions:
         supported_versions = ["v3", "v1"]
 
     for version in supported_versions:
         if env("FUNCTIONALTESTDIR"):
-            debug(
-                f"Skipping actual API connectivity test in functional testing mode for version {version}"
-            )
+            debug(f"Skipping actual API connectivity test in functional testing mode for version {version}")
             set_state("arrApiVersion", version)
             break
 
@@ -206,13 +188,9 @@ def verify_arr_api_access() -> None:
 
             if status_code == 200:
                 parsed = load_json_text(body, "system/status response")
-                instance_name = (
-                    parsed.get("instanceName") if isinstance(parsed, dict) else ""
-                )
+                instance_name = parsed.get("instanceName") if isinstance(parsed, dict) else ""
                 set_state("arrApiVersion", version)
-                debug(
-                    f"{env('ARR_NAME')} API {version} available (instance: {instance_name})"
-                )
+                debug(f"{env('ARR_NAME')} API {version} available (instance: {instance_name})")
                 break
             if status_code == 000:
                 if time.monotonic() >= deadline:
@@ -232,24 +210,17 @@ def verify_arr_api_access() -> None:
 
     if not get_state("arrApiVersion"):
         fatal(
-            f"Unable to connect to {env('ARR_NAME')} with any supported API versions. Supported: {env('ARR_SUPPORTED_API_VERSIONS')}"
+            f"Unable to connect to {env('ARR_NAME')} with any supported API versions. "
+            f"Supported: {env('ARR_SUPPORTED_API_VERSIONS')}"
         )
 
-    debug(
-        f"{env('ARR_NAME')} API access verified (URL: {arr_url}, Version: {get_state('arrApiVersion')})"
-    )
+    debug(f"{env('ARR_NAME')} API access verified (URL: {arr_url}, Version: {get_state('arrApiVersion')})")
     debug("TRACE :: Exiting verifyArrApiAccess...")
 
 
 def arr_api_request(method: str, path: str, payload: str | None = None) -> None:
-    if (
-        not get_state("arrUrl")
-        or not get_state("arrApiKey")
-        or not get_state("arrApiVersion")
-    ):
-        debug(
-            "Need to retrieve arr connection details in order to perform API requests"
-        )
+    if not get_state("arrUrl") or not get_state("arrApiKey") or not get_state("arrApiVersion"):
+        debug("Need to retrieve arr connection details in order to perform API requests")
         verify_arr_api_access()
 
     arr_url = get_state("arrUrl")
@@ -260,21 +231,18 @@ def arr_api_request(method: str, path: str, payload: str | None = None) -> None:
         arr_task_status_check()
 
     if env("FUNCTIONALTESTDIR"):
-        debug(
-            f"Skipping actual API request in functional testing mode for {method} {path}"
-        )
+        debug(f"Skipping actual API request in functional testing mode for {method} {path}")
         status_code, body = get_functional_test_response(method, path)
         if isinstance(body, str):
             body = body.encode("utf-8")
     else:
         if payload is not None:
             debug(
-                f"TRACE :: Executing {env('ARR_NAME')} Api call: method '{method}', url: '{full_url}', payload: {_redact_payload(payload)}"
+                f"TRACE :: Executing {env('ARR_NAME')} Api call: method '{method}', url: '{full_url}', "
+                f"payload: {_redact_payload(payload)}"
             )
         else:
-            debug(
-                f"TRACE :: Executing {env('ARR_NAME')} Api call: method '{method}', url: '{full_url}'"
-            )
+            debug(f"TRACE :: Executing {env('ARR_NAME')} Api call: method '{method}', url: '{full_url}'")
         while True:
             try:
                 status_code, body = http_request(method.upper(), full_url, payload)
@@ -291,12 +259,11 @@ def arr_api_request(method: str, path: str, payload: str | None = None) -> None:
                     except URLError:
                         continue
                     debug(
-                        f"{env('ARR_NAME')} status request ({recovery_url}) returned {recovery_code} with body {recovery_body}"
+                        f"{env('ARR_NAME')} status request ({recovery_url}) returned {recovery_code} "
+                        f"with body {recovery_body}"
                     )
                     if recovery_code == 200:
-                        debug(
-                            f"{env('ARR_NAME')} connectivity restored, retrying previous request..."
-                        )
+                        debug(f"{env('ARR_NAME')} connectivity restored, retrying previous request...")
                         break
                 continue
             break
@@ -354,18 +321,12 @@ def compare_values(key, payload_value, response_value, prefix=""):
 
     if key == "fields" and isinstance(payload_value, list):
         if not isinstance(response_value, list):
-            return [
-                f"Value mismatch: {path} (expected list of fields, got {type(response_value).__name__})"
-            ]
+            return [f"Value mismatch: {path} (expected list of fields, got {type(response_value).__name__})"]
         for field in payload_value:
             if not isinstance(field, dict) or "name" not in field:
                 return [f"Invalid field entry in payload at {path}"]
             name = field["name"]
-            matches = [
-                item
-                for item in response_value
-                if isinstance(item, dict) and item.get("name") == name
-            ]
+            matches = [item for item in response_value if isinstance(item, dict) and item.get("name") == name]
             if not matches:
                 mismatches.append(f"Missing field: {name}")
                 continue
@@ -381,28 +342,20 @@ def compare_values(key, payload_value, response_value, prefix=""):
 
     if isinstance(payload_value, dict):
         if not isinstance(response_value, dict):
-            return [
-                f"Value mismatch: {path} (expected object, got {type(response_value).__name__})"
-            ]
+            return [f"Value mismatch: {path} (expected object, got {type(response_value).__name__})"]
         for subkey, subval in payload_value.items():
-            mismatches.extend(
-                compare_values(subkey, subval, response_value.get(subkey), path)
-            )
+            mismatches.extend(compare_values(subkey, subval, response_value.get(subkey), path))
         return mismatches
 
     if isinstance(payload_value, list):
         if payload_value != response_value:
-            return [
-                f"Value mismatch: {path} (expected: {payload_value}, got: {response_value})"
-            ]
+            return [f"Value mismatch: {path} (expected: {payload_value}, got: {response_value})"]
         return []
 
     if response_value != payload_value:
         if is_masked_secret(key, response_value):
             return []
-        return [
-            f"Value mismatch: {path} (expected: {payload_value}, got: {response_value})"
-        ]
+        return [f"Value mismatch: {path} (expected: {payload_value}, got: {response_value})"]
     return []
 
 
@@ -446,19 +399,13 @@ def arr_api_attempt(method: str, url: str, payload: str) -> None:
                 if response_matches_payload(json.loads(payload), resp):
                     break
             else:
-                debug(
-                    f"Empty or invalid response to {method} at {url}; skipping verification for this attempt."
-                )
+                debug(f"Empty or invalid response to {method} at {url}; skipping verification for this attempt.")
                 break
 
         if attempt >= max_attempts:
-            fatal(
-                f"{env('ARR_NAME')} response does not reflect requested changes for {url} after {attempt} attempts."
-            )
+            fatal(f"{env('ARR_NAME')} response does not reflect requested changes for {url} after {attempt} attempts.")
 
-        warning(
-            f"{env('ARR_NAME')} response mismatch for {url}; retrying in 5s ({attempt}/{max_attempts})..."
-        )
+        warning(f"{env('ARR_NAME')} response mismatch for {url}; retrying in 5s ({attempt}/{max_attempts})...")
         time.sleep(5)
         attempt += 1
 
@@ -496,9 +443,7 @@ def update_arr_config(json_file: str, api_path: str, setting_name: str) -> None:
         if response is None:
             fatal(f"Empty API response when fetching existing resources at {api_path}")
         if not isinstance(response, list):
-            fatal(
-                f"Expected array response when fetching existing resources at {api_path}"
-            )
+            fatal(f"Expected array response when fetching existing resources at {api_path}")
 
         for item in json_data:
             if not isinstance(item, dict):
@@ -523,14 +468,10 @@ def update_arr_config(json_file: str, api_path: str, setting_name: str) -> None:
                 arr_api_attempt("PUT", url, payload)
             else:
                 payload = json.dumps({k: v for k, v in item.items() if k != "id"})
-                debug(
-                    "TRACE :: Resource id=%s not found; creating new entry via POST"
-                    % item_id
-                )
+                debug(f"TRACE :: Resource id={item_id} not found; creating new entry via POST")
                 debug(f"TRACE :: Payload: {payload}")
                 arr_api_attempt("POST", api_path, payload)
     else:
         debug("Detected JSON object, sending single PUT...")
         payload = json.dumps(json_data)
         arr_api_attempt("PUT", api_path, payload)
-

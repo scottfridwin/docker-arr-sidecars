@@ -25,30 +25,22 @@ def main() -> None:
     debug(f"AUTOCONFIG_QUALITYPROFILE={env('AUTOCONFIG_QUALITYPROFILE')}")
     debug(f"AUTOCONFIG_QUALITYPROFILE_JSON={env('AUTOCONFIG_QUALITYPROFILE_JSON')}")
     debug(f"AUTOCONFIG_REMOTEPATHMAPPING={env('AUTOCONFIG_REMOTEPATHMAPPING')}")
-    debug(
-        f"AUTOCONFIG_REMOTEPATHMAPPING_JSON={env('AUTOCONFIG_REMOTEPATHMAPPING_JSON')}"
-    )
+    debug(f"AUTOCONFIG_REMOTEPATHMAPPING_JSON={env('AUTOCONFIG_REMOTEPATHMAPPING_JSON')}")
     debug(f"AUTOCONFIG_UI={env('AUTOCONFIG_UI')}")
     debug(f"AUTOCONFIG_UI_JSON={env('AUTOCONFIG_UI_JSON')}")
 
     delay = env_int("AUTOCONFIG_DELAY", 0)
     if delay > 0:
-        info(
-            f"Delaying for {delay} seconds to allow {env('ARR_NAME')} to fully initialize database"
-        )
+        info(f"Delaying for {delay} seconds to allow {env('ARR_NAME')} to fully initialize database")
         time.sleep(delay)
 
     init_state()
     verify_arr_api_access()
 
     if env_bool("AUTOCONFIG_CUSTOMFORMAT"):
-        update_arr_config(
-            env("AUTOCONFIG_CUSTOMFORMAT_JSON"), "customformat", "Custom Format(s)"
-        )
+        update_arr_config(env("AUTOCONFIG_CUSTOMFORMAT_JSON"), "customformat", "Custom Format(s)")
     if env_bool("AUTOCONFIG_DOWNLOADCLIENT"):
-        update_arr_config(
-            env("AUTOCONFIG_DOWNLOADCLIENT_JSON"), "downloadclient", "Download Client"
-        )
+        update_arr_config(env("AUTOCONFIG_DOWNLOADCLIENT_JSON"), "downloadclient", "Download Client")
     if env_bool("AUTOCONFIG_HOST"):
         update_arr_config(env("AUTOCONFIG_HOST_JSON"), "config/host", "Host")
     if env_bool("AUTOCONFIG_MEDIAMANAGEMENT"):
