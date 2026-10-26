@@ -1,5 +1,5 @@
 # Use Alpine as base
-FROM alpine:3.24@sha256:71e9b7bae160ba167fa17414401b94cbcdaf3c32feeab9298bd794a2a0614c35 AS runtime
+FROM alpine:3.24@sha256:be2656061b536c1883c4034790e21d0a09c5aaaf51968b89368a3c0371ea2c9a AS runtime
 
 LABEL org.opencontainers.image.description="Radarr sidecar - auto-config and import orchestration"
 LABEL org.opencontainers.image.licenses="GPL-3.0-only"
