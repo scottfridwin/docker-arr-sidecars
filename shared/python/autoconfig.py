@@ -22,6 +22,8 @@ def main() -> None:
     debug(f"AUTOCONFIG_MEDIAMANAGEMENT_JSON={env('AUTOCONFIG_MEDIAMANAGEMENT_JSON')}")
     debug(f"AUTOCONFIG_NAMING={env('AUTOCONFIG_NAMING')}")
     debug(f"AUTOCONFIG_NAMING_JSON={env('AUTOCONFIG_NAMING_JSON')}")
+    debug(f"AUTOCONFIG_QUALITYDEFINITION={env('AUTOCONFIG_QUALITYDEFINITION')}")
+    debug(f"AUTOCONFIG_QUALITYDEFINITION_JSON={env('AUTOCONFIG_QUALITYDEFINITION_JSON')}")
     debug(f"AUTOCONFIG_QUALITYPROFILE={env('AUTOCONFIG_QUALITYPROFILE')}")
     debug(f"AUTOCONFIG_QUALITYPROFILE_JSON={env('AUTOCONFIG_QUALITYPROFILE_JSON')}")
     debug(f"AUTOCONFIG_REMOTEPATHMAPPING={env('AUTOCONFIG_REMOTEPATHMAPPING')}")
@@ -51,6 +53,12 @@ def main() -> None:
         )
     if env_bool("AUTOCONFIG_NAMING"):
         update_arr_config(env("AUTOCONFIG_NAMING_JSON"), "config/naming", "Naming")
+    if env_bool("AUTOCONFIG_QUALITYDEFINITION"):
+        update_arr_config(
+            env("AUTOCONFIG_QUALITYDEFINITION_JSON"),
+            "qualitydefinition",
+            "Quality Definition(s)",
+        )
     if env_bool("AUTOCONFIG_QUALITYPROFILE"):
         update_arr_config(
             env("AUTOCONFIG_QUALITYPROFILE_JSON"),

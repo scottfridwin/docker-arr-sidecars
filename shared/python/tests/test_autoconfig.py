@@ -31,6 +31,8 @@ class TestAutoConfig(unittest.TestCase):
                 "AUTOCONFIG_MEDIAMANAGEMENT_JSON": "/app/config/mediamanagement.json",
                 "AUTOCONFIG_NAMING": "true",
                 "AUTOCONFIG_NAMING_JSON": "/app/config/naming.json",
+                "AUTOCONFIG_QUALITYDEFINITION": "true",
+                "AUTOCONFIG_QUALITYDEFINITION_JSON": "/app/config/qualitydefinition.json",
                 "AUTOCONFIG_QUALITYPROFILE": "true",
                 "AUTOCONFIG_QUALITYPROFILE_JSON": "/app/config/qualityprofile.json",
                 "AUTOCONFIG_REMOTEPATHMAPPING": "true",
@@ -44,8 +46,15 @@ class TestAutoConfig(unittest.TestCase):
         main()
 
         self.assertEqual(verify_mock.call_count, 1)
-        self.assertEqual(update_mock.call_count, 8)
+        self.assertEqual(update_mock.call_count, 9)
         update_mock.assert_any_call("/app/config/customformat.json", "customformat", "Custom Format(s)")
+        update_mock.assert_any_call(
+            "/app/config/qualitydefinition.json",
+            "qualitydefinition",
+            "Quality Definition(s)",
+        )
+        called_paths = [call.args[1] for call in update_mock.call_args_list]
+        self.assertLess(called_paths.index("customformat"), called_paths.index("qualityprofile"))
         update_mock.assert_any_call("/app/config/host.json", "config/host", "Host")
         update_mock.assert_any_call("/app/config/ui.json", "config/ui", "UI")
         sleep_mock.assert_not_called()
@@ -62,6 +71,7 @@ class TestAutoConfig(unittest.TestCase):
                 "AUTOCONFIG_HOST": "false",
                 "AUTOCONFIG_MEDIAMANAGEMENT": "false",
                 "AUTOCONFIG_NAMING": "false",
+                "AUTOCONFIG_QUALITYDEFINITION": "false",
                 "AUTOCONFIG_QUALITYPROFILE": "false",
                 "AUTOCONFIG_REMOTEPATHMAPPING": "false",
                 "AUTOCONFIG_UI": "false",
