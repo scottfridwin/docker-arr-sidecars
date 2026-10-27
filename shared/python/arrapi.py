@@ -431,6 +431,43 @@ def find_existing_resource(item, response):
     return None
 
 
+def resolve_profile_format_items(profile: dict, custom_formats: list) -> dict:
+    """Point a quality profile's formatItems at the live custom format ids, matched by name.
+
+    Custom format ids are assigned by the *arr when a format is created, so a profile file can't rely on them.
+    Formats that exist but are not listed get score 0, because the *arr requires every format in a profile.
+    """
+    items = profile.get("formatItems")
+    if items is None:
+        return profile
+    if not isinstance(items, list):
+        fatal(f"Quality profile '{profile.get('name')}' formatItems must be an array")
+
+    ids_by_name = {}
+    for custom_format in custom_formats:
+        if isinstance(custom_format, dict) and custom_format.get("name") is not None:
+            ids_by_name[custom_format["name"]] = custom_format.get("id")
+
+    resolved = []
+    listed = set()
+    for item in items:
+        name = item.get("name") if isinstance(item, dict) else None
+        if name is None:
+            fatal(f"Quality profile '{profile.get('name')}' has a format item without a name")
+        if name in listed:
+            fatal(f"Quality profile '{profile.get('name')}' lists custom format '{name}' more than once")
+        if name not in ids_by_name:
+            fatal(f"Quality profile '{profile.get('name')}' scores unknown custom format '{name}'")
+        listed.add(name)
+        resolved.append({**item, "format": ids_by_name[name]})
+
+    for name, format_id in ids_by_name.items():
+        if name not in listed:
+            resolved.append({"format": format_id, "name": name, "score": 0})
+
+    return {**profile, "formatItems": resolved}
+
+
 def update_arr_config(json_file: str, api_path: str, setting_name: str) -> None:
     json_data = read_json_file(json_file)
     debug(f"Configuring {env('ARR_NAME')} {setting_name} Settings")
@@ -445,9 +482,18 @@ def update_arr_config(json_file: str, api_path: str, setting_name: str) -> None:
         if not isinstance(response, list):
             fatal(f"Expected array response when fetching existing resources at {api_path}")
 
+        custom_formats = None
+        if api_path == "qualityprofile":
+            arr_api_request("GET", "customformat")
+            custom_formats = get_state("arrApiResponse")
+            if not isinstance(custom_formats, list):
+                fatal("Expected array response when fetching custom formats for quality profiles")
+
         for item in json_data:
             if not isinstance(item, dict):
                 fatal("Each array element in JSON config must be an object")
+            if custom_formats is not None:
+                item = resolve_profile_format_items(item, custom_formats)
             item_id = item.get("id")
             if item_id is None:
                 fatal("Element has no 'id' property.")

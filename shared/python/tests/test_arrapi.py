@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import json
 import os
 import tempfile
 import unittest
@@ -14,7 +15,9 @@ from shared.python.arrapi import (
     get_functional_test_response,
     ids_equal,
     is_masked_secret,
+    resolve_profile_format_items,
     response_matches_payload,
+    update_arr_config,
 )
 
 
@@ -107,6 +110,68 @@ class TestArrApi(unittest.TestCase):
         item = {"id": 1, "name": "my-client"}
         response = [{"id": 5, "name": "unrelated"}]
         self.assertIsNone(find_existing_resource(item, response))
+
+    def test_resolve_profile_format_items_uses_live_ids_and_adds_missing_formats(self):
+        profile = {
+            "id": 1,
+            "name": "Any",
+            "formatItems": [
+                {"format": 1, "name": "HEVC", "score": 500},
+                {"format": 2, "name": "Tdarr Re-encode", "score": -1000},
+            ],
+        }
+        custom_formats = [
+            {"id": 17, "name": "HEVC"},
+            {"id": 21, "name": "Unscored"},
+            {"id": 19, "name": "Tdarr Re-encode"},
+        ]
+
+        resolved = resolve_profile_format_items(profile, custom_formats)
+
+        self.assertEqual(
+            resolved["formatItems"],
+            [
+                {"format": 17, "name": "HEVC", "score": 500},
+                {"format": 19, "name": "Tdarr Re-encode", "score": -1000},
+                {"format": 21, "name": "Unscored", "score": 0},
+            ],
+        )
+        self.assertEqual(profile["formatItems"][0]["format"], 1)
+
+    def test_resolve_profile_format_items_rejects_unknown_format(self):
+        profile = {"name": "Any", "formatItems": [{"format": 1, "name": "Missing", "score": 1}]}
+        with self.assertRaises(SystemExit):
+            resolve_profile_format_items(profile, [{"id": 1, "name": "Other"}])
+
+    def test_resolve_profile_format_items_rejects_duplicate_format(self):
+        profile = {
+            "name": "Any",
+            "formatItems": [{"format": 1, "name": "HEVC", "score": 1}, {"format": 1, "name": "HEVC", "score": 2}],
+        }
+        with self.assertRaises(SystemExit):
+            resolve_profile_format_items(profile, [{"id": 1, "name": "HEVC"}])
+
+    @patch("shared.python.arrapi.arr_api_attempt")
+    @patch("shared.python.arrapi.arr_api_request")
+    @patch("shared.python.arrapi.read_json_file")
+    def test_update_quality_profiles_resolves_format_ids_before_put(self, read_mock, request_mock, attempt_mock):
+        read_mock.return_value = [{"id": 1, "name": "Any", "formatItems": [{"format": 1, "name": "HEVC", "score": 5}]}]
+        responses = {
+            "qualityprofile": [{"id": 1, "name": "Any"}],
+            "customformat": [{"id": 17, "name": "HEVC"}],
+        }
+        request_mock.side_effect = lambda _method, path: state_module.set_state("arrApiResponse", responses[path])
+        state_module.init_state()
+
+        update_arr_config("/config/qualityprofile.json", "qualityprofile", "Quality Profile(s)")
+
+        attempt_mock.assert_called_once()
+        method, url, payload = attempt_mock.call_args.args
+        self.assertEqual((method, url), ("PUT", "qualityprofile/1"))
+        self.assertEqual(
+            json.loads(payload)["formatItems"],
+            [{"format": 17, "name": "HEVC", "score": 5}],
+        )
 
     def test_get_functional_test_response(self):
         with tempfile.TemporaryDirectory() as temp_dir:

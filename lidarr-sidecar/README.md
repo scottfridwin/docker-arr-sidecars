@@ -155,12 +155,16 @@ AutoConfig toggles:
 - `AUTOCONFIG_METADATAPROVIDER`
 - `AUTOCONFIG_METADATAPROFILE`
 - `AUTOCONFIG_NAMING`
+- `AUTOCONFIG_QUALITYDEFINITION` (default `false`; no default JSON is shipped)
 - `AUTOCONFIG_QUALITYPROFILE`
 - `AUTOCONFIG_UI`
 - `AUTOCONFIG_CUSTOMFORMAT`
 - `AUTOCONFIG_DOWNLOADCLIENT`
 
 Each toggle has a corresponding `*_JSON` variable. See `Dockerfile` for current defaults and paths.
+
+Quality profile `formatItems` are matched to custom formats by `name`, so their `format` ids may differ from the
+live ids. Custom formats not listed in a profile get score 0.
 
 ## Notes
 
