@@ -101,16 +101,19 @@ def download_with_deemix(
     arl_token: str,
     quality: str = "flac",
     deemix_dir: Path = Path("/tmp/deemix"),
+    output_dir: Path | None = None,
 ) -> bool:
     """
     Download an album using deemix CLI.
     Returns True on success.
     """
     url = f"https://www.deezer.com/album/{album_id}"
+    download_path = output_dir or cfg.staging_dir
+    download_path.mkdir(parents=True, exist_ok=True)
 
     try:
         result = subprocess.run(
-            ["deemix", "--portable", "-p", str(cfg.staging_dir), "-b", quality, url],
+            ["deemix", "--portable", "-p", str(download_path), "-b", quality, url],
             input=arl_token,
             text=True,
             capture_output=True,
