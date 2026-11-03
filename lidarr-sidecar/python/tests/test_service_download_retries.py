@@ -68,9 +68,7 @@ class ServiceDownloadRetryTests(unittest.TestCase):
 
             imported_files = list(config.shared_lidarr_path.rglob("*"))
             audio_files = [
-                path
-                for path in imported_files
-                if path.is_file() and path.suffix.lower() in download.AUDIO_EXTENSIONS
+                path for path in imported_files if path.is_file() and path.suffix.lower() in download.AUDIO_EXTENSIONS
             ]
             failed_marker_exists = (config.failed_dir / result.deezer_album_id).exists()
             return succeeded, calls, audio_files, failed_marker_exists
