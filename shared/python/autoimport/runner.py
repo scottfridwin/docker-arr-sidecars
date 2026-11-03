@@ -9,7 +9,7 @@ from shared.python.arrapi import verify_arr_api_access
 from shared.python.autoimport.common import create_download_client, scan_drop_directory
 from shared.python.autoimport.strategy import ImportStrategy
 from shared.python.config import env
-from shared.python.logging_utils import debug, error, fatal, info
+from shared.python.logging_utils import debug, error, fatal, info, trace
 from shared.python.state import init_state
 
 
@@ -72,16 +72,16 @@ def main(strategy: ImportStrategy) -> None:
     iteration = 0
     while True:
         iteration += 1
-        debug(f"TRACE :: Starting scan iteration {iteration}")
+        trace(f"Starting scan iteration {iteration}")
         try:
             scan_drop_directory(strategy)
         except Exception as exc:  # noqa: BLE001
             # A single failed scan (transient API/filesystem error) must not crash the
             # long-running service; log and continue with the next interval.
             error(f"Scan iteration {iteration} failed: {exc}")
-            debug("TRACE :: " + traceback.format_exc())
+            trace(traceback.format_exc())
         else:
-            debug(f"TRACE :: Scan iteration {iteration} complete; sleeping for {interval} seconds")
+            trace(f"Scan iteration {iteration} complete; sleeping for {interval} seconds")
         time.sleep(interval)
 
 
