@@ -8,6 +8,7 @@ body:
       label: Sidecar
       options:
         - lidarr-sidecar
+        - lidarr-musicvideo-sidecar
         - radarr-sidecar
         - sonarr-sidecar
     validations:
