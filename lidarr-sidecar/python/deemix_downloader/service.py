@@ -20,6 +20,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from datetime import date
 from pathlib import Path
@@ -31,11 +32,11 @@ from shared.python.state import init_state
 
 from .config import cfg
 from .download import (
+    AUDIO_EXTENSIONS,
     apply_beets,
     apply_replaygain,
     clean_staging,
     consolidate_files,
-    count_audio_files,
     download_with_deemix,
     get_file_disc_track_numbers,
     move_to_import,
@@ -509,6 +510,45 @@ def _tag_and_enrich(
                 tag_mp3_mutagen(f, artist_name=artist_name, artist_foreign_id=artist_foreign_id)
 
 
+def _download_track_identity(file_path: Path) -> tuple[str, int, int] | tuple[str, str]:
+    disc_number, track_number = get_file_disc_track_numbers(file_path)
+    if track_number is not None:
+        return "track", disc_number or 1, track_number
+    return "filename", file_path.name.casefold()
+
+
+def _merge_download_attempt(attempt_dir: Path) -> int:
+    cfg.staging_dir.mkdir(parents=True, exist_ok=True)
+    known_tracks = {
+        _download_track_identity(file_path)
+        for file_path in cfg.staging_dir.rglob("*")
+        if file_path.is_file() and file_path.suffix.lower() in AUDIO_EXTENSIONS
+    }
+
+    for file_path in sorted(attempt_dir.rglob("*")):
+        if not file_path.is_file() or file_path.suffix.lower() not in AUDIO_EXTENSIONS:
+            continue
+        if file_path.suffix.lower() == ".flac" and not verify_flac(file_path):
+            log.warning(f"FLAC verification failed: {file_path.name}, removing")
+            file_path.unlink()
+            continue
+
+        identity = _download_track_identity(file_path)
+        if identity in known_tracks:
+            log.debug(f"Skipping duplicate track from retry: {file_path.name}")
+            continue
+
+        destination = cfg.staging_dir / file_path.name
+        suffix = 2
+        while destination.exists():
+            destination = cfg.staging_dir / f"{file_path.stem}_{suffix}{file_path.suffix}"
+            suffix += 1
+        shutil.move(str(file_path), str(destination))
+        known_tracks.add(identity)
+
+    return len(known_tracks)
+
+
 def _download_album(
     result: MatchResult,
     artist_name: str,
@@ -537,54 +577,62 @@ def _download_album(
 
     log.info(f"Downloading: [{deezer_album_id}] {deezer_title} ({release_year})")
 
-    # Download with retry
-    quality = "flac"
-    download_try = 0
+    attempt_limit = max(1, cfg.download_attempt_threshold)
+    qualities = ["flac", "mp3"] if cfg.download_quality_fallback else ["flac"]
+    clean_staging()
+    complete = False
 
-    while True:
-        download_try += 1
+    for quality_index, quality in enumerate(qualities):
+        if quality_index > 0:
+            log.warning(f"Failed to collect all tracks after {attempt_limit} FLAC attempts, trying mp3 fallback")
+            remove_existing_import_flac_files(
+                artist_name,
+                album_title,
+                release_year,
+                album_foreign_id,
+            )
+            clean_staging()
 
-        if download_try >= cfg.download_attempt_threshold:
-            if cfg.download_quality_fallback and quality == "flac":
-                log.warning(f"Failed after {download_try} attempts, trying mp3 fallback")
-                remove_existing_import_flac_files(
-                    artist_name,
-                    album_title,
-                    release_year,
-                    album_foreign_id,
+        for attempt in range(1, attempt_limit + 1):
+            log.debug(f"Download attempt #{attempt}/{attempt_limit} ({quality})")
+            with tempfile.TemporaryDirectory(prefix="deemix-attempt-", dir=cfg.work_path) as temp_dir:
+                deemix_success = download_with_deemix(
+                    deezer_album_id,
+                    arl_token,
+                    quality,
+                    DEEMIX_DIR,
+                    output_dir=Path(temp_dir),
                 )
-                clean_staging()
-                quality = "mp3"
-                download_try = 0
-            else:
-                log.warning(f"Failed after {download_try} attempts, giving up")
-                cfg.failed_dir.mkdir(parents=True, exist_ok=True)
-                (cfg.failed_dir / deezer_album_id).touch()
-                return False
+                if not deemix_success:
+                    log.warning(
+                        f"Deemix reported failure on attempt #{attempt}/{attempt_limit} ({quality}); "
+                        "keeping any completed tracks"
+                    )
+                collected_count = _merge_download_attempt(Path(temp_dir))
 
-        log.debug(f"Download attempt #{download_try}")
+            log.debug(f"Collected {collected_count}/{deezer_track_count} distinct tracks ({quality})")
+            if collected_count == deezer_track_count:
+                complete = True
+                break
+
+            log.warning(
+                f"Expected {deezer_track_count} distinct tracks, got {collected_count} "
+                f"after attempt #{attempt}/{attempt_limit} ({quality})"
+            )
+            if attempt < attempt_limit:
+                time.sleep(1)
+
+        if complete:
+            break
+
+    if not complete:
+        log.warning(
+            f"Failed to collect all tracks after exhausting {attempt_limit} attempts for each quality, giving up"
+        )
+        cfg.failed_dir.mkdir(parents=True, exist_ok=True)
+        (cfg.failed_dir / deezer_album_id).touch()
         clean_staging()
-        download_with_deemix(deezer_album_id, arl_token, quality, DEEMIX_DIR)
-
-        dl_count = count_audio_files(cfg.staging_dir)
-        if dl_count <= 0:
-            log.warning(f"No audio files on attempt #{download_try}")
-            time.sleep(1)
-            continue
-
-        # Verify FLAC files
-        for f in list(cfg.staging_dir.rglob("*.flac")):
-            if not verify_flac(f):
-                log.warning(f"FLAC verification failed: {f.name}, removing")
-                f.unlink()
-
-        final_count = count_audio_files(cfg.staging_dir)
-        if final_count != deezer_track_count:
-            log.warning(f"Expected {deezer_track_count} tracks, got {final_count}")
-            time.sleep(1)
-            continue
-
-        break
+        return False
 
     # Post-processing
     consolidate_files(cfg.staging_dir)

@@ -112,7 +112,7 @@ Downloader behavior:
 - `AUDIO_IGNORE_INSTRUMENTAL_RELEASES` (default: `true`)
 - `AUDIO_REQUIRE_NON_REDIRECT_DEEZER` (default: `true`, reject redirected Deezer IDs)
 - `AUDIO_REQUIRE_UPC_MATCH` (default: `true`, require MusicBrainz barcode and Deezer UPC to match after stripping leading zeros)
-- `AUDIO_DOWNLOAD_ATTEMPT_THRESHOLD` (default: `10`)
+- `AUDIO_DOWNLOAD_ATTEMPT_THRESHOLD` (default: `10`; attempts per quality, accumulating distinct verified tracks between attempts)
 - `AUDIO_DOWNLOAD_QUALITY_FALLBACK` (default: `true`)
 - `AUDIO_IMPORT_STRATEGY` (default: `scan`; `manual` forces release selection via Lidarr Manual Import API)
 - `AUDIO_IMPORT_MANUAL_FALLBACK_TO_SCAN` (default: `true`; if manual import rejects files, run DownloadedAlbumsScan as fallback)
