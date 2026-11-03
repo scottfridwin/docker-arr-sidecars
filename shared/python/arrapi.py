@@ -10,7 +10,7 @@ from urllib.request import Request, urlopen
 
 from .config import env, env_int
 from .io_utils import load_json_text, parse_xml_config, read_json_file, xml_text
-from .logging_utils import debug, fatal, info, log, warning
+from .logging_utils import debug, fatal, info, log, trace, warning
 from .state import get_state, set_state
 
 _SENSITIVE_KEY_RE = re.compile(r"pass|secret|token|apikey|api_key|key", re.IGNORECASE)
@@ -96,21 +96,21 @@ def http_request(method: str, url: str, payload: str | None = None):
         raise ValueError(f"Refusing non-HTTP URL: {url}")
     timeout = int(env("ARR_API_TIMEOUT", "60"))
     request_obj = Request(url, data=data, headers=headers, method=method)  # noqa: S310 - scheme checked above
-    debug(f"TRACE :: HTTP request method='{method}', url='{url}', timeout={timeout}")
+    trace(f"HTTP request method='{method}', url='{url}', timeout={timeout}")
     try:
         with urlopen(request_obj, timeout=timeout) as response:  # noqa: S310 - scheme checked above
             body = response.read()
-            debug(f"TRACE :: HTTP response from {url}: status={response.getcode()} body_length={len(body)}")
+            trace(f"HTTP response from {url}: status={response.getcode()} body_length={len(body)}")
             return response.getcode(), body
     except HTTPError as exc:
         body = exc.read()
-        debug(f"TRACE :: HTTPError for {method} {url} status={exc.code} message={exc.reason}")
+        trace(f"HTTPError for {method} {url} status={exc.code} message={exc.reason}")
         return exc.code, body
     except URLError as exc:
-        debug(f"TRACE :: URLError for {method} {url}: {exc}")
+        trace(f"URLError for {method} {url}: {exc}")
         raise
     except OSError as exc:
-        debug(f"TRACE :: OSError during HTTP request for {method} {url}: {exc}")
+        trace(f"OSError during HTTP request for {method} {url}: {exc}")
         raise
 
 
@@ -148,7 +148,7 @@ def arr_task_status_check() -> None:
 
 
 def verify_arr_api_access() -> None:
-    debug("TRACE :: Entering verifyArrApiAccess...")
+    trace("Entering verifyArrApiAccess...")
     get_arr_api_key()
     get_arr_url()
 
@@ -215,7 +215,7 @@ def verify_arr_api_access() -> None:
         )
 
     debug(f"{env('ARR_NAME')} API access verified (URL: {arr_url}, Version: {get_state('arrApiVersion')})")
-    debug("TRACE :: Exiting verifyArrApiAccess...")
+    trace("Exiting verifyArrApiAccess...")
 
 
 def arr_api_request(method: str, path: str, payload: str | None = None) -> None:
@@ -237,12 +237,12 @@ def arr_api_request(method: str, path: str, payload: str | None = None) -> None:
             body = body.encode("utf-8")
     else:
         if payload is not None:
-            debug(
-                f"TRACE :: Executing {env('ARR_NAME')} Api call: method '{method}', url: '{full_url}', "
+            trace(
+                f"Executing {env('ARR_NAME')} Api call: method '{method}', url: '{full_url}', "
                 f"payload: {_redact_payload(payload)}"
             )
         else:
-            debug(f"TRACE :: Executing {env('ARR_NAME')} Api call: method '{method}', url: '{full_url}'")
+            trace(f"Executing {env('ARR_NAME')} Api call: method '{method}', url: '{full_url}'")
         while True:
             try:
                 status_code, body = http_request(method.upper(), full_url, payload)
@@ -371,9 +371,9 @@ def response_matches_payload(payload, response) -> bool:
         mismatches.extend(compare_values(key, value, response.get(key)))
 
     if mismatches:
-        debug("TRACE :: Found differences between payload and response:")
+        trace("Found differences between payload and response:")
         for line in mismatches:
-            debug(f"TRACE :: {line}")
+            trace(line)
         return False
     return True
 
@@ -501,21 +501,21 @@ def update_arr_config(json_file: str, api_path: str, setting_name: str) -> None:
             if existing_match is not None:
                 resolved_id = existing_match.get("id")
                 if not ids_equal(item_id, resolved_id):
-                    debug(
-                        f"TRACE :: Element id={item_id} not found; matched existing "
+                    trace(
+                        f"Element id={item_id} not found; matched existing "
                         f"resource '{item.get('name')}' by name (id={resolved_id}) instead"
                     )
                 url = f"{api_path}/{resolved_id}"
                 payload_item = dict(item)
                 payload_item["id"] = resolved_id
                 payload = json.dumps(payload_item)
-                debug(f"TRACE :: Updating existing element (id={resolved_id}) at {url}")
-                debug(f"TRACE :: Payload: {payload}")
+                trace(f"Updating existing element (id={resolved_id}) at {url}")
+                trace(f"Payload: {payload}")
                 arr_api_attempt("PUT", url, payload)
             else:
                 payload = json.dumps({k: v for k, v in item.items() if k != "id"})
-                debug(f"TRACE :: Resource id={item_id} not found; creating new entry via POST")
-                debug(f"TRACE :: Payload: {payload}")
+                trace(f"Resource id={item_id} not found; creating new entry via POST")
+                trace(f"Payload: {payload}")
                 arr_api_attempt("POST", api_path, payload)
     else:
         debug("Detected JSON object, sending single PUT...")

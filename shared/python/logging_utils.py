@@ -18,6 +18,10 @@ def debug(message: str) -> None:
     log("DEBUG", message)
 
 
+def trace(message: str) -> None:
+    log("TRACE", message)
+
+
 def info(message: str) -> None:
     log("INFO", message)
 

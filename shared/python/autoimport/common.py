@@ -9,7 +9,7 @@ from shutil import move
 
 from shared.python.arrapi import arr_api_request
 from shared.python.config import env
-from shared.python.logging_utils import debug, fatal, info, warning
+from shared.python.logging_utils import debug, fatal, info, trace, warning
 from shared.python.state import get_state, set_state
 
 
@@ -47,16 +47,16 @@ def _fetch_paginated_resource_paths(strategy, cache_file: Path) -> list[str]:
     page_size = int(env("AUTOIMPORT_API_PAGE_SIZE", "100"))
     page = 1
     resource_paths: list[str] = []
-    debug(f"TRACE :: Fetching paginated {strategy.resource_endpoint} (pageSize={page_size})")
+    trace(f"Fetching paginated {strategy.resource_endpoint} (pageSize={page_size})")
 
     while True:
         query = f"{strategy.resource_endpoint}?page={page}&pageSize={page_size}"
-        debug(f"TRACE :: Requesting page {page} for {strategy.resource_endpoint}")
+        trace(f"Requesting page {page} for {strategy.resource_endpoint}")
         try:
             arr_api_request("GET", query)
         except SystemExit:
             if page == 1:
-                debug("TRACE :: Pagination unavailable or failed; falling back to unpaged resource fetch")
+                trace("Pagination unavailable or failed; falling back to unpaged resource fetch")
                 return _fetch_unpaged_resource_paths(strategy, cache_file)
             fatal(f"Failed to paginate {strategy.resource_endpoint} after page {page}")
 
@@ -65,13 +65,13 @@ def _fetch_paginated_resource_paths(strategy, cache_file: Path) -> list[str]:
             fatal(f"Failed to fetch resource list from {env('ARR_NAME')} API")
 
         if not response:
-            debug(f"TRACE :: Page {page} returned no results")
+            trace(f"Page {page} returned no results")
             break
 
-        debug(f"TRACE :: Page {page} returned {len(response)} results")
+        trace(f"Page {page} returned {len(response)} results")
         if len(response) > page_size:
-            debug(
-                "TRACE :: API returned more results than requested pageSize; "
+            trace(
+                "API returned more results than requested pageSize; "
                 "pagination appears unsupported; treating current response as full resource list"
             )
             resource_paths.extend(item.get("path") for item in response if isinstance(item, dict) and item.get("path"))
@@ -109,7 +109,7 @@ def create_download_client() -> None:
     download_client_name = env("AUTOIMPORT_DOWNLOADCLIENT_NAME")
     shared_path = env("AUTOIMPORT_SHARED_PATH")
 
-    debug("TRACE :: Entering create_download_client...")
+    trace("Entering create_download_client...")
     arr_api_request("GET", "downloadclient")
     response = get_state("arrApiResponse")
 
@@ -118,7 +118,7 @@ def create_download_client() -> None:
 
     if any(client.get("name") == download_client_name for client in response if isinstance(client, dict)):
         info(f"{download_client_name} download client already exists, skipping creation.")
-        debug("TRACE :: Exiting create_download_client...")
+        trace("Exiting create_download_client...")
         return
 
     info(f"{download_client_name} client not found, creating it...")
@@ -141,7 +141,7 @@ def create_download_client() -> None:
     }
     arr_api_request("POST", "downloadclient", json.dumps(payload))
     info(f"Successfully added {download_client_name} download client.")
-    debug("TRACE :: Exiting create_download_client...")
+    trace("Exiting create_download_client...")
 
 
 def _permission_issues(path: Path) -> tuple[bool, str]:
@@ -175,7 +175,7 @@ def _permission_issues(path: Path) -> tuple[bool, str]:
 
 
 def check_permissions(path: str) -> bool:
-    debug("TRACE :: Entering check_permissions...")
+    trace("Entering check_permissions...")
     root_path = Path(path)
     ok, report = _permission_issues(root_path)
     if ok:
@@ -184,7 +184,7 @@ def check_permissions(path: str) -> bool:
     else:
         warning(f"Permission/group check failed for {root_path}")
         set_state("permissionIssues", report)
-    debug("TRACE :: Exiting check_permissions...")
+    trace("Exiting check_permissions...")
     return ok
 
 
@@ -234,7 +234,7 @@ def _find_match(target_name: str, paths: list[str]) -> str | None:
 
 
 def process_import(import_dir: str, strategy) -> None:
-    debug("TRACE :: Entering process_import...")
+    trace("Entering process_import...")
     raw_target_name = get_import_target_name(import_dir)
     match_key, hook_arg = strategy.parse_folder_name(raw_target_name)
     info(f"Processing flagged import folder: {Path(import_dir).name}")
@@ -266,7 +266,7 @@ def process_import(import_dir: str, strategy) -> None:
         _move_directory(Path(import_dir), new_dir)
         debug(f"Removed import tag from '{import_dir}'")
 
-    debug("TRACE :: Exiting process_import...")
+    trace("Exiting process_import...")
 
 
 def scan_drop_directory(strategy) -> None:
@@ -274,9 +274,9 @@ def scan_drop_directory(strategy) -> None:
     drop_dir = Path(env("AUTOIMPORT_DROP_DIR"))
     marker = env("AUTOIMPORT_IMPORT_MARKER")
     entries = sorted(drop_dir.iterdir())
-    debug(f"TRACE :: Found {len(entries)} entries in drop directory")
+    trace(f"Found {len(entries)} entries in drop directory")
     for entry in entries:
         if entry.is_dir() and entry.name.startswith(marker):
-            debug(f"TRACE :: Found candidate import folder: {entry.name}")
+            trace(f"Found candidate import folder: {entry.name}")
             process_import(str(entry), strategy)
     info("Scan complete")
