@@ -2,7 +2,7 @@
   "name": "docker-arr-sidecars",
   "image": "mcr.microsoft.com/devcontainers/python:3-3.14-trixie",
   "containerEnv": { "PYTHONPATH": "${containerWorkspaceFolder}" },
-  "postCreateCommand": "pip install -r lidarr-sidecar/requirements.txt -r requirements-dev.txt",
+  "postCreateCommand": "pip install -r lidarr-sidecar/requirements.txt -r lidarr-musicvideo-sidecar/requirements.txt -r requirements-dev.txt",
   "customizations": {
     "vscode": {
       "extensions": ["charliermarsh.ruff", "redhat.vscode-yaml", "DavidAnson.vscode-markdownlint"]

@@ -30,7 +30,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        image: [lidarr-sidecar, radarr-sidecar, sonarr-sidecar]
+        image: [lidarr-sidecar, lidarr-musicvideo-sidecar, radarr-sidecar, sonarr-sidecar]
 
     steps:
       - name: Checkout repository

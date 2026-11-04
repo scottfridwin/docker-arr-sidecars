@@ -103,6 +103,17 @@ jobs:
           cache-from: type=gha,scope=sonarr-sidecar
           cache-to: type=gha,mode=max,scope=sonarr-sidecar
 
+      - name: Test lidarr-musicvideo-sidecar
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
+        with:
+          context: .
+          file: lidarr-musicvideo-sidecar/Dockerfile
+          target: test
+          platforms: ${{ env.PLATFORMS }}
+          push: false
+          cache-from: type=gha,scope=lidarr-musicvideo-sidecar
+          cache-to: type=gha,mode=max,scope=lidarr-musicvideo-sidecar
+
   # ----------------------------------------------------------
   # Publish: push :main and :sha-<commit> of every image for every build of main
   # ----------------------------------------------------------
@@ -119,7 +130,7 @@ jobs:
 
     strategy:
       matrix:
-        image: [lidarr-sidecar, radarr-sidecar, sonarr-sidecar]
+        image: [lidarr-sidecar, lidarr-musicvideo-sidecar, radarr-sidecar, sonarr-sidecar]
 
     steps:
       - name: Checkout repository
@@ -200,7 +211,7 @@ jobs:
           echo "Subject: ${SUBJECT}"
           echo "Changed files:"; echo "${CHANGED}"
           # Anything that ends up in an image, except docs and tests
-          if grep -E '^(shared|lidarr-sidecar|radarr-sidecar|sonarr-sidecar)/' <<< "$CHANGED" \
+          if grep -E '^(shared|lidarr-sidecar|lidarr-musicvideo-sidecar|radarr-sidecar|sonarr-sidecar)/' <<< "$CHANGED" \
               | grep -qvE '(\.md$|/tests/)'; then
             echo "release=true" >> "$GITHUB_OUTPUT"
           else
@@ -217,7 +228,7 @@ jobs:
 
   # ----------------------------------------------------------
   # Release: tag the exact images published above and create a GitHub release.
-  # All three images share one version.
+  # All images share one version.
   # ----------------------------------------------------------
   release:
     name: Release
@@ -282,7 +293,7 @@ jobs:
         run: |
           VERSION="${TAG#v}"
           : > "${RUNNER_TEMP}/digests.md"
-          for IMAGE in lidarr-sidecar radarr-sidecar sonarr-sidecar; do
+          for IMAGE in lidarr-sidecar lidarr-musicvideo-sidecar radarr-sidecar sonarr-sidecar; do
             REF="${REGISTRY}/${IMAGE}"
             DIGEST=$(docker buildx imagetools inspect "${REF}:sha-${GITHUB_SHA::7}" --format '{{json .Manifest.Digest}}' | tr -d '"')
             docker buildx imagetools create \

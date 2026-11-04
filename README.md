@@ -9,6 +9,8 @@ Sidecar containers for [Lidarr](https://lidarr.audio/), [Radarr](https://radarr.
 
 - **Lidarr sidecar**: applies your settings at startup, and downloads wanted albums from Deezer (matched through
   MusicBrainz links) and imports them
+- **Lidarr music video sidecar**: downloads the official music videos of your Lidarr artists from YouTube into a
+  Jellyfin/Kodi music video library
 - **Radarr sidecar**: applies your settings at startup, and imports movies dropped into a folder
 - **Sonarr sidecar**: applies your settings at startup, and imports series dropped into a folder
 
@@ -23,10 +25,11 @@ Sidecar containers for [Lidarr](https://lidarr.audio/), [Radarr](https://radarr.
 | Sidecar | Image | Docs |
 | --- | --- | --- |
 | Lidarr | [`ghcr.io/scottfridwin/lidarr-sidecar`](https://github.com/scottfridwin/docker-arr-sidecars/pkgs/container/lidarr-sidecar) | [lidarr-sidecar/README.md](lidarr-sidecar/README.md) |
+| Lidarr music videos | [`ghcr.io/scottfridwin/lidarr-musicvideo-sidecar`](https://github.com/scottfridwin/docker-arr-sidecars/pkgs/container/lidarr-musicvideo-sidecar) | [lidarr-musicvideo-sidecar/README.md](lidarr-musicvideo-sidecar/README.md) |
 | Radarr | [`ghcr.io/scottfridwin/radarr-sidecar`](https://github.com/scottfridwin/docker-arr-sidecars/pkgs/container/radarr-sidecar) | [radarr-sidecar/README.md](radarr-sidecar/README.md) |
 | Sonarr | [`ghcr.io/scottfridwin/sonarr-sidecar`](https://github.com/scottfridwin/docker-arr-sidecars/pkgs/container/sonarr-sidecar) | [sonarr-sidecar/README.md](sonarr-sidecar/README.md) |
 
-All three images are built for `linux/amd64` and `linux/arm64` and share one version number. Each release is tagged
+All images are built for `linux/amd64` and `linux/arm64` and share one version number. Each release is tagged
 `X.Y.Z`, `X.Y`, `X` and `latest`; pin a major version such as `:3` to get fixes without breaking changes. Every image
 has an SBOM and a signed build provenance attestation.
 
@@ -35,6 +38,7 @@ has an SBOM and a signed build provenance attestation.
 | Sidecar | At startup | Runs continuously |
 | --- | --- | --- |
 | Lidarr | AutoConfig | ARLChecker, DeemixDownloader (and ManualImport if enabled) |
+| Lidarr music videos | - | MusicVideoDownloader |
 | Radarr | AutoConfig | AutoImport |
 | Sonarr | AutoConfig | AutoImport |
 
@@ -74,7 +78,8 @@ services:
 ```
 
 The Sonarr sidecar is the same with `sonarr` in place of `radarr`. The Lidarr sidecar also needs the Deezer ARL token
-file; see [lidarr-sidecar/README.md](lidarr-sidecar/README.md) for its mounts and settings.
+file; see [lidarr-sidecar/README.md](lidarr-sidecar/README.md) for its mounts and settings, and
+[lidarr-musicvideo-sidecar/README.md](lidarr-musicvideo-sidecar/README.md) for the music video sidecar.
 
 ## Security notes
 
