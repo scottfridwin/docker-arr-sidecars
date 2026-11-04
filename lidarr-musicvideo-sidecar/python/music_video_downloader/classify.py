@@ -81,6 +81,32 @@ def song_key(song: str) -> str:
     return _fold(_BRACKETS.sub("", without_feat)) or _fold(without_feat)
 
 
+def _split_dashes(text: str) -> list[str]:
+    """Split on " - " outside brackets, so "Song (Official Video - 4K)" stays one part."""
+    parts: list[str] = []
+    depth = 0
+    start = 0
+    i = 0
+    while i < len(text):
+        char = text[i]
+        if char in "([":
+            depth += 1
+        elif char in ")]":
+            depth = max(0, depth - 1)
+        elif depth == 0 and text.startswith(" - ", i):
+            parts.append(text[start:i].strip())
+            start = i + 3
+            i += 3
+            continue
+        i += 1
+    parts.append(text[start:].strip())
+    return [part for part in parts if part]
+
+
+def _has_bracketed_marker(text: str) -> bool:
+    return any(_MARKER.search(group.lower()) for group in _BRACKETS.findall(text))
+
+
 def split_title(title: str, artist: str) -> tuple[str, bool, list[str]]:
     """Return (song, has_artist_prefix, qualifiers) for an upload title.
 
@@ -95,18 +121,21 @@ def split_title(title: str, artist: str) -> tuple[str, bool, list[str]]:
         qualifiers.extend(p for p in parts if p is not main)
         text = main
 
+    segments = _split_dashes(text)
     has_prefix = False
-    if " - " in text:
-        head, rest = text.split(" - ", 1)
-        if any(_fold(head).startswith(form) for form in _artist_forms(artist)):
-            has_prefix = True
-            text = rest.strip()
+    if len(segments) > 1 and any(_fold(segments[0]).startswith(form) for form in _artist_forms(artist)):
+        has_prefix = True
+        segments = segments[1:]
 
-    # "Song - Behind The Scenes", "Song - Live at ..." -> the trailing parts are qualifiers.
-    if " - " in text:
-        first, *rest = [p.strip() for p in text.split(" - ")]
-        qualifiers.extend(rest)
-        text = first
+    # "Other Artist - Song (Official Video)": the leading part names a collaborator, not the song. Only a
+    # bracketed marker counts, since "Song - Artist One-Take Music Video" is a song with an uploader credit.
+    if not has_prefix and len(segments) > 1 and _has_bracketed_marker(segments[1]):
+        qualifiers.extend([segments[0], *segments[2:]])
+        text = segments[1]
+    else:
+        # "Song - Behind The Scenes", "Song - Live at ..." -> the trailing parts are qualifiers.
+        qualifiers.extend(segments[1:])
+        text = segments[0]
 
     qualifiers.extend(m.group(1).strip() for m in _BRACKETS.finditer(text))
     return text.strip().strip('"').strip(), has_prefix, qualifiers

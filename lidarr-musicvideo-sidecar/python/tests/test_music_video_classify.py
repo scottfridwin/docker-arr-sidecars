@@ -144,6 +144,24 @@ class TitleHelperTests(unittest.TestCase):
     def test_split_title_other_artist_is_not_a_prefix(self):
         self.assertFalse(split_title("Bad Company - Rock 'n' Roll Fantasy", "The Struts")[1])
 
+    def test_split_title_keeps_dash_inside_brackets(self):
+        song, _, _ = split_title("Queen - We Will Rock You (Official Video - Remastered)", "Queen")
+        self.assertEqual(song, "We Will Rock You (Official Video - Remastered)")
+        self.assertEqual(clean_song_title(song), "We Will Rock You")
+
+    def test_split_title_collaborator_before_song_is_not_the_song(self):
+        song, has_prefix, _ = split_title("Brian May - Driven By You (Official Video)", "Queen")
+        self.assertFalse(has_prefix)
+        self.assertEqual(song, "Driven By You (Official Video)")
+
+    def test_split_title_song_with_uploader_credit_stays_the_song(self):
+        song, _, _ = split_title("I'm A Weirdo - Conner4real One-Take Music Video", "Queen")
+        self.assertEqual(song, "I'm A Weirdo")
+
+    def test_split_title_song_before_upload_tag_stays_the_song(self):
+        song, _, _ = split_title("Driven By You - Official Video", "Queen")
+        self.assertEqual(song, "Driven By You")
+
     def test_clean_song_title_keeps_featuring_and_versions(self):
         self.assertEqual(clean_song_title("Snow (Hey Oh) (Official Music Video) [4K Upgrade]"), "Snow (Hey Oh)")
         self.assertEqual(clean_song_title("Hugs (feat. Pharrell) [HD]"), "Hugs (feat. Pharrell)")
