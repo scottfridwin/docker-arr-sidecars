@@ -60,8 +60,9 @@ def channel_urls(relations: list[dict]) -> list[str]:
     return urls
 
 
-def artist_channels(mbid: str, cache_dir: Path, max_age_days: int = 30) -> list[str]:
-    cache_file = cache_dir / f"mb-artist-{mbid}.json"
+def _artist_data(mbid: str, cache_dir: Path, max_age_days: int) -> dict | None:
+    # v2: also includes artist-rels (band members); older cache files only have url-rels.
+    cache_file = cache_dir / f"mb-artist-v2-{mbid}.json"
     data = None
     if cache_file.is_file() and time.time() - cache_file.stat().st_mtime < max_age_days * 86400:
         try:
@@ -69,11 +70,35 @@ def artist_channels(mbid: str, cache_dir: Path, max_age_days: int = 30) -> list[
         except (OSError, json.JSONDecodeError):
             data = None
     if data is None:
-        data = _get(f"https://musicbrainz.org/ws/2/artist/{mbid}?inc=url-rels&fmt=json")
+        data = _get(f"https://musicbrainz.org/ws/2/artist/{mbid}?inc=url-rels+artist-rels&fmt=json")
         if data is None:
-            return []
+            return None
         cache_dir.mkdir(parents=True, exist_ok=True)
         cache_file.write_text(json.dumps(data), encoding="utf-8")
+    return data
+
+
+def artist_channels(mbid: str, cache_dir: Path, max_age_days: int = 30) -> list[str]:
+    data = _artist_data(mbid, cache_dir, max_age_days)
+    if data is None:
+        return []
     urls = channel_urls(data.get("relations", []))
     debug(f"MusicBrainz artist {mbid}: {len(urls)} YouTube channel(s)")
     return urls
+
+
+def member_names(relations: list[dict]) -> list[str]:
+    """Names of a band's members ("member of band" relations pointing back at the band)."""
+    names: list[str] = []
+    for rel in relations or []:
+        if rel.get("type") != "member of band" or rel.get("direction") != "backward":
+            continue
+        for name in ((rel.get("artist") or {}).get("name"), rel.get("target-credit")):
+            if name and name not in names:
+                names.append(name)
+    return names
+
+
+def artist_members(mbid: str, cache_dir: Path, max_age_days: int = 30) -> list[str]:
+    data = _artist_data(mbid, cache_dir, max_age_days)
+    return member_names(data.get("relations", [])) if data else []
