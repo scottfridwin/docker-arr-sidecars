@@ -21,7 +21,7 @@ from shared.python.arrapi import arr_api_request
 from shared.python.logging_utils import debug, error, info, warning
 from shared.python.state import get_state
 
-from . import library, musicbrainz, youtube
+from . import library, musicbrainz, repair, youtube
 from .classify import Decision, classify, select_videos
 from .config import Config
 from .state import State
@@ -58,7 +58,9 @@ def lidarr_artists(cfg: Config) -> list[dict]:
     return [a for a in artists if a.get("foreignArtistId") != "89ad4ac3-39f7-470e-963a-56509c546377"]
 
 
-def music_videos_for(artist_name: str, channels: list[youtube.Channel], cfg: Config) -> list[tuple[dict, Decision]]:
+def music_videos_for(
+    artist_name: str, channels: list[youtube.Channel], cfg: Config, members: list[str] | None = None
+) -> list[tuple[dict, Decision]]:
     candidates = []
     for channel in channels:
         for entry in channel.entries:
@@ -70,6 +72,7 @@ def music_videos_for(artist_name: str, channels: list[youtube.Channel], cfg: Con
                 exclude_qualifiers=cfg.exclude_qualifiers,
                 min_duration=cfg.min_duration,
                 max_duration=cfg.max_duration,
+                members=members or (),
             )
             debug(f"{artist_name} | {channel.name} | {entry.get('title')} -> {decision.reason}")
             candidates.append((entry, decision))
@@ -98,12 +101,19 @@ def process_artist(artist: dict, cfg: Config, state: State, stats: RunStats, bud
         if channel.channel_id and any(c.channel_id == channel.channel_id for c in channels):
             continue
         channels.append(channel)
-    picks = music_videos_for(name, channels, cfg)
+    members = musicbrainz.artist_members(mbid, cfg.cache_dir)
+    picks = music_videos_for(name, channels, cfg, members)
     stats.artists_checked += 1
     stats.selected += len(picks)
 
     directory = library.artist_dir(cfg.library_path, name)
     have_keys, have_ids = library.existing_videos(directory, name)
+    # Until the repair has moved them, an artist's videos may still be in the folder named the old way.
+    legacy = cfg.library_path / library.legacy_safe_name(name)
+    if legacy != directory:
+        legacy_keys, legacy_ids = library.existing_videos(legacy, name)
+        have_keys |= legacy_keys
+        have_ids |= legacy_ids
     pending = [
         (entry, decision)
         for entry, decision in picks
@@ -126,7 +136,13 @@ def process_artist(artist: dict, cfg: Config, state: State, stats: RunStats, bud
             video, thumb, meta = youtube.download(entry["id"], cfg)
             target = library.install(video, thumb, directory, decision.song)
             library.write_nfo(
-                target.with_suffix(".nfo"), title=decision.song, artist=name, video_id=entry["id"], info=meta
+                library.nfo_path(target),
+                title=decision.song,
+                artist=name,
+                video_id=entry["id"],
+                info=meta,
+                artist_mbid=mbid,
+                genres=[g for g in artist.get("genres") or [] if g],
             )
         except Exception as exc:  # noqa: BLE001 - record any download/move failure and carry on
             stats.failed += 1
@@ -134,7 +150,16 @@ def process_artist(artist: dict, cfg: Config, state: State, stats: RunStats, bud
             warning(f"{name}: '{decision.song}' ({entry['id']}) failed: {exc}")
         else:
             stats.downloaded += 1
-            state.record_video(entry["id"], "downloaded", artist=mbid, song=decision.song, path=str(target))
+            state.record_video(
+                entry["id"],
+                "downloaded",
+                artist=mbid,
+                song=decision.song,
+                path=str(target),
+                meta={k: meta.get(k) for k in repair.META_FIELDS},
+                poster="youtube" if thumb is not None else None,
+                repaired=repair.REPAIR_VERSION,
+            )
             info(f"{name}: downloaded '{decision.song}' -> {target}")
         state.save()
         if cfg.download_delay:
@@ -161,6 +186,8 @@ def run_once(cfg: Config, state: State) -> RunStats:
             state.save()
     if cfg.dry_run:
         write_dry_run_report(cfg, stats)
+    elif cfg.repair:
+        repair.run(artists, cfg, state)
     return stats
 
 

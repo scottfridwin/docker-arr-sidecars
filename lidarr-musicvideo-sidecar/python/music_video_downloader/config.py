@@ -48,7 +48,9 @@ DEFAULT_EXCLUDE_KEYWORDS = (
     "lyric,lyrics,visualizer,visualiser,official audio,(audio),[audio],audio only,behind the scenes,making of,"
     "trailer,teaser,interview,q&a,reaction,karaoke,#shorts,commentary,track by track,documentary,rehearsal,"
     "snippet,preview,out now,acoustic,unplugged,sped up,slowed,instrumental,8d audio,dance practice,"
-    "fan made,fanmade,vertical video,podcast"
+    "fan made,fanmade,vertical video,podcast,vevocertified,vevo certified,vevo lift,vevo dscvr,vevo presents,"
+    "lip sync,grammys,grammy awards,saturday night live,tonight show,late show,late night with,jimmy kimmel,"
+    "takeover"
 )
 
 
@@ -85,6 +87,11 @@ class Config:
     dry_run: bool = field(default_factory=lambda: _env_bool("VIDEO_DRY_RUN", False))
     # Seconds to wait between downloads, to stay polite to YouTube.
     download_delay: int = field(default_factory=lambda: _env_int("VIDEO_DOWNLOAD_DELAY", 30))
+    # Repair: bring videos already in the library up to the current naming, NFO and poster.
+    repair: bool = field(default_factory=lambda: _env_bool("VIDEO_REPAIR", True))
+    # YouTube metadata/thumbnail lookups the repair may make per run (videos it already knows need none).
+    repair_max_per_run: int = field(default_factory=lambda: _env_int("VIDEO_REPAIR_MAX_PER_RUN", 100))
+    repair_delay: int = field(default_factory=lambda: _env_int("VIDEO_REPAIR_DELAY", 5))
 
     @property
     def interval_seconds(self) -> float:

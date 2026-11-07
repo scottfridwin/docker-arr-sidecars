@@ -9,7 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from music_video_downloader.classify import classify, clean_song_title, select_videos, song_key, split_title
 from music_video_downloader.config import DEFAULT_EXCLUDE_KEYWORDS, DEFAULT_EXCLUDE_QUALIFIERS
-from music_video_downloader.musicbrainz import channel_urls
+from music_video_downloader.musicbrainz import channel_urls, member_names
 
 KEYWORDS = [k.strip() for k in DEFAULT_EXCLUDE_KEYWORDS.split(",")]
 QUALIFIERS = [k.strip() for k in DEFAULT_EXCLUDE_QUALIFIERS.split(",")]
@@ -59,6 +59,15 @@ class ClassifyTests(unittest.TestCase):
         ),
         ("Jack Sparrow (feat. Michael Bolton)", "The Lonely Island", False, "Jack Sparrow (feat. Michael Bolton)"),
         ("I'm A Weirdo - Conner4real One-Take Music Video", "The Lonely Island", False, "I'm A Weirdo"),
+        ("Paramore: Misery Business [OFFICIAL VIDEO]", "Paramore", False, "Misery Business"),
+        ("Beyoncé - Superpower ft. Frank Ocean", "Beyoncé", True, "Superpower (feat. Frank Ocean)"),
+        (
+            "Carly Rae Jepsen - Run Away With Me/Your Type (Official Video)",
+            "Carly Rae Jepsen",
+            False,
+            "Run Away With Me - Your Type",
+        ),  # fmt: skip
+        ("Beyoncé - Self-Titled, Part 2 (Official Video)", "Beyoncé", False, "Self-Titled, Part II"),
     ]
 
     REJECTED = [
@@ -77,7 +86,24 @@ class ClassifyTests(unittest.TestCase):
         # A plain "Artist - Song" upload counts only on a VEVO channel.
         ("The Struts - Matter of Time", False, "no_music_video_marker"),
         ("#GMA 🕺🏻", False, "no_music_video_marker"),
+        ("The Struts - #VevoCertified, Pt. 3 Talking About Fans", True, "excluded:vevocertified"),
+        ("The Struts - Somebody New (VEVO LIFT)", True, "excluded:vevo lift"),
+        ("The Struts - Kiss This (GRAMMYs on CBS)", True, "excluded:grammys"),
+        ("The Struts - The Struts (Official Video)", False, "song_is_artist_name"),
     ]
+
+    def test_member_name_upload_is_not_a_song(self):
+        decision = classify(
+            {"title": "a-ha - Morten Harket (Official Video)", "duration": 200},
+            "a\u2010ha",
+            is_vevo=False,
+            exclude_keywords=KEYWORDS,
+            exclude_qualifiers=QUALIFIERS,
+            min_duration=90,
+            max_duration=900,
+            members=["Morten Harket", "Magne Furuholmen"],
+        )
+        self.assertEqual(decision.reason, "song_is_artist_name")
 
     def test_accepts_music_videos(self):
         for title, artist, vevo, song in self.ACCEPTED:
@@ -166,7 +192,42 @@ class TitleHelperTests(unittest.TestCase):
         self.assertEqual(clean_song_title("Snow (Hey Oh) (Official Music Video) [4K Upgrade]"), "Snow (Hey Oh)")
         self.assertEqual(clean_song_title("Hugs (feat. Pharrell) [HD]"), "Hugs (feat. Pharrell)")
         self.assertEqual(clean_song_title("Brendan's Death Song (Extended)"), "Brendan's Death Song (Extended)")
-        self.assertEqual(clean_song_title('Open/Close: "Live"?'), "OpenClose Live")
+        self.assertEqual(clean_song_title('Open/Close: "Live"?'), "Open - Close - Live")
+
+    def test_clean_song_title_uses_one_featuring_style(self):
+        for title, expected in [
+            ("Superpower ft. Frank Ocean", "Superpower (feat. Frank Ocean)"),
+            (
+                "Elastic Heart feat. Shia LaBeouf & Maddie Ziegler",
+                "Elastic Heart (feat. Shia LaBeouf & Maddie Ziegler)",
+            ),
+            ("Like A Boss (ft. Seth Rogen)", "Like A Boss (feat. Seth Rogen)"),
+            ("Hugs [featuring Pharrell]", "Hugs (feat. Pharrell)"),
+            ("Get Me Bodied (Timbaland Remix) ft. Voltio", "Get Me Bodied (Timbaland Remix) (feat. Voltio)"),
+            ("Song ft. X (Remix) [HD]", "Song (Remix) (feat. X)"),
+            # A credit inside another bracket group is part of that version's name.
+            ("Video Phone (Extended Remix featuring Lady Gaga)", "Video Phone (Extended Remix featuring Lady Gaga)"),
+        ]:
+            with self.subTest(title=title):
+                self.assertEqual(clean_song_title(title), expected)
+
+    def test_clean_song_title_separators_and_tags(self):
+        for title, expected in [
+            ("Run Away With Me/Your Type", "Run Away With Me - Your Type"),
+            ("24/7", "24-7"),
+            ("Star Wars: The Song", "Star Wars - The Song"),
+            ("When You're Young (Edited Version; Closed Captioned)", "When You're Young"),
+            ("Self-Titled, Part 2", "Self-Titled, Part II"),
+            ("Fire (Part 1)", "Fire (Part I)"),
+            ("Song - CD 3", "Song - CD III"),
+            ("Part of Me", "Part of Me"),
+        ]:
+            with self.subTest(title=title):
+                self.assertEqual(clean_song_title(title), expected)
+
+    def test_split_title_colon_prefix_only_for_the_artist(self):
+        self.assertEqual(split_title("Paramore: Misery Business", "Paramore")[:2], ("Misery Business", True))
+        self.assertEqual(split_title("Star Wars: The Song", "Paramore")[:2], ("Star Wars: The Song", False))
 
     def test_song_key_ignores_featuring_punctuation_and_quotes(self):
         self.assertEqual(song_key("Fallin' With Me"), song_key("Fallin’ With Me"))
@@ -175,6 +236,20 @@ class TitleHelperTests(unittest.TestCase):
 
 
 class MusicBrainzChannelTests(unittest.TestCase):
+    def test_member_names_reads_band_members_only(self):
+        relations = [
+            {"type": "member of band", "direction": "backward", "artist": {"name": "Morten Harket"}},
+            {
+                "type": "member of band",
+                "direction": "backward",
+                "artist": {"name": "Pål Waaktaar"},
+                "target-credit": "Paul Waaktaar-Savoy",
+            },  # fmt: skip
+            {"type": "member of band", "direction": "forward", "artist": {"name": "Some Supergroup"}},
+            {"type": "collaboration", "direction": "backward", "artist": {"name": "Guest"}},
+        ]
+        self.assertEqual(member_names(relations), ["Morten Harket", "Pål Waaktaar", "Paul Waaktaar-Savoy"])
+
     def test_channel_urls_keeps_youtube_channels_only(self):
         relations = [
             {"type": "youtube", "url": {"resource": "https://www.youtube.com/channel/UCfoba7dC3rJrEirb70tS8UA"}},

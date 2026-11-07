@@ -56,6 +56,9 @@ def list_channel(url: str, cfg: Config) -> Channel:
     )
 
 
+_VIDEO_SUFFIXES = (".mkv", ".mp4", ".webm", ".mov", ".m4v")
+
+
 def download(video_id: str, cfg: Config) -> tuple[Path, Path | None, dict]:
     """Download into cfg.work_dir as <id>.mkv (+ <id>.jpg). Returns (video, thumbnail, info)."""
     import yt_dlp
@@ -69,12 +72,39 @@ def download(video_id: str, cfg: Config) -> tuple[Path, Path | None, dict]:
         "paths": {"home": str(work), "temp": str(work)},
         "outtmpl": {"default": "%(id)s.%(ext)s"},
         "writethumbnail": True,
-        "postprocessors": [{"key": "FFmpegThumbnailsConvertor", "format": "jpg", "when": "before_dl"}],
+        "postprocessors": [
+            {"key": "FFmpegThumbnailsConvertor", "format": "jpg", "when": "before_dl"},
+            # A single-file format (the "/b" fallback) is an MP4 or WebM; remux it so the library is all MKV.
+            {"key": "FFmpegVideoRemuxer", "preferedformat": "mkv"},
+        ],
     }
     with yt_dlp.YoutubeDL(opts) as ydl:
         info = ydl.extract_info(f"https://www.youtube.com/watch?v={video_id}", download=True) or {}
-    video = work / f"{video_id}.mkv"
-    if not video.is_file():
-        raise FileNotFoundError(f"yt-dlp finished without {video.name}")
+    video = next((work / f"{video_id}{s}" for s in _VIDEO_SUFFIXES if (work / f"{video_id}{s}").is_file()), None)
+    if video is None:
+        raise FileNotFoundError(f"yt-dlp finished without a video file for {video_id}")
     thumb = work / f"{video_id}.jpg"
     return video, thumb if thumb.is_file() else None, info
+
+
+def fetch_metadata(video_id: str, cfg: Config, *, thumbnail: bool) -> tuple[dict, Path | None]:
+    """The upload's metadata (title, upload date, channel, duration) without downloading the video, and
+    optionally its thumbnail as <work>/<id>.jpg."""
+    import yt_dlp
+
+    work = cfg.work_dir
+    work.mkdir(parents=True, exist_ok=True)
+    opts = {
+        **_base_opts(cfg),
+        "skip_download": True,
+        "paths": {"home": str(work), "temp": str(work)},
+        "outtmpl": {"default": "%(id)s.%(ext)s"},
+        "writethumbnail": thumbnail,
+        "postprocessors": [{"key": "FFmpegThumbnailsConvertor", "format": "jpg", "when": "before_dl"}]
+        if thumbnail
+        else [],
+    }
+    with yt_dlp.YoutubeDL(opts) as ydl:
+        info = ydl.extract_info(f"https://www.youtube.com/watch?v={video_id}", download=thumbnail) or {}
+    thumb = work / f"{video_id}.jpg"
+    return info, thumb if thumbnail and thumb.is_file() else None
