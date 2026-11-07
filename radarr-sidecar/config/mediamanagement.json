@@ -18,7 +18,7 @@
     "useScriptImport": false,
     "scriptImportPath": "",
     "importExtraFiles": true,
-    "extraFileExtensions": "srt,nfo",
+    "extraFileExtensions": "srt",
     "enableMediaInfo": true,
     "id": 1
 }
