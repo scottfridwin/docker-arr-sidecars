@@ -33,6 +33,7 @@ Each run (`VIDEO_INTERVAL`, default daily):
    on the next runs. Videos already in the folder are recognised by song title (files you added yourself count) or
    by the YouTube ID in their NFO.
 5. Repairs the videos already in the library (`VIDEO_REPAIR`, below).
+6. Copies each artist's Lidarr artwork into the artist folder (`VIDEO_ARTIST_ARTWORK`, below).
 
 Downloads land in `VIDEO_WORK_DIR` and are copied into the library under a hidden `.partial` name, then renamed, so
 library watchers (Jellyfin, Tdarr) never pick up a half-copied file. The file is the best YouTube stream (often AV1 or
@@ -56,6 +57,15 @@ VP9) in MKV (single-file formats are remuxed to MKV); convert it afterwards if y
 The sidecar owns the NFOs, so in Jellyfin's music video library turn off the **Nfo** metadata saver and
 "Download metadata from the internet" (there is no working internet source for music videos). With the saver on, a
 "Replace all metadata" refresh skips the NFOs and then writes empty ones over them.
+
+## Artist artwork
+
+Jellyfin shows the artist folders of a music video library as plain folders and, without an image, uses a frame of
+one of the videos. With `VIDEO_ARTIST_ARTWORK=true` (default) every run copies the artist's artwork from Lidarr
+(fanart.tv, the same files Lidarr writes into the music library) into each artist folder that holds videos:
+`folder.jpg` (poster), `backdrop.jpg` (fanart), `logo.png` (clear logo) and `banner.jpg`. An image is downloaded
+again only when Lidarr's copy changes; the stamps are kept in `VIDEO_STATE_DIR/artwork.json`. Videos keep their own
+`<Song>-poster.jpg`.
 
 ## Repair
 
@@ -160,6 +170,7 @@ MusicVideoDownloader:
 - `VIDEO_REPAIR` (default: `true`)
 - `VIDEO_REPAIR_MAX_PER_RUN` (default: `100` YouTube lookups per run)
 - `VIDEO_REPAIR_DELAY` (default: `5` seconds between lookups)
+- `VIDEO_ARTIST_ARTWORK` (default: `true`)
 
 ## Notes
 

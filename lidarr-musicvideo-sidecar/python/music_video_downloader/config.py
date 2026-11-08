@@ -92,6 +92,8 @@ class Config:
     # YouTube metadata/thumbnail lookups the repair may make per run (videos it already knows need none).
     repair_max_per_run: int = field(default_factory=lambda: _env_int("VIDEO_REPAIR_MAX_PER_RUN", 100))
     repair_delay: int = field(default_factory=lambda: _env_int("VIDEO_REPAIR_DELAY", 5))
+    # Copy each artist's Lidarr artwork into its folder (folder.jpg, backdrop.jpg, logo.png, banner.jpg).
+    artist_artwork: bool = field(default_factory=lambda: _env_bool("VIDEO_ARTIST_ARTWORK", True))
 
     @property
     def interval_seconds(self) -> float:
