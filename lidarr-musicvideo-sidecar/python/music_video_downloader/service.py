@@ -21,7 +21,7 @@ from shared.python.arrapi import arr_api_request
 from shared.python.logging_utils import debug, error, info, warning
 from shared.python.state import get_state
 
-from . import library, musicbrainz, repair, youtube
+from . import artwork, library, musicbrainz, repair, youtube
 from .classify import Decision, classify, select_videos
 from .config import Config
 from .state import State
@@ -186,8 +186,11 @@ def run_once(cfg: Config, state: State) -> RunStats:
             state.save()
     if cfg.dry_run:
         write_dry_run_report(cfg, stats)
-    elif cfg.repair:
-        repair.run(artists, cfg, state)
+    else:
+        if cfg.repair:
+            repair.run(artists, cfg, state)
+        if cfg.artist_artwork:
+            artwork.run(artists, cfg)
     return stats
 
 

@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from music_video_downloader import library, repair, service, youtube
+from music_video_downloader import artwork, library, repair, service, youtube
 from music_video_downloader.config import Config, parse_interval
 from music_video_downloader.state import State
 
@@ -511,6 +511,84 @@ class RepairTests(unittest.TestCase):
             self.assertEqual({v["lookup_attempts"] for v in state.videos.values()}, {2})
             stats, mock_lookup = self.run_repair(cfg, state, lookup=broken)
             mock_lookup.assert_not_called()
+
+
+class ArtworkTests(unittest.TestCase):
+    AHA = {
+        "id": 35,
+        "artistName": "a\u2010ha",
+        "foreignArtistId": "mbid-aha",
+        "images": [
+            {"coverType": "poster", "url": "/MediaCover/35/poster.jpg?lastWrite=1"},
+            {"coverType": "fanart", "url": "/MediaCover/35/fanart.jpg?lastWrite=1"},
+            {"coverType": "clearlogo", "url": "/MediaCover/35/clearlogo.png?lastWrite=1"},
+            {"coverType": "banner", "url": "/MediaCover/35/banner.jpg?lastWrite=1"},
+            {"coverType": "logo", "url": "https://example.invalid/remote-only.png"},
+        ],
+    }
+
+    def run_artwork(self, cfg, artists, covers=None):
+        calls = []
+
+        def fake_fetch(artist_id, url):
+            calls.append(url)
+            return (covers or {}).get(url, f"img:{url}".encode())
+
+        with patch.object(artwork, "fetch_cover", side_effect=fake_fetch):
+            written = artwork.run(artists, cfg)
+        return written, calls
+
+    def test_writes_folder_images_once_and_again_when_lidarr_changes_them(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = make_cfg(tmp)
+            folder = cfg.library_path / "a-ha"
+            folder.mkdir(parents=True)
+            (folder / "Take On Me.mkv").write_bytes(b"v")
+
+            written, calls = self.run_artwork(cfg, [self.AHA])
+            self.assertEqual(written, 4)
+            self.assertEqual(
+                sorted(p.name for p in folder.iterdir()),
+                ["Take On Me.mkv", "backdrop.jpg", "banner.jpg", "folder.jpg", "logo.png"],
+            )
+            self.assertEqual((folder / "folder.jpg").read_bytes(), b"img:/MediaCover/35/poster.jpg?lastWrite=1")
+
+            # Unchanged in Lidarr: nothing is downloaded.
+            written, calls = self.run_artwork(cfg, [self.AHA])
+            self.assertEqual((written, calls), (0, []))
+
+            # Lidarr refreshed the poster: only it is downloaded again.
+            changed = json.loads(json.dumps(self.AHA))
+            changed["images"][0]["url"] = "/MediaCover/35/poster.jpg?lastWrite=2"
+            written, calls = self.run_artwork(cfg, [changed])
+            self.assertEqual((written, calls), (1, ["/MediaCover/35/poster.jpg?lastWrite=2"]))
+
+            # A deleted file is restored even though the stamp is unchanged.
+            (folder / "logo.png").unlink()
+            written, _ = self.run_artwork(cfg, [changed])
+            self.assertEqual(written, 1)
+            self.assertTrue((folder / "logo.png").is_file())
+
+    def test_skips_folders_without_videos_and_old_style_folders(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = make_cfg(tmp)
+            (cfg.library_path / "a-ha").mkdir(parents=True)  # no videos yet
+            legacy = cfg.library_path / "a\u2010ha"
+            legacy.mkdir()
+            (legacy / "Take On Me.mkv").write_bytes(b"v")  # not repaired yet
+            written, calls = self.run_artwork(cfg, [self.AHA])
+            self.assertEqual((written, calls), (0, []))
+            self.assertEqual([p.name for p in legacy.iterdir()], ["Take On Me.mkv"])
+
+    def test_missing_cover_in_lidarr_is_skipped(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = make_cfg(tmp)
+            folder = cfg.library_path / "a-ha"
+            folder.mkdir(parents=True)
+            (folder / "Take On Me.mkv").write_bytes(b"v")
+            with patch.object(artwork, "fetch_cover", return_value=None):
+                self.assertEqual(artwork.run([self.AHA], cfg), 0)
+            self.assertEqual([p.name for p in folder.iterdir()], ["Take On Me.mkv"])
 
 
 class YoutubeDownloadTests(unittest.TestCase):
