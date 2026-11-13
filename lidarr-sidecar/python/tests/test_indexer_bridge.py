@@ -32,7 +32,7 @@ class IndexerBridgeTests(unittest.TestCase):
         self.downloads = []
         self.bridge = self.make_bridge()
 
-    def make_bridge(self, limit=1, download=None):
+    def make_bridge(self, limit=1, download=None, on_import_complete=None):
         def fake_search(**_query):
             return [self.release()]
 
@@ -51,6 +51,7 @@ class IndexerBridgeTests(unittest.TestCase):
             download_limit=limit,
             search=fake_search,
             download=download or fake_download,
+            on_import_complete=on_import_complete,
             worker_interval=0.01,
         )
 
@@ -65,6 +66,20 @@ class IndexerBridgeTests(unittest.TestCase):
         handler._respond(HTTPStatus.OK, b"response", "application/rss+xml")
 
         handler.send_response.assert_called_once_with(HTTPStatus.OK)
+
+    def test_configuration_runs_after_server_is_listening_and_before_worker(self):
+        def configure(port):
+            url = f"http://127.0.0.1:{port}/api?t=caps&apikey=" + ("x" * 32)
+            with urllib.request.urlopen(url, timeout=3) as response:  # noqa: S310 - loopback-only test server.
+                self.assertEqual(response.status, 200)
+            raise RuntimeError("configuration failed")
+
+        with (
+            patch.object(self.bridge, "start_worker") as start_worker,
+            self.assertRaisesRegex(RuntimeError, "configuration failed"),
+        ):
+            self.bridge.serve("127.0.0.1", 0, on_listening=configure)
+        start_worker.assert_not_called()
 
     def test_warming_search_returns_a_specific_retry_message(self):
         self.bridge.search_callback = Mock(
@@ -184,20 +199,57 @@ class IndexerBridgeTests(unittest.TestCase):
         with self.assertRaises(BridgeRequestError):
             self.bridge._search_results({**query, "limit": ["101"]})
 
-    def test_lidarr_history_delete_during_import_is_not_overwritten(self):
-        def remove_after_import(_release, completed):
+    def test_active_job_cannot_be_removed_and_cleanup_runs_after_completion(self):
+        removal_attempts = []
+        cleanup_states = []
+
+        def import_release(_release, completed):
+            job = self.bridge.store.jobs(("downloading",))[0]
+            removal_attempts.append(self.bridge.store.remove_job(job["nzb_id"]))
             completed()
             job = self.bridge.store.jobs(("downloaded",))[0]
-            self.bridge.store.remove_job(job["nzb_id"])
+            removal_attempts.append(self.bridge.store.remove_job(job["nzb_id"]))
             return True
 
-        self.bridge = self.make_bridge(download=remove_after_import)
+        def cleanup(download_ids):
+            job = self.bridge.store.jobs(("completed",))[0]
+            cleanup_states.append((download_ids, job["status"]))
+            self.assertTrue(self.bridge.store.remove_job(job["nzb_id"]))
+
+        self.bridge = self.make_bridge(download=import_release, on_import_complete=cleanup)
         release = self.bridge.store.register_release(self.release())
         self._submit(release["token"])
         self.bridge._run_job(self.bridge.store.next_job())
 
         job = self.bridge.store.jobs(("removed",))[0]
         self.assertEqual(job["status"], "removed")
+        self.assertEqual(removal_attempts, [False, False])
+        self.assertEqual(cleanup_states, [(["test-lidarr-download-id"], "completed")])
+        self.assertEqual(self.bridge.quota.snapshot().completed, 1)
+
+    def test_deleted_queued_job_is_not_started_from_a_stale_worker_snapshot(self):
+        release = self.bridge.store.register_release(self.release())
+        self._submit(release["token"])
+        stale = self.bridge.store.next_job()
+        self.assertTrue(self.bridge.store.remove_job(stale["nzb_id"]))
+        self.bridge._run_job(stale)
+        self.assertEqual(self.bridge.store.get_job(stale["id"])["status"], "removed")
+        self.assertEqual(self.bridge.quota.snapshot().reserved_ids, ())
+        self.assertEqual(self.downloads, [])
+
+    def test_queued_and_recovery_jobs_are_visible_as_not_downloading(self):
+        release = self.bridge.store.register_release(self.release())
+        self._submit(release["token"])
+        job = self.bridge.store.next_job()
+        request = {"jsonrpc": "2.0", "method": "listgroups", "params": []}
+        groups, _ = self.bridge._jsonrpc(request)
+        self.assertEqual(groups[0]["ActiveDownloads"], 0)
+        self.bridge.store.set_job(job["id"], "needs_recovery", "Manual review required")
+        groups, _ = self.bridge._jsonrpc(request)
+        self.assertEqual(groups[0]["ActiveDownloads"], 0)
+        self.assertIn("needs manual recovery", groups[0]["NzbName"])
+        self.assertIsNone(self.bridge.store.next_job())
+        self.assertFalse(self.bridge.store.remove_job(job["nzb_id"]))
 
     def test_duplicate_grabs_keep_each_lidarr_download_id_correlated(self):
         release = self.bridge.store.register_release(self.release())
@@ -253,6 +305,23 @@ class IndexerBridgeTests(unittest.TestCase):
         )
         self.assertIsNone(response)
         self.assertEqual(error["code"], -32602)
+        self.assertEqual(self.bridge.store.jobs(("queued",)), [])
+
+    def test_append_rejects_dtd_and_entities_in_utf8_and_utf16(self):
+        release = self.bridge.store.register_release(self.release())
+        document = (
+            '<?xml version="1.0"?>'
+            '<!DOCTYPE nzb [<!ENTITY token "' + release["token"] + '">]>'
+            '<nzb xmlns="http://www.newzbin.com/DTD/2003/nzb">'
+            '<head><meta type="deemix-release-id">&token;</meta></head></nzb>'
+        )
+        for encoding in ("utf-8", "utf-16"):
+            with self.subTest(encoding=encoding):
+                params = ["release.nzb", base64.b64encode(document.encode(encoding)).decode(), "Music"]
+                params.extend([0, False, False, "", 0, "all", ["drone", "test-id"]])
+                response, error = self.bridge._jsonrpc({"jsonrpc": "2.0", "method": "append", "params": params})
+                self.assertIsNone(response)
+                self.assertEqual(error["code"], -32602)
         self.assertEqual(self.bridge.store.jobs(("queued",)), [])
 
     def test_existing_job_database_gets_client_id_mapping_without_losing_jobs(self):
@@ -318,10 +387,13 @@ class IndexerBridgeTests(unittest.TestCase):
         self._submit(release["token"])
         self.bridge._run_job(self.bridge.store.next_job())
         self.assertEqual(self.bridge.quota.snapshot().completed, 1)
-        self.assertEqual(self.bridge.store.jobs(("failed",))[0]["detail"], "Download or strict manual import failed")
-        history, error = self.bridge._jsonrpc({"jsonrpc": "2.0", "id": 3, "method": "history", "params": []})
+        self.assertEqual(
+            self.bridge.store.jobs(("needs_recovery",))[0]["detail"],
+            "Download finished; strict manual import needs review",
+        )
+        groups, error = self.bridge._jsonrpc({"jsonrpc": "2.0", "id": 3, "method": "listgroups", "params": []})
         self.assertIsNone(error)
-        self.assertEqual(history[0]["ParStatus"], "FAILURE")
+        self.assertIn("needs manual recovery", groups[0]["NzbName"])
 
     def test_history_redownload_retries_failed_job_with_a_new_quota_attempt(self):
         attempts = []
@@ -359,7 +431,7 @@ class IndexerBridgeTests(unittest.TestCase):
         self.assertEqual(self.bridge.quota.snapshot().completed, 1)
         self.assertEqual(len(attempts), 2)
 
-    def test_recovery_requeues_only_an_unfinished_reserved_download(self):
+    def test_interrupted_download_requires_recovery_without_restarting_it(self):
         release = self.bridge.store.register_release(self.release())
         self._submit(release["token"])
         job = self.bridge.store.next_job()
@@ -369,10 +441,55 @@ class IndexerBridgeTests(unittest.TestCase):
 
         restarted = self.make_bridge()
 
-        self.assertEqual(restarted.store.get_job(job_id)["status"], "queued")
-        restarted._run_job(restarted.store.next_job())
-        self.assertEqual(restarted.store.get_job(job_id)["status"], "completed")
-        self.assertEqual(restarted.quota.snapshot().completed, 1)
+        self.assertEqual(restarted.store.get_job(job_id)["status"], "needs_recovery")
+        self.assertIsNone(restarted.store.next_job())
+        self.assertEqual(restarted.quota.snapshot().reserved_ids, (f"{job_id}:1",))
+        self.assertEqual(self.downloads, [])
+
+    def test_interruption_before_quota_reservation_requires_recovery(self):
+        release = self.bridge.store.register_release(self.release())
+        self._submit(release["token"])
+        job = self.bridge.store.next_job()
+        self.assertTrue(self.bridge.store.claim_job(job["id"]))
+        restarted = self.make_bridge()
+        self.assertEqual(restarted.store.get_job(job["id"])["status"], "needs_recovery")
+        self.assertEqual(restarted.quota.snapshot().reserved_ids, ())
+        self.assertIsNone(restarted.store.next_job())
+
+    def test_quota_error_requires_recovery_without_starting_download(self):
+        release = self.bridge.store.register_release(self.release())
+        self._submit(release["token"])
+        job = self.bridge.store.next_job()
+        with (
+            patch.object(self.bridge.quota, "reserve", side_effect=ValueError("quota unavailable")),
+            self.assertRaisesRegex(ValueError, "quota unavailable"),
+        ):
+            self.bridge._run_job(job)
+        self.assertEqual(self.bridge.store.get_job(job["id"])["status"], "needs_recovery")
+        self.assertEqual(self.downloads, [])
+
+    def test_cleanup_error_does_not_change_successful_import_to_failure(self):
+        self.bridge = self.make_bridge(on_import_complete=Mock(side_effect=RuntimeError("cleanup failed")))
+        release = self.bridge.store.register_release(self.release())
+        self._submit(release["token"])
+        job = self.bridge.store.next_job()
+        with self.assertRaisesRegex(RuntimeError, "cleanup failed"):
+            self.bridge._run_job(job)
+        self.assertEqual(self.bridge.store.get_job(job["id"])["status"], "completed")
+        self.assertEqual(self.bridge.quota.snapshot().completed, 1)
+
+    def test_unexpected_download_error_keeps_quota_reserved_for_recovery(self):
+        def unexpected(_release, _completed):
+            raise RuntimeError("download outcome unknown")
+
+        self.bridge = self.make_bridge(download=unexpected)
+        release = self.bridge.store.register_release(self.release())
+        self._submit(release["token"])
+        job = self.bridge.store.next_job()
+        with self.assertRaisesRegex(RuntimeError, "download outcome unknown"):
+            self.bridge._run_job(job)
+        self.assertEqual(self.bridge.store.get_job(job["id"])["status"], "needs_recovery")
+        self.assertEqual(self.bridge.quota.snapshot().reserved_ids, (f"{job['id']}:1",))
 
     def test_invalid_api_key_and_client_credentials_are_rejected(self):
         server = ThreadingHTTPServer(("127.0.0.1", 0), self.bridge.handler())

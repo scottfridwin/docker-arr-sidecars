@@ -1,3 +1,4 @@
+import os
 import sys
 import unittest
 from pathlib import Path
@@ -11,6 +12,17 @@ from deemix_downloader.matching import MatchResult, ReleaseCandidate
 
 
 class ServiceSearchTests(unittest.TestCase):
+    def test_legacy_and_indexer_services_cannot_run_together(self):
+        with (
+            patch.dict(os.environ, {"SERVICE_INDEXER_ENABLED": "true"}, clear=True),
+            self.assertRaisesRegex(RuntimeError, "cannot run together"),
+        ):
+            service._check_download_service_configuration()
+        with patch.dict(
+            os.environ, {"SERVICE_INDEXER_ENABLED": "true", "SERVICE_DEEMIXDOWNLOADER_ENABLED": "false"}, clear=True
+        ):
+            service._check_download_service_configuration()
+
     @staticmethod
     def indexer_release():
         return {
@@ -343,11 +355,10 @@ class ServiceSearchTests(unittest.TestCase):
             self.assertEqual(service._validate_indexer_results([release]), [])
             parse.assert_not_called()
 
-    def test_indexer_import_clears_the_correlated_lidarr_queue_item(self):
+    def test_indexer_download_uses_strict_import_and_completion_callback(self):
         on_download_complete = Mock()
         with (
-            patch.object(service, "_download_album", return_value=True),
-            patch.object(service, "remove_lidarr_queue_items") as remove_queue_items,
+            patch.object(service, "_download_album", return_value=True) as download,
         ):
             imported = service.download_indexer_release(
                 self.indexer_release(),
@@ -356,21 +367,8 @@ class ServiceSearchTests(unittest.TestCase):
             )
 
         self.assertTrue(imported)
-        remove_queue_items.assert_called_once_with(["lidarr-download-id"])
-
-    def test_failed_indexer_import_keeps_the_lidarr_queue_item(self):
-        with (
-            patch.object(service, "_download_album", return_value=False),
-            patch.object(service, "remove_lidarr_queue_items") as remove_queue_items,
-        ):
-            imported = service.download_indexer_release(
-                self.indexer_release(),
-                Mock(),
-                "test-token",
-            )
-
-        self.assertFalse(imported)
-        remove_queue_items.assert_not_called()
+        self.assertTrue(download.call_args.kwargs["strict_manual_import"])
+        self.assertIs(download.call_args.kwargs["on_download_complete"], on_download_complete)
 
 
 if __name__ == "__main__":

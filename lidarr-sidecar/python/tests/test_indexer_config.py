@@ -18,6 +18,14 @@ SPEC.loader.exec_module(indexer_config)
 
 
 class IndexerConfigTests(unittest.TestCase):
+    def test_upsert_does_not_treat_an_existing_resource_as_success_after_invalid_update(self):
+        with (
+            patch.object(indexer_config, "_request", side_effect=[[{"name": "client", "id": 1}], None]) as request,
+            self.assertRaises(SystemExit),
+        ):
+            indexer_config._upsert("downloadclient", {"name": "client"})
+        self.assertEqual(request.call_count, 2)
+
     def test_auto_configuration_is_opt_in(self):
         with (
             patch.dict(os.environ, {"AUTOCONFIG_DEEMIX_INDEXER": "false"}, clear=True),
@@ -63,6 +71,8 @@ class IndexerConfigTests(unittest.TestCase):
 
         environment = {
             "AUTOCONFIG_DEEMIX_INDEXER": "true",
+            "SERVICE_INDEXER_ENABLED": "true",
+            "SERVICE_DEEMIXDOWNLOADER_ENABLED": "false",
             "AUDIO_INDEXER_API_KEY": "k" * 32,
             "AUDIO_INDEXER_CLIENT_PASSWORD": "p" * 16,
             "AUDIO_INDEXER_PUBLIC_URL": "http://sidecar:9797",
@@ -98,6 +108,21 @@ class IndexerConfigTests(unittest.TestCase):
         self.assertFalse(indexer["enableRss"])
         self.assertTrue(indexer["enableAutomaticSearch"])
         self.assertTrue(indexer["enableInteractiveSearch"])
+
+    def test_one_time_configuration_waits_for_the_bridge(self):
+        environment = {
+            "AUTOCONFIG_DEEMIX_INDEXER": "true",
+            "SERVICE_INDEXER_ENABLED": "true",
+            "SERVICE_DEEMIXDOWNLOADER_ENABLED": "false",
+        }
+        with (
+            patch.dict(os.environ, environment, clear=True),
+            patch.object(indexer_config, "_request") as request,
+            patch.object(indexer_config, "verify_arr_api_access") as verify,
+        ):
+            indexer_config.run_one_time()
+        request.assert_not_called()
+        verify.assert_not_called()
 
 
 if __name__ == "__main__":

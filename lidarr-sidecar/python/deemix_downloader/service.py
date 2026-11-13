@@ -33,6 +33,7 @@ from urllib.parse import quote_plus
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
 from shared.python.arrapi import arr_api_request, verify_arr_api_access
+from shared.python.config import env_bool
 from shared.python.state import get_state, init_state
 
 from . import musicbrainz_api
@@ -670,7 +671,7 @@ def download_indexer_release(
         lidarr_release_foreign_id=release["release_foreign_id"],
         matched=True,
     )
-    imported = _download_album(
+    return _download_album(
         result,
         artist_name=release["artist_name"],
         artist_id=release["artist_id"],
@@ -683,11 +684,6 @@ def download_indexer_release(
         ignore_failure_marker=True,
         on_download_complete=on_download_complete,
     )
-    if imported:
-        download_ids = release.get("lidarr_download_ids") or []
-        with _LIDARR_API_LOCK:
-            remove_lidarr_queue_items(download_ids)
-    return imported
 
 
 def search_and_download(
@@ -1579,8 +1575,17 @@ def manual_import_pre_move_hook(import_dir: Path, hook_arg: str) -> bool:
 # ─── Main ─────────────────────────────────────────────────────────────────
 
 
+def _check_download_service_configuration() -> None:
+    if env_bool("SERVICE_DEEMIXDOWNLOADER_ENABLED", True) and env_bool("SERVICE_INDEXER_ENABLED", False):
+        raise RuntimeError(
+            "The legacy DeemixDownloader and Indexer services cannot run together; "
+            "set SERVICE_DEEMIXDOWNLOADER_ENABLED=false when enabling the indexer"
+        )
+
+
 def main() -> None:
     """Main loop for the DeemixDownloader service."""
+    _check_download_service_configuration()
     log.info("Starting DeemixDownloader")
 
     init_state()
@@ -1630,6 +1635,7 @@ def main() -> None:
 
 def indexer_main() -> None:
     """Run the authenticated Newznab indexer and quota-aware grab worker."""
+    _check_download_service_configuration()
     from .indexer_bridge import build_bridge_from_environment
 
     log.info("Starting Lidarr Deemix Indexer")
@@ -1650,10 +1656,19 @@ def indexer_main() -> None:
     def search(**query: Any) -> list[dict]:
         return _validate_indexer_results(searches.search(**query))
 
-    bridge = build_bridge_from_environment(search, download)
+    def clean_up_imported_queue(download_ids: list[str]) -> None:
+        with _LIDARR_API_LOCK:
+            remove_lidarr_queue_items(download_ids)
+
+    def configure_indexer(_port: int) -> None:
+        if env_bool("AUTOCONFIG_DEEMIX_INDEXER"):
+            script = Path(__file__).resolve().parents[2] / "services" / "one-time" / "IndexerConfig.py"
+            subprocess.run([sys.executable, str(script), "--bridge-ready"], check=True)
+
+    bridge = build_bridge_from_environment(search, download, clean_up_imported_queue)
     worker = searches.start()
     try:
-        bridge.serve(bridge.bind_host, bridge.bind_port)
+        bridge.serve(bridge.bind_host, bridge.bind_port, on_listening=configure_indexer)
     finally:
         searches.stop()
         worker.join(timeout=10)

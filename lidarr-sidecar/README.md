@@ -17,7 +17,7 @@ Automates Lidarr wanted-album acquisition from Deezer using MusicBrainz-linked r
   - Exposes authenticated Newznab album search and an NZBGet-compatible download-client bridge
   - Downloads only releases Lidarr grabs, enforces the persistent daily quota at the download boundary, and forces the selected Lidarr artist/album/release during import
 - DeemixDownloader (`services/persistent/DeemixDownloader.py`)
-  - Legacy wanted-list poller; disabled by default to avoid competing with Lidarr's indexer grabs
+  - Legacy wanted-list poller; enabled by default for compatibility with existing installations
   - Resolves Deezer album IDs through MusicBrainz release relations
   - Validates candidate links (title, track count, lyric filters)
   - Enforces optional hard gates for Deezer redirect handling and UPC matching
@@ -31,7 +31,7 @@ Automates Lidarr wanted-album acquisition from Deezer using MusicBrainz-linked r
 
 ## DeemixDownloader
 
-When explicitly enabled, the legacy DeemixDownloader service turns Lidarr wanted albums into validated Deezer downloads. It loops on the wanted queue, evaluates candidate releases, downloads accepted matches, applies post-processing, and triggers Lidarr import. The new Indexer service is the default integration path when enabled.
+The legacy DeemixDownloader service turns Lidarr wanted albums into validated Deezer downloads. It loops on the wanted queue, evaluates candidate releases, downloads accepted matches, applies post-processing, and triggers Lidarr import. Disable it explicitly when enabling the Indexer service.
 
 ### Matching workflow
 
@@ -85,14 +85,14 @@ On 2026-11-13, an isolated Lidarr 3.1.6.5079 manual search for Olivia Rodrigo's 
 
 A later user-triggered isolated grab downloaded Olivia Rodrigo's `SOUR` and Lidarr imported 11 tracks. Logs exposed that Lidarr kept the item in `importPending` because the bridge's reported history destination did not exist. The stale queue entry was removed manually after confirming the tracks remained in the isolated library; automatic cleanup is covered by tests, but was not live-verified with another download.
 
-Queued jobs behind a quota-waiting job can appear as downloading in Lidarr even though they have not started. Some matching editions are radio specials; review the selected edition or configure Lidarr's preferences before grabbing.
+Some matching editions are radio specials; review the selected edition or configure Lidarr's preferences before grabbing.
 
 ### Setup and migration
 
-1. Stop the old wanted-list poller before enabling the indexer. `SERVICE_DEEMIXDOWNLOADER_ENABLED` and `SERVICE_INDEXER_ENABLED` both default to `false`; leave the old poller disabled while using the new flow. Its `daily_download_state` writer does not coordinate with the new quota database.
+1. Stop the old wanted-list poller before enabling the indexer. Set `SERVICE_DEEMIXDOWNLOADER_ENABLED=false` and `SERVICE_INDEXER_ENABLED=true`; the legacy poller defaults to `true` and the indexer to `false`. Both services refuse to run together because the legacy `daily_download_state` writer does not coordinate with the new quota database.
 2. Set `AUDIO_INDEXER_API_KEY` to a random secret of at least 32 characters and `AUDIO_INDEXER_CLIENT_PASSWORD` to a separate random secret of at least 16 characters. For example, generate values with `openssl rand -hex 32` and `openssl rand -hex 24`. Set `AUDIO_INDEXER_PUBLIC_URL` to the HTTP(S) URL reachable from Lidarr, with no path, query, or fragment. Set `SERVICE_INDEXER_ENABLED=true`.
 3. Keep the Lidarr config XML mounted read-only and provide an ARL token file as for the existing downloader. Mount `AUDIO_WORK_PATH` persistently. Mount `AUDIO_SHARED_LIDARR_PATH` at the same path in both containers; the sidecar stages and tags files there before forced manual import.
-4. Either set `AUTOCONFIG_DEEMIX_INDEXER=true` to idempotently create/update the dedicated download client and Newznab indexer on startup, or add them manually. Auto-configuration uses the names in `AUDIO_INDEXER_CLIENT_NAME` and `AUDIO_INDEXER_NAME`.
+4. Either set `AUTOCONFIG_DEEMIX_INDEXER=true` to idempotently create/update the dedicated download client and Newznab indexer on startup, or add them manually. Auto-configuration runs after the bridge starts listening and before its download worker starts. It uses the names in `AUDIO_INDEXER_CLIENT_NAME` and `AUDIO_INDEXER_NAME`; a configuration failure stops the indexer service and marks the container unhealthy.
 5. Add a **Download Client / NZBGet** pointing at `AUDIO_INDEXER_CLIENT_HOST` and port (`AUDIO_INDEXER_CLIENT_PORT`, defaulting to `AUDIO_INDEXER_PORT`, which defaults to `9797`), with `AUDIO_INDEXER_CLIENT_USERNAME` and `AUDIO_INDEXER_CLIENT_PASSWORD`. Set the music category to `Music` and leave “Add Paused” disabled. The NZBGet version/schema handshake was verified against Lidarr 3.1.6.5079.
 6. Add an **Indexer / Newznab** with the public URL, API path `/api`, and `AUDIO_INDEXER_API_KEY`. Select audio categories (3000, 3010, 3030, 3040). Enable interactive and automatic search; disable RSS; set its `downloadClientId` to the NZBGet client created above. This binding prevents synthetic NZBs from being sent to a normal Usenet client.
 7. Ensure the indexer URL and NZBGet client address are reachable from Lidarr over a private network. The bridge uses HTTP; do not expose it directly to the Internet. Use a trusted network or a TLS-terminating reverse proxy, and preserve the configured public URL when using a proxy.
@@ -100,16 +100,18 @@ Queued jobs behind a quota-waiting job can appear as downloading in Lidarr even 
 
 The bridge keeps a grab queued while it downloads and runs Lidarr's forced Manual Import API with the chosen artist, album, and release IDs. It only reports success after that command completes and Lidarr registers track files, preventing the download client's normal completed-download scan from racing the forced import. The client history uses a unique, empty output path after manual import so it cannot rescan the shared staging root.
 
-`AUDIO_DAILY_DOWNLOAD_LIMIT=0` is unlimited. Otherwise, each distinct album download reserves one slot immediately before download, releases it only when download failure is known, and records completion before import; an import failure therefore still counts. The local calendar day uses the container timezone (`TZ`). When full, searches still return matches and grabs remain in the NZBGet-compatible queue with a “waiting for daily download quota” title; the worker retries after the next local midnight. Pending reservations survive midnight and restart. Quota state lives under `AUDIO_WORK_PATH` in `daily_download_quota.sqlite3`. See the queue-view limitation above.
+`AUDIO_DAILY_DOWNLOAD_LIMIT=0` is unlimited. Otherwise, each distinct album download reserves one slot immediately before download, releases it only when download failure is known, and records completion before import; an import failure therefore still counts. The local calendar day uses the container timezone (`TZ`). When full, searches still return matches and grabs remain in the NZBGet-compatible queue with a “waiting for daily download quota” title; the worker retries after the next local midnight. Pending reservations survive midnight and restart. Quota state lives under `AUDIO_WORK_PATH` in `daily_download_quota.sqlite3`.
 
 On first startup, the quota imports the existing `daily_download_state` count without modifying the legacy file. Stop the old poller before this migration. Corrupt/missing initialized quota state fails closed; do not delete the lock or database to reset the limit. The priority file is not read by the new flow and is left untouched; Lidarr-grabbed jobs all use the same quota. Legacy `AUDIO_PRIORITY_*` settings apply only if the old poller is explicitly re-enabled.
 
-If a process restarts while a job is still downloading, the bridge requeues that attempt with its reservation. If the download had already completed but import recovery had not finished, the bridge marks the job for operator review rather than risking a second download; verify the files and complete the forced import manually. Lidarr-native “retry” of a failed NZBGet history entry starts a new quota attempt.
+Queued and quota-waiting jobs may be removed; removal is refused once downloading or importing starts because the bridge cannot safely cancel the operation. Interrupted or uncertain downloads and unsuccessful imports are shown in the queue as “needs manual recovery”; they are neither automatically retried nor removable through the bridge. A reservation may remain held when the download outcome is uncertain. There is currently no supported reconciliation workflow for these jobs or reservations; do not edit or delete the quota database to clear them. This is a release blocker. Lidarr-native “retry” of a known failed NZBGet history entry starts a new quota attempt.
+
+Forced manual import currently allows Lidarr to replace existing track files, and its success check only compares the album's track-file count. Replacement can remove existing files before an import is fully verified, and equal-count replacements can be reported as failures. Do not use the indexer to replace existing media until this is addressed. Automatic post-import queue cleanup and deferred auto-configuration still require end-to-end verification with a running Lidarr instance.
 
 ### New Indexer settings
 
 - `SERVICE_INDEXER_ENABLED` (default: `false`)
-- `SERVICE_DEEMIXDOWNLOADER_ENABLED` (default: `false`; legacy wanted-list poller)
+- `SERVICE_DEEMIXDOWNLOADER_ENABLED` (default: `true`; legacy wanted-list poller, must be disabled when using the indexer)
 - `AUDIO_INDEXER_API_KEY` (required; minimum 32 characters)
 - `AUDIO_INDEXER_PUBLIC_URL` (required; reachable from Lidarr, no URL path/query/fragment)
 - `AUDIO_INDEXER_BIND` (default: `0.0.0.0`)

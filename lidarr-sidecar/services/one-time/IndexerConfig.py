@@ -76,17 +76,15 @@ def _upsert(path: str, payload: dict) -> dict:
         response = _request("PUT", f"{path}/{existing['id']}{suffix}", payload)
     if isinstance(response, dict) and response.get("id"):
         return response
-    refreshed = _request("GET", path)
-    if isinstance(refreshed, list):
-        found = next((item for item in refreshed if item.get("name") == payload["name"]), None)
-        if found:
-            return found
     fatal(f"Lidarr did not return the configured resource ID for {payload['name']}")
 
 
 def main() -> None:
     if not env_bool("AUTOCONFIG_DEEMIX_INDEXER"):
         return
+
+    if not env_bool("SERVICE_INDEXER_ENABLED") or env_bool("SERVICE_DEEMIXDOWNLOADER_ENABLED", True):
+        fatal("Deemix indexer auto-configuration requires the indexer enabled and the legacy downloader disabled")
 
     api_key = env("AUDIO_INDEXER_API_KEY")
     client_password = env("AUDIO_INDEXER_CLIENT_PASSWORD")
@@ -146,5 +144,16 @@ def main() -> None:
     info("Deemix Newznab indexer and dedicated NZBGet client configured")
 
 
+def run_one_time() -> None:
+    if not env_bool("AUTOCONFIG_DEEMIX_INDEXER"):
+        return
+    if not env_bool("SERVICE_INDEXER_ENABLED") or env_bool("SERVICE_DEEMIXDOWNLOADER_ENABLED", True):
+        fatal("Deemix indexer auto-configuration requires the indexer enabled and the legacy downloader disabled")
+    info("Deemix indexer auto-configuration deferred until the bridge is listening")
+
+
 if __name__ == "__main__":
-    main()
+    if sys.argv[1:] == ["--bridge-ready"]:
+        main()
+    else:
+        run_one_time()

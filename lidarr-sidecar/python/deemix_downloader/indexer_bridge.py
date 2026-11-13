@@ -24,6 +24,9 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
+from defusedxml import ElementTree as SafeET
+from defusedxml.common import DefusedXmlException
+
 from .indexer_background import SearchWarming
 from .indexer_search import AmbiguousAlbumError
 from .logging import log
@@ -31,8 +34,8 @@ from .quota import DailyDownloadQuota, QuotaStateError, ReservationResult
 
 _NZB_NAMESPACE = "http://www.newzbin.com/DTD/2003/nzb"
 _NEWZNAB_NAMESPACE = "http://www.newznab.com/DTD/2010/feeds/attributes/"
-_ACTIVE_STATES = ("queued", "waiting_quota", "downloading", "downloaded")
-_IDEMPOTENT_STATES = (*_ACTIVE_STATES, "completed", "needs_recovery")
+_ACTIVE_STATES = ("queued", "waiting_quota", "downloading", "downloaded", "needs_recovery")
+_IDEMPOTENT_STATES = (*_ACTIVE_STATES, "completed")
 _TERMINAL_STATES = ("completed", "failed", "removed", "needs_recovery")
 _MAX_REQUEST_BYTES = 16 * 1024 * 1024
 
@@ -209,6 +212,15 @@ class BridgeStore:
                 "SELECT * FROM jobs WHERE status IN ('queued', 'waiting_quota') ORDER BY nzb_id LIMIT 1"
             ).fetchone()
 
+    def claim_job(self, job_id: str) -> bool:
+        with self._lock, self._connection() as connection:
+            cursor = connection.execute(
+                "UPDATE jobs SET status='downloading', detail='', updated=? "
+                "WHERE id=? AND status IN ('queued', 'waiting_quota')",
+                (datetime.now(UTC).isoformat(), job_id),
+            )
+            return cursor.rowcount == 1
+
     def jobs(self, statuses: tuple[str, ...]) -> list[sqlite3.Row]:
         placeholders = ",".join("?" for _ in statuses)
         with self._lock, self._connection() as connection:
@@ -219,12 +231,14 @@ class BridgeStore:
                 statuses,
             ).fetchall()
 
-    def remove_job(self, nzb_id: int) -> None:
+    def remove_job(self, nzb_id: int) -> bool:
         with self._lock, self._connection() as connection:
-            connection.execute(
-                "UPDATE jobs SET status='removed', updated=? WHERE nzb_id=?",
+            cursor = connection.execute(
+                "UPDATE jobs SET status='removed', updated=? "
+                "WHERE nzb_id=? AND status NOT IN ('downloading', 'downloaded', 'needs_recovery')",
                 (datetime.now(UTC).isoformat(), nzb_id),
             )
+            return cursor.rowcount == 1
 
     def retry_job(self, nzb_id: int) -> bool:
         with self._lock, self._connection() as connection:
@@ -239,7 +253,7 @@ class BridgeStore:
             return True
 
     def recover(self, quota: DailyDownloadQuota) -> None:
-        """Retry only jobs whose download is not known to have completed."""
+        """Stop interrupted jobs for manual reconciliation."""
         for row in self.jobs(("downloading", "downloaded")):
             key = f"{row['id']}:{row['attempt']}"
             if row["status"] == "downloaded":
@@ -256,17 +270,11 @@ class BridgeStore:
                     "Download completed before restart; verify/import staged files manually",
                 )
                 continue
-            reservation = quota.reserve(key)
-            if reservation == ReservationResult.RESERVED:
-                self.set_job(row["id"], "queued", "Resuming an interrupted download")
-            elif reservation == ReservationResult.COMPLETED:
-                self.set_job(
-                    row["id"], "needs_recovery", "Quota records a completed download; manual import recovery required"
-                )
-            elif reservation == ReservationResult.FAILED:
-                self.set_job(row["id"], "failed", "Download attempt was already reconciled as failed")
-            else:
-                self.set_job(row["id"], "waiting_quota", "Waiting for daily download quota")
+            self.set_job(
+                row["id"],
+                "needs_recovery",
+                "Download was interrupted; verify its outcome and reconcile quota before retrying",
+            )
 
 
 class IndexerBridge:
@@ -284,6 +292,7 @@ class IndexerBridge:
         download_limit: int,
         search: Callable[..., list[dict[str, Any]]],
         download: Callable[[dict[str, Any], Callable[[], None]], bool],
+        on_import_complete: Callable[[list[str]], None] | None = None,
         worker_interval: float = 2,
     ):
         parsed_url = urlsplit(public_url)
@@ -309,6 +318,7 @@ class IndexerBridge:
         self.quota = DailyDownloadQuota(work_path, download_limit)
         self.search_callback = search
         self.download_callback = download
+        self.on_import_complete = on_import_complete
         self.worker_interval = worker_interval
         self._worker_stop = threading.Event()
         self.store.recover(self.quota)
@@ -333,14 +343,20 @@ class IndexerBridge:
                 log.error(f"Indexer job {row['id']} failed unexpectedly: {exc}")
                 current = self.store.get_job(row["id"])
                 if current and current["status"] not in _TERMINAL_STATES:
-                    self.store.set_job(row["id"], "failed", str(exc))
+                    self.store.set_job(row["id"], "needs_recovery", f"Unexpected worker error: {exc}")
             self._worker_stop.wait(self.worker_interval)
 
     def _run_job(self, row: sqlite3.Row) -> None:
         job_id = row["id"]
+        if not self.store.claim_job(job_id):
+            return
         release = self.store.get_release_for_job(job_id)
         quota_id = f"{job_id}:{release['attempt']}"
-        reservation = self.quota.reserve(quota_id)
+        try:
+            reservation = self.quota.reserve(quota_id)
+        except (QuotaStateError, ValueError):
+            self.store.set_job(job_id, "needs_recovery", "Quota reservation failed; operator review required")
+            raise
         if reservation == ReservationResult.FULL:
             self.store.set_job(job_id, "waiting_quota", "Waiting for the local calendar day quota to reset")
             return
@@ -352,8 +368,11 @@ class IndexerBridge:
             )
             return
 
-        release["lidarr_download_ids"] = list(self.store.client_ids(job_id))
-        self.store.set_job(job_id, "downloading")
+        try:
+            release["lidarr_download_ids"] = list(self.store.client_ids(job_id))
+        except (sqlite3.Error, RuntimeError):
+            self.quota.fail(quota_id)
+            raise
         download_completed = False
         completion_started = False
 
@@ -367,11 +386,15 @@ class IndexerBridge:
         try:
             imported = self.download_callback(release, mark_download_complete)
         except Exception:
-            if not completion_started:
-                self.quota.fail(quota_id)
+            detail = (
+                "Download finished; inspect quota and import state"
+                if completion_started
+                else "Download outcome is unknown; inspect quota and staged files"
+            )
+            self.store.set_job(job_id, "needs_recovery", detail)
             raise
         if imported and not download_completed:
-            self.quota.fail(quota_id)
+            self.store.set_job(job_id, "needs_recovery", "Import reported success without recorded download completion")
             raise RuntimeError("download worker reported import success without recording download completion")
         if not download_completed:
             self.quota.fail(quota_id)
@@ -381,8 +404,12 @@ class IndexerBridge:
         if imported:
             self._history_dest_dir(job_id).mkdir(parents=True, exist_ok=True)
             self.store.set_job(job_id, "completed")
+            if self.on_import_complete is not None:
+                self.on_import_complete(release["lidarr_download_ids"])
+        elif download_completed:
+            self.store.set_job(job_id, "needs_recovery", "Download finished; strict manual import needs review")
         else:
-            self.store.set_job(job_id, "failed", "Download or strict manual import failed")
+            self.store.set_job(job_id, "failed", "Download failed")
 
     def _history_dest_dir(self, job_id: str) -> Path:
         return Path(self.import_path) / ".deemix-bridge" / job_id
@@ -523,10 +550,8 @@ class IndexerBridge:
                 return 0, None
             try:
                 nzb_bytes = base64.b64decode(params[1], validate=True)
-                if b"<!DOCTYPE" in nzb_bytes.upper() or b"<!ENTITY" in nzb_bytes.upper():
-                    raise ValueError("DTD and entities are not accepted")
-                root = ET.fromstring(nzb_bytes)  # noqa: S314 - DTD/entities are rejected above; payload is size-limited.
-            except (binascii.Error, ET.ParseError, ValueError):
+                root = SafeET.fromstring(nzb_bytes, forbid_dtd=True)
+            except (binascii.Error, ET.ParseError, DefusedXmlException, ValueError):
                 return None, {"code": -32602, "message": "invalid NZB payload"}
             token = next(
                 (
@@ -562,6 +587,10 @@ class IndexerBridge:
                 title = payload["artist_name"] + " - " + payload["album_title"]
                 if row["status"] == "waiting_quota":
                     title += " [waiting for daily download quota]"
+                elif row["status"] == "needs_recovery":
+                    title += " [needs manual recovery]"
+                elif row["status"] == "downloaded":
+                    title += " [manual import in progress]"
                 for client_id in self.store.client_ids(row["id"]):
                     groups.append(
                         {
@@ -574,7 +603,7 @@ class IndexerBridge:
                             "PausedSizeLo": 0,
                             "RemainingSizeHi": 0,
                             "RemainingSizeLo": 1,
-                            "ActiveDownloads": 0 if row["status"] == "waiting_quota" else 1,
+                            "ActiveDownloads": int(row["status"] in ("downloading", "downloaded")),
                             "Parameters": [{"Name": "drone", "Value": client_id}],
                         }
                     )
@@ -616,11 +645,9 @@ class IndexerBridge:
             except (TypeError, ValueError):
                 return False, None
             if command == "GroupFinalDelete":
-                self.store.remove_job(nzb_id)
-                return True, None
+                return self.store.remove_job(nzb_id), None
             if command == "HistoryDelete":
-                self.store.remove_job(nzb_id)
-                return True, None
+                return self.store.remove_job(nzb_id), None
             if command == "HistoryRedownload":
                 return self.store.retry_job(nzb_id), None
             return False, None
@@ -723,23 +750,34 @@ class IndexerBridge:
 
         return Handler
 
-    def serve(self, host: str, port: int) -> None:
+    def serve(self, host: str, port: int, on_listening: Callable[[int], None] | None = None) -> None:
         server = ThreadingHTTPServer((host, port), self.handler())
         server.daemon_threads = True
         log.info(f"Newznab/NZBGet bridge listening on {host}:{port}")
-        worker = self.start_worker()
+        server_thread = threading.Thread(
+            target=server.serve_forever, kwargs={"poll_interval": 0.5}, name="indexer-http", daemon=True
+        )
+        server_thread.start()
+        worker = None
         try:
-            server.serve_forever(poll_interval=0.5)
+            if on_listening is not None:
+                on_listening(server.server_port)
+            worker = self.start_worker()
+            server_thread.join()
+            raise RuntimeError("Indexer HTTP server stopped unexpectedly")
         finally:
             server.shutdown()
+            server_thread.join()
             self.stop_worker()
-            worker.join(timeout=10)
+            if worker is not None:
+                worker.join(timeout=10)
             server.server_close()
 
 
 def build_bridge_from_environment(
     search: Callable[..., list[dict[str, Any]]],
     download: Callable[[dict[str, Any], Callable[[], None]], bool],
+    on_import_complete: Callable[[list[str]], None] | None = None,
 ) -> IndexerBridge:
     """Build the bridge from required, explicit deployment settings."""
     api_key = os.environ.get("AUDIO_INDEXER_API_KEY", "")
@@ -763,6 +801,7 @@ def build_bridge_from_environment(
         download_limit=int(os.environ.get("AUDIO_DAILY_DOWNLOAD_LIMIT", "0")),
         search=search,
         download=download,
+        on_import_complete=on_import_complete,
     )
     bridge.bind_host = host
     bridge.bind_port = port
