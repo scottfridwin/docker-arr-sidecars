@@ -1,16 +1,76 @@
+import json
+import os
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from deemix_downloader import matching, musicbrainz_api
+from deemix_downloader import deezer_api, matching, musicbrainz_api
 from deemix_downloader.config import Config
 
 
 class MatchingTests(unittest.TestCase):
+    def test_expired_deezer_cache_is_refetched(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = Config(work_path=Path(directory), cache_max_age_deezer=1)
+            config.cache_dir.mkdir()
+            cached = config.cache_dir / "deezer-album-10.json"
+            cached.write_text(json.dumps({"id": 10, "title": "stale"}))
+            os.utime(cached, (time.time() - 172800, time.time() - 172800))
+            fresh = {"id": 10, "title": "fresh", "nb_tracks": 1, "tracks": {"data": [{}]}}
+            with (
+                patch.object(deezer_api, "cfg", config),
+                patch.object(deezer_api, "call_deezer_api", return_value=fresh) as request,
+            ):
+                self.assertEqual(deezer_api.get_deezer_album_info(10)["title"], "fresh")
+                request.assert_called_once()
+
+    def test_invalid_deezer_track_count_is_not_cached(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = Config(work_path=Path(directory))
+            album = {"id": 10, "title": "Album", "nb_tracks": None}
+            with (
+                patch.object(deezer_api, "cfg", config),
+                patch.object(deezer_api, "call_deezer_api", return_value=album),
+            ):
+                self.assertEqual(deezer_api.get_deezer_album_info(10), album)
+            self.assertFalse((config.cache_dir / "deezer-album-10.json").exists())
+
+    def test_indexer_transient_deezer_failure_never_returns_partial_matches(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = Config(work_path=Path(directory), deezer_api_retries=1, require_upc_match=False)
+            candidates = [
+                matching.ReleaseCandidate(title="Album", release_id="1", deezer_album_id="10", track_count=1),
+                matching.ReleaseCandidate(title="Album", release_id="2", deezer_album_id="20", track_count=1),
+            ]
+            ok = Mock(status_code=200)
+            ok.json.return_value = {"id": "10", "title": "Album", "nb_tracks": 1, "tracks": {"data": [{}]}}
+            failed = Mock(status_code=503)
+            session = Mock()
+            session.get.side_effect = [ok, failed]
+            with (
+                patch.object(deezer_api, "cfg", config),
+                patch.object(matching, "cfg", config),
+                patch.object(deezer_api, "_get_session", return_value=session),
+                self.assertRaises(deezer_api.DeezerUnavailable),
+            ):
+                matching.find_all_matches(candidates, "Album")
+
+    def test_indexer_does_not_offer_unknown_track_count(self):
+        candidate = matching.ReleaseCandidate(title="Album", release_id="1", deezer_album_id="10")
+        for count in (0, None, "1"):
+            album = {"id": "10", "title": "Album", "nb_tracks": count}
+            with (
+                self.subTest(count=count),
+                patch.object(matching, "get_deezer_album_info", return_value=album),
+                patch.object(matching.cfg, "require_upc_match", False),
+            ):
+                self.assertEqual(matching.find_all_matches([candidate], "Album"), [])
+
     def test_indexer_prefers_regular_edition_over_radio_special_without_hiding_it(self):
         releases = [
             matching.ReleaseCandidate(

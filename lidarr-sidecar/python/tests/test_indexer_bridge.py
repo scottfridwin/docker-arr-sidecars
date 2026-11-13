@@ -81,6 +81,16 @@ class IndexerBridgeTests(unittest.TestCase):
             self.bridge.serve("127.0.0.1", 0, on_listening=configure)
         start_worker.assert_not_called()
 
+    def test_server_stops_if_download_worker_dies(self):
+        worker = threading.Thread(target=lambda: None)
+        worker.start()
+        worker.join()
+        with (
+            patch.object(self.bridge, "start_worker", return_value=worker),
+            self.assertRaisesRegex(RuntimeError, "background worker stopped"),
+        ):
+            self.bridge.serve("127.0.0.1", 0)
+
     def test_warming_search_returns_a_specific_retry_message(self):
         self.bridge.search_callback = Mock(
             side_effect=SearchWarming("Search is warming in the background; retry later")
@@ -216,6 +226,7 @@ class IndexerBridgeTests(unittest.TestCase):
             job = self.bridge.store.jobs(("completed",))[0]
             cleanup_states.append((download_ids, job["status"]))
             self.assertTrue(self.bridge.store.remove_job(job["nzb_id"]))
+            return set(download_ids)
 
         self.bridge = self.make_bridge(download=import_release, on_import_complete=cleanup)
         release = self.bridge.store.register_release(self.release())
@@ -527,10 +538,101 @@ class IndexerBridgeTests(unittest.TestCase):
         release = self.bridge.store.register_release(self.release())
         self._submit(release["token"])
         job = self.bridge.store.next_job()
-        with self.assertRaisesRegex(RuntimeError, "cleanup failed"):
-            self.bridge._run_job(job)
+        self.bridge._run_job(job)
         self.assertEqual(self.bridge.store.get_job(job["id"])["status"], "completed")
         self.assertEqual(self.bridge.quota.snapshot().completed, 1)
+        self.assertEqual(self.bridge.store.pending_cleanup()[job["id"]], ["test-lidarr-download-id"])
+        cleanup = Mock(side_effect=lambda ids: set(ids))
+        restarted = self.make_bridge(on_import_complete=cleanup)
+        restarted._retry_cleanup()
+        cleanup.assert_called_once_with(["test-lidarr-download-id"])
+        self.assertEqual(restarted.store.pending_cleanup(), {})
+
+    def test_existing_completed_jobs_are_scheduled_for_cleanup_on_upgrade(self):
+        release = self.bridge.store.register_release(self.release())
+        self._submit(release["token"])
+        job = self.bridge.store.next_job()
+        self.bridge.store.set_job(job["id"], "completed")
+        cleanup = Mock(side_effect=lambda ids: set(ids))
+        restarted = self.make_bridge(on_import_complete=cleanup)
+        restarted._retry_cleanup()
+        cleanup.assert_called_once_with(["test-lidarr-download-id"])
+
+    def test_late_duplicate_is_cleaned_even_after_initial_snapshot(self):
+        cleanup = Mock(side_effect=lambda ids: set(ids))
+        release = self.bridge.store.register_release(self.release())
+
+        def download_with_duplicate(_release, completed):
+            self._submit(release["token"], "late")
+            completed()
+            return True
+
+        self.bridge.download_callback = download_with_duplicate
+        self.bridge.on_import_complete = cleanup
+        self._submit(release["token"], "first")
+        job = self.bridge.store.next_job()
+        self.bridge._run_job(job)
+        cleanup.assert_called_once_with(["first", "late"])
+        self._submit(release["token"], "after-completion")
+        self.bridge._retry_cleanup()
+        self.assertEqual(cleanup.call_args.args[0], ["after-completion"])
+        self.assertEqual(self.bridge.store.pending_cleanup(), {})
+
+    def test_cleanup_retries_ids_not_yet_visible_in_lidarr(self):
+        cleanup = Mock(side_effect=[{"first"}, {"late"}])
+        self.bridge.on_import_complete = cleanup
+        release = self.bridge.store.register_release(self.release())
+        self._submit(release["token"], "first")
+        self._submit(release["token"], "late")
+        job = self.bridge.store.next_job()
+        self.bridge._run_job(job)
+        self.assertEqual(self.bridge.store.pending_cleanup()[job["id"]], ["late"])
+        self.bridge._retry_cleanup()
+        self.assertEqual(cleanup.call_args.args[0], ["late"])
+        self.assertEqual(self.bridge.store.pending_cleanup(), {})
+
+    def test_duplicate_arriving_during_cleanup_is_persisted_for_retry(self):
+        release = self.bridge.store.register_release(self.release())
+
+        def cleanup(ids):
+            self._submit(release["token"], "during-cleanup")
+            return set(ids)
+
+        self.bridge.on_import_complete = cleanup
+        self._submit(release["token"], "first")
+        job = self.bridge.store.next_job()
+        self.bridge._run_job(job)
+        self.assertEqual(self.bridge.store.pending_cleanup()[job["id"]], ["during-cleanup"])
+        self.bridge.on_import_complete = lambda ids: set(ids)
+        self.bridge._retry_cleanup()
+        self.assertEqual(self.bridge.store.pending_cleanup(), {})
+
+    def test_system_exit_during_download_does_not_kill_worker(self):
+        failed = threading.Event()
+        success = threading.Event()
+
+        def download(release, completed):
+            if release["deezer_album_id"] == "44":
+                failed.set()
+                raise SystemExit(1)
+            completed()
+            success.set()
+            return True
+
+        self.bridge = self.make_bridge(limit=0, download=download)
+        first = self.bridge.store.register_release(self.release())
+        second = self.bridge.store.register_release({**self.release(), "deezer_album_id": "45"})
+        self._submit(first["token"], "first")
+        self._submit(second["token"], "second")
+        worker = self.bridge.start_worker()
+        try:
+            self.assertTrue(failed.wait(2))
+            self.assertTrue(success.wait(2))
+            self.assertTrue(worker.is_alive())
+            self.assertEqual(len(self.bridge.store.jobs(("needs_recovery",))), 1)
+        finally:
+            self.bridge.stop_worker()
+            worker.join(2)
 
     def test_unexpected_download_error_keeps_quota_reserved_for_recovery(self):
         def unexpected(_release, _completed):

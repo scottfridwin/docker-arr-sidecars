@@ -24,8 +24,9 @@ outcomes remain reserved until an operator discards the job, at which point
 ``settle_uncertain`` charges it conservatively. A limit of zero is unlimited but
 jobs and completions are still recorded. State is retained indefinitely.
 
-The legacy ``daily_download_state`` date/count is imported once without changing
-that file. Stop the old service before migration: it does not share our locks.
+The legacy ``daily_download_state`` date/count is reconciled with completed
+downloads and mirrored for rollback. Stop the old service before switching:
+it does not share our locks.
 SQLite transactions and an initialization lock require working local filesystem
 locking and durable writes; do not delete, restore, or replace state while in
 use. Missing initialized state, invalid legacy data, corruption and I/O errors
@@ -38,6 +39,7 @@ from __future__ import annotations
 import fcntl
 import os
 import sqlite3
+import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date
@@ -199,8 +201,6 @@ class DailyDownloadQuota:
         if connection.execute("SELECT version FROM metadata").fetchall() != [(1,)]:
             raise ValueError("invalid quota schema version")
         legacy = connection.execute("SELECT day, count FROM legacy").fetchall()
-        if len(legacy) > 1:
-            raise ValueError("invalid legacy records")
         for day, count in legacy:
             if not isinstance(day, str) or type(count) is not int or count < 0:
                 raise ValueError("invalid legacy record")
@@ -231,7 +231,11 @@ class DailyDownloadQuota:
                 with connection:
                     connection.execute("BEGIN IMMEDIATE")
                     self._validate(connection)
-                    return operation(connection)
+                    self._reconcile_legacy(connection)
+                    result = operation(connection)
+                    # Mirror before commit: a crash can overcount, but cannot hide a completed download from rollback.
+                    self._mirror_legacy(connection)
+                    return result
             finally:
                 connection.close()
         except (OSError, sqlite3.Error, UnicodeError) as exc:
@@ -240,6 +244,37 @@ class DailyDownloadQuota:
             if isinstance(exc, QuotaTransitionError):
                 raise
             raise QuotaStateError("invalid quota state or local date") from exc
+
+    def _reconcile_legacy(self, connection: sqlite3.Connection) -> None:
+        legacy = self._legacy_state()
+        day = self._day()
+        if legacy is None or legacy[0] != day:
+            return
+        recorded = self._snapshot(connection).completed
+        if legacy[1] > recorded:
+            connection.execute(
+                "INSERT INTO legacy(day, count) VALUES (?, ?) "
+                "ON CONFLICT(day) DO UPDATE SET count=count + excluded.count",
+                (day, legacy[1] - recorded),
+            )
+
+    def _mirror_legacy(self, connection: sqlite3.Connection) -> None:
+        snapshot = self._snapshot(connection)
+        legacy = self._legacy_state()
+        if legacy == (snapshot.day.isoformat(), snapshot.completed):
+            return
+        temporary = None
+        try:
+            with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=self._work, delete=False) as handle:
+                temporary = Path(handle.name)
+                handle.write(f"{snapshot.day.isoformat()} {snapshot.completed}")
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary, self._legacy)
+            self._sync_directory()
+        finally:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
 
     def _snapshot(self, connection: sqlite3.Connection) -> QuotaSnapshot:
         day = self._day()

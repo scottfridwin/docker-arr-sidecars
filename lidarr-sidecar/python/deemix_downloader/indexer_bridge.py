@@ -77,12 +77,29 @@ class BridgeStore:
                         PRIMARY KEY(job_id, client_id),
                         FOREIGN KEY(job_id) REFERENCES jobs(id)
                     );
+                    CREATE TABLE IF NOT EXISTS job_cleanup (
+                        job_id TEXT NOT NULL,
+                        client_id TEXT NOT NULL,
+                        done INTEGER NOT NULL DEFAULT 0,
+                        PRIMARY KEY(job_id, client_id),
+                        FOREIGN KEY(job_id) REFERENCES jobs(id)
+                    );
                     CREATE INDEX IF NOT EXISTS jobs_status_nzb_id ON jobs(status, nzb_id);
                     CREATE INDEX IF NOT EXISTS jobs_token_nzb_id ON jobs(token, nzb_id);
                     """
                 )
                 connection.execute("PRAGMA journal_mode=WAL")
                 connection.execute("PRAGMA synchronous=FULL")
+                connection.execute(
+                    "INSERT OR IGNORE INTO job_cleanup(job_id, client_id) "
+                    "SELECT jobs.id, job_clients.client_id FROM jobs JOIN job_clients ON job_clients.job_id=jobs.id "
+                    "WHERE jobs.status='completed'"
+                )
+                connection.execute(
+                    "INSERT OR IGNORE INTO job_cleanup(job_id, client_id) "
+                    "SELECT jobs.id, jobs.id FROM jobs WHERE jobs.status='completed' "
+                    "AND NOT EXISTS (SELECT 1 FROM job_clients WHERE job_clients.job_id=jobs.id)"
+                )
         except sqlite3.Error as exc:
             raise RuntimeError("cannot initialize the indexer job database") from exc
 
@@ -154,6 +171,11 @@ class BridgeStore:
             ).fetchone()
             if active:
                 self._add_client_id(connection, active["id"], client_id)
+                if active["status"] == "completed":
+                    connection.execute(
+                        "INSERT OR IGNORE INTO job_cleanup(job_id, client_id) VALUES (?, ?)",
+                        (active["id"], client_id),
+                    )
                 return active
             latest = connection.execute("SELECT MAX(attempt) AS attempt FROM jobs WHERE token=?", (token,)).fetchone()
             attempt = int(latest["attempt"] or 0) + 1
@@ -194,6 +216,42 @@ class BridgeStore:
             )
             if cursor.rowcount != 1:
                 raise RuntimeError("indexer job disappeared during state transition")
+
+    def finish_import(self, job_id: str) -> None:
+        with self._lock, self._connection() as connection:
+            cursor = connection.execute(
+                "UPDATE jobs SET status='completed', detail='', updated=? WHERE id=? AND status='downloaded'",
+                (datetime.now(UTC).isoformat(), job_id),
+            )
+            if cursor.rowcount != 1:
+                raise RuntimeError("indexer job disappeared during import completion")
+            connection.execute(
+                "INSERT OR IGNORE INTO job_cleanup(job_id, client_id) "
+                "SELECT job_id, client_id FROM job_clients WHERE job_id=?",
+                (job_id,),
+            )
+            connection.execute(
+                "INSERT OR IGNORE INTO job_cleanup(job_id, client_id) "
+                "SELECT ?, ? WHERE NOT EXISTS (SELECT 1 FROM job_clients WHERE job_id=?)",
+                (job_id, job_id, job_id),
+            )
+
+    def pending_cleanup(self) -> dict[str, list[str]]:
+        with self._lock, self._connection() as connection:
+            rows = connection.execute(
+                "SELECT job_id, client_id FROM job_cleanup WHERE done=0 ORDER BY job_id, client_id"
+            ).fetchall()
+        pending: dict[str, list[str]] = {}
+        for row in rows:
+            pending.setdefault(row["job_id"], []).append(row["client_id"])
+        return pending
+
+    def finish_cleanup(self, job_id: str, client_ids: list[str]) -> None:
+        with self._lock, self._connection() as connection:
+            connection.executemany(
+                "UPDATE job_cleanup SET done=1 WHERE job_id=? AND client_id=?",
+                [(job_id, client_id) for client_id in client_ids],
+            )
 
     def get_release_for_job(self, job_id: str) -> dict[str, Any]:
         with self._lock, self._connection() as connection:
@@ -297,7 +355,7 @@ class IndexerBridge:
         download_limit: int,
         search: Callable[..., list[dict[str, Any]]],
         download: Callable[[dict[str, Any], Callable[[], None]], bool],
-        on_import_complete: Callable[[list[str]], None] | None = None,
+        on_import_complete: Callable[[list[str]], set[str]] | None = None,
         worker_interval: float = 2,
     ):
         parsed_url = urlsplit(public_url)
@@ -338,19 +396,43 @@ class IndexerBridge:
         self._worker_stop.set()
 
     def _worker_loop(self) -> None:
+        next_cleanup = 0.0
         while not self._worker_stop.is_set():
+            if time.monotonic() >= next_cleanup:
+                self._retry_cleanup()
+                next_cleanup = time.monotonic() + 30
             row = self.store.next_job()
             if row is None:
                 self._worker_stop.wait(self.worker_interval)
                 continue
             try:
                 self._run_job(row)
-            except Exception as exc:  # noqa: BLE001 - record a visible job failure and keep the worker alive
+            except (Exception, SystemExit) as exc:  # noqa: BLE001 - record a visible job failure and keep the worker alive
                 log.error(f"Indexer job {row['id']} failed unexpectedly: {exc}")
                 current = self.store.get_job(row["id"])
                 if current and current["status"] not in _TERMINAL_STATES:
                     self.store.set_job(row["id"], "needs_recovery", f"Unexpected worker error: {exc}")
             self._worker_stop.wait(self.worker_interval)
+
+    def _retry_cleanup(self, job_id: str | None = None) -> None:
+        if self.on_import_complete is None:
+            return
+        pending = {
+            pending_job: ids
+            for pending_job, ids in self.store.pending_cleanup().items()
+            if job_id is None or pending_job == job_id
+        }
+        client_ids = [client_id for ids in pending.values() for client_id in ids]
+        if not client_ids:
+            return
+        try:
+            removed = self.on_import_complete(client_ids)
+            if not isinstance(removed, set) or not removed.issubset(client_ids):
+                raise RuntimeError("queue cleanup returned invalid download IDs")
+            for pending_job, ids in pending.items():
+                self.store.finish_cleanup(pending_job, sorted(removed.intersection(ids)))
+        except (Exception, SystemExit) as exc:  # noqa: BLE001 - retain cleanup for retry.
+            log.error(f"Indexer queue cleanup failed; will retry: {exc}")
 
     def _run_job(self, row: sqlite3.Row) -> None:
         job_id = row["id"]
@@ -391,7 +473,7 @@ class IndexerBridge:
 
         try:
             imported = self.download_callback(release, mark_download_complete)
-        except Exception:
+        except (Exception, SystemExit):
             detail = (
                 "Download finished; inspect quota and import state"
                 if completion_started
@@ -409,9 +491,8 @@ class IndexerBridge:
             return
         if imported:
             self._history_dest_dir(job_id).mkdir(parents=True, exist_ok=True)
-            self.store.set_job(job_id, "completed")
-            if self.on_import_complete is not None:
-                self.on_import_complete(release["lidarr_download_ids"])
+            self.store.finish_import(job_id)
+            self._retry_cleanup(job_id)
         elif download_completed:
             self.store.set_job(job_id, "needs_recovery", "Download finished; strict manual import needs review")
         else:
@@ -772,7 +853,13 @@ class IndexerBridge:
 
         return Handler
 
-    def serve(self, host: str, port: int, on_listening: Callable[[int], None] | None = None) -> None:
+    def serve(
+        self,
+        host: str,
+        port: int,
+        on_listening: Callable[[int], None] | None = None,
+        monitored_worker: threading.Thread | None = None,
+    ) -> None:
         server = ThreadingHTTPServer((host, port), self.handler())
         server.daemon_threads = True
         log.info(f"Newznab/NZBGet bridge listening on {host}:{port}")
@@ -785,8 +872,13 @@ class IndexerBridge:
             if on_listening is not None:
                 on_listening(server.server_port)
             worker = self.start_worker()
-            server_thread.join()
-            raise RuntimeError("Indexer HTTP server stopped unexpectedly")
+            while (
+                server_thread.is_alive()
+                and worker.is_alive()
+                and (monitored_worker is None or monitored_worker.is_alive())
+            ):
+                worker.join(timeout=1)
+            raise RuntimeError("Indexer HTTP server or background worker stopped unexpectedly")
         finally:
             server.shutdown()
             server_thread.join()
@@ -799,7 +891,7 @@ class IndexerBridge:
 def build_bridge_from_environment(
     search: Callable[..., list[dict[str, Any]]],
     download: Callable[[dict[str, Any], Callable[[], None]], bool],
-    on_import_complete: Callable[[list[str]], None] | None = None,
+    on_import_complete: Callable[[list[str]], set[str]] | None = None,
 ) -> IndexerBridge:
     """Build the bridge from required, explicit deployment settings."""
     api_key = os.environ.get("AUDIO_INDEXER_API_KEY", "")

@@ -23,13 +23,19 @@ from urllib.parse import quote_plus
 # Add the app root so shared modules can be found
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
-from shared.python.arrapi import (
-    arr_api_request,
-)
+from shared.python.arrapi import arr_api_request as _shared_arr_api_request
 from shared.python.state import get_state
 
 from .config import cfg
 from .logging import log
+
+
+def arr_api_request(method: str, path: str, payload: str | None = None) -> None:
+    """Translate the shared CLI's fatal exit into a recoverable service error."""
+    try:
+        _shared_arr_api_request(method, path, payload)
+    except SystemExit as exc:
+        raise RuntimeError(f"Lidarr API request failed: {method} {path}") from exc
 
 
 def add_download_client() -> None:
@@ -457,14 +463,14 @@ def submit_manual_import(
     return True, []
 
 
-def remove_lidarr_queue_items(download_ids: list[str] | tuple[str, ...]) -> int:
+def remove_lidarr_queue_items(download_ids: list[str] | tuple[str, ...]) -> set[str]:
     """Remove successfully imported NZBGet items from Lidarr's tracked queue."""
     target_ids = {str(download_id) for download_id in download_ids if download_id}
     if not target_ids:
         log.warning("Cannot clear imported Deemix queue items without Lidarr download IDs")
-        return 0
+        return set()
 
-    queue_ids: set[int] = set()
+    queue_ids: dict[int, str] = {}
     page = 1
     requested_page_size = 1000
     while True:
@@ -490,7 +496,7 @@ def remove_lidarr_queue_items(download_ids: list[str] | tuple[str, ...]) -> int:
                 raise RuntimeError("Lidarr returned a queue item without a valid ID") from exc
             if queue_id <= 0:
                 raise RuntimeError("Lidarr returned a queue item without a valid ID")
-            queue_ids.add(queue_id)
+            queue_ids[queue_id] = str(item["downloadId"])
 
         try:
             total_records = int(response.get("totalRecords", len(records)))
@@ -503,13 +509,13 @@ def remove_lidarr_queue_items(download_ids: list[str] | tuple[str, ...]) -> int:
 
     if not queue_ids:
         log.warning("No Lidarr queue item matched the imported Deemix download IDs")
-        return 0
+        return set()
 
     for queue_id in sorted(queue_ids):
         arr_api_request("DELETE", f"queue/{queue_id}?removeFromClient=true&blocklist=false")
 
     log.info(f"Removed {len(queue_ids)} imported Deemix item(s) from Lidarr's queue")
-    return len(queue_ids)
+    return set(queue_ids.values())
 
 
 def get_wanted_albums(list_type: str, page: int = 1, page_size: int = 1000, include_artist: bool = False) -> dict:

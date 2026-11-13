@@ -297,6 +297,13 @@ class ManualImportReleaseTests(unittest.TestCase):
 
 
 class RemoveLidarrQueueItemsTests(unittest.TestCase):
+    def test_shared_api_exit_is_translated_to_service_error(self):
+        with (
+            patch.object(lidarr_api, "_shared_arr_api_request", side_effect=SystemExit(1)),
+            self.assertRaisesRegex(RuntimeError, "Lidarr API request failed"),
+        ):
+            lidarr_api.arr_api_request("GET", "queue")
+
     def test_removes_matching_download_ids_across_queue_pages(self):
         responses = [
             {"records": [{"id": 1, "downloadId": "other"}], "totalRecords": 2, "pageSize": 1},
@@ -318,7 +325,7 @@ class RemoveLidarrQueueItemsTests(unittest.TestCase):
         ):
             removed = lidarr_api.remove_lidarr_queue_items(["target"])
 
-        self.assertEqual(removed, 1)
+        self.assertEqual(removed, {"target"})
         self.assertEqual(
             calls,
             [

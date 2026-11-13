@@ -14,6 +14,7 @@ from contextlib import closing
 from pathlib import Path
 from typing import Any
 
+from .deezer_api import DeezerUnavailable
 from .indexer_search import AmbiguousAlbumError
 from .logging import log
 
@@ -24,12 +25,18 @@ class SearchWarming(RuntimeError):
 
 class BackgroundSearch:
     def __init__(
-        self, work_path: str | Path, search: Callable[..., list[dict[str, Any]]], *, wait_seconds: float = 10.0
+        self,
+        work_path: str | Path,
+        search: Callable[..., list[dict[str, Any]]],
+        *,
+        wait_seconds: float = 10.0,
+        retry_seconds: float = 30.0,
     ):
         self.path = Path(work_path) / "indexer_searches.sqlite3"
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.callback = search
         self.wait_seconds = wait_seconds
+        self.retry_seconds = retry_seconds
         self.condition = threading.Condition()
         self.stopping = False
         self.worker: threading.Thread | None = None
@@ -39,10 +46,10 @@ class BackgroundSearch:
                 "query TEXT PRIMARY KEY, status TEXT NOT NULL, result TEXT, error TEXT, updated REAL NOT NULL)"
             )
             version = db.execute("PRAGMA user_version").fetchone()[0]
-            if version in (0, 1, 2, 3, 4, 5):
+            if version in (0, 1, 2, 3, 4, 5, 6):
                 db.execute("DELETE FROM searches WHERE status IN ('completed', 'failed', 'ambiguous')")
                 db.execute("PRAGMA user_version=6")
-            elif version != 6:
+            else:
                 raise RuntimeError(f"Unsupported indexer search database version: {version}")
             db.execute("UPDATE searches SET status='pending' WHERE status='running'")
 
@@ -108,29 +115,35 @@ class BackgroundSearch:
                     return
                 with closing(self._connect()) as db, db:
                     row = db.execute(
-                        "SELECT query FROM searches WHERE status='pending' ORDER BY updated LIMIT 1"
+                        "SELECT query FROM searches WHERE status='pending' AND updated <= ? ORDER BY updated LIMIT 1",
+                        (time.time(),),
                     ).fetchone()
                     if row is not None:
                         db.execute(
                             "UPDATE searches SET status='running', updated=? WHERE query=?", (time.time(), row[0])
                         )
                 if row is None:
-                    self.condition.wait()
+                    with closing(self._connect()) as db:
+                        retry = db.execute("SELECT MIN(updated) FROM searches WHERE status='pending'").fetchone()[0]
+                    self.condition.wait(None if retry is None else max(0, retry - time.time()))
                     continue
             key = row["query"]
             log.info(f"Starting background indexer search: {key}")
             try:
                 results = self.callback(**json.loads(key))
                 status, result, error = "completed", json.dumps(results), None
+            except DeezerUnavailable as exc:
+                log.warning(f"Background indexer search will retry: {exc}")
+                status, result, error = "pending", None, str(exc)
             except AmbiguousAlbumError as exc:
                 status, result, error = "ambiguous", None, str(exc)
-            except Exception as exc:  # noqa: BLE001 - record failures and keep the search worker available.
+            except (Exception, SystemExit) as exc:  # noqa: BLE001 - record failures and keep the worker available.
                 log.error(f"Background indexer search failed: {exc}")
                 status, result, error = "failed", None, str(exc)
             with self.condition, closing(self._connect()) as db, db:
                 db.execute(
                     "UPDATE searches SET status=?, result=?, error=?, updated=? WHERE query=?",
-                    (status, result, error, time.time(), key),
+                    (status, result, error, time.time() + (self.retry_seconds if status == "pending" else 0), key),
                 )
                 self.condition.notify_all()
             log.info(f"Background indexer search {status}: {key}")

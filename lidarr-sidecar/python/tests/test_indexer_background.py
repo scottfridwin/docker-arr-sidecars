@@ -12,6 +12,7 @@ from unittest.mock import Mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from deemix_downloader.deezer_api import DeezerUnavailable
 from deemix_downloader.indexer_background import BackgroundSearch, SearchWarming
 from deemix_downloader.indexer_search import AmbiguousAlbumError
 
@@ -64,7 +65,7 @@ class BackgroundSearchTests(unittest.TestCase):
                 worker.join(2)
 
     def test_upgrading_search_cache_keeps_pending_work_and_discards_old_results(self):
-        for version in (0, 1, 2, 3, 4, 5):
+        for version in (0, 1, 2, 3, 4, 5, 6):
             with self.subTest(version=version), tempfile.TemporaryDirectory() as directory:
                 first = BackgroundSearch(directory, Mock(), wait_seconds=0)
                 with self.assertRaises(SearchWarming):
@@ -91,6 +92,32 @@ class BackgroundSearchTests(unittest.TestCase):
                 finally:
                     background.stop()
                     worker.join(2)
+
+    def test_transient_deezer_failure_is_retried_without_caching_partial_results(self):
+        with tempfile.TemporaryDirectory() as directory:
+            callback = Mock(side_effect=[DeezerUnavailable("temporary"), [{"album_id": "1"}]])
+            background = BackgroundSearch(directory, callback, wait_seconds=2, retry_seconds=0.01)
+            worker = background.start()
+            try:
+                self.assertEqual(background.search(q="artist"), [{"album_id": "1"}])
+                self.assertEqual(callback.call_count, 2)
+            finally:
+                background.stop()
+                worker.join(2)
+
+    def test_system_exit_does_not_kill_search_worker(self):
+        with tempfile.TemporaryDirectory() as directory:
+            callback = Mock(side_effect=[SystemExit(1), [{"album_id": "2"}]])
+            background = BackgroundSearch(directory, callback, wait_seconds=2)
+            worker = background.start()
+            try:
+                with self.assertRaisesRegex(RuntimeError, "failed"):
+                    background.search(q="first")
+                self.assertEqual(background.search(q="second"), [{"album_id": "2"}])
+                self.assertTrue(worker.is_alive())
+            finally:
+                background.stop()
+                worker.join(2)
 
 
 if __name__ == "__main__":

@@ -7,6 +7,9 @@ from __future__ import annotations
 
 import json
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 
 import requests
 
@@ -14,6 +17,20 @@ from .config import cfg
 from .logging import log
 
 _session: requests.Session | None = None
+_RAISE_TRANSIENT: ContextVar[bool] = ContextVar("deezer_raise_transient", default=False)
+
+
+class DeezerUnavailable(RuntimeError):
+    """A transient Deezer failure prevented a complete search."""
+
+
+@contextmanager
+def raise_transient_errors() -> Iterator[None]:
+    token = _RAISE_TRANSIENT.set(True)
+    try:
+        yield
+    finally:
+        _RAISE_TRANSIENT.reset(token)
 
 
 def _get_session() -> requests.Session:
@@ -32,6 +49,7 @@ def call_deezer_api(url: str) -> dict | list | None:
     max_retries = cfg.deezer_api_retries
     timeout = cfg.deezer_api_timeout
 
+    transient = False
     for attempt in range(1, max_retries + 1):
         log.debug(f"Calling Deezer API: {url}")
         try:
@@ -43,17 +61,29 @@ def call_deezer_api(url: str) -> dict | list | None:
                     err = data["error"]
                     if err:
                         log.warning(f"Deezer API error for {url}: {err}")
-                        return None
-                return data
+                        if not isinstance(err, dict) or err.get("code") != 4:
+                            return None
+                        transient = True
+                    else:
+                        return data
+                else:
+                    return data
             else:
                 log.warning(
                     f"Deezer API returned HTTP {resp.status_code} for {url}, retrying ({attempt}/{max_retries})..."
                 )
+                if resp.status_code != 429 and resp.status_code < 500:
+                    return None
+                transient = True
         except (requests.RequestException, ValueError) as e:
             log.warning(f"Deezer API request failed for {url}: {e}, retrying ({attempt}/{max_retries})...")
-        time.sleep(1)
+            transient = True
+        if attempt < max_retries:
+            time.sleep(1)
 
     log.warning(f"Failed to get valid response from Deezer API after {max_retries} attempts for {url}")
+    if transient and _RAISE_TRANSIENT.get():
+        raise DeezerUnavailable(f"Deezer temporarily unavailable: {url}")
     return None
 
 
@@ -66,12 +96,15 @@ def get_deezer_album_info(album_id: str | int) -> dict | None:
     cache_file = cfg.cache_dir / f"deezer-album-{album_id}.json"
 
     # Try cache
-    if cache_file.is_file():
+    if cache_file.is_file() and (
+        cfg.cache_max_age_deezer <= 0 or time.time() - cache_file.stat().st_mtime <= cfg.cache_max_age_deezer * 86400
+    ):
         try:
             data = json.loads(cache_file.read_text(encoding="utf-8"))
-            if isinstance(data, dict) and "id" in data:
+            if isinstance(data, dict) and "id" in data and type(data.get("nb_tracks")) is int and data["nb_tracks"] > 0:
                 log.debug(f"Using cached Deezer album data for {album_id}")
                 return data
+            log.warning(f"Cached album JSON has no valid track count, refetching: {cache_file}")
         except (json.JSONDecodeError, OSError):
             log.warning(f"Cached album JSON invalid, refetching: {cache_file}")
 
@@ -96,6 +129,9 @@ def get_deezer_album_info(album_id: str | int) -> dict | None:
 
     # Handle track pagination if needed
     nb_tracks = data.get("nb_tracks", 0)
+    if type(nb_tracks) is not int or nb_tracks <= 0:
+        log.warning(f"Deezer album {album_id} has a missing or invalid track count")
+        return data
     embedded_tracks = data.get("tracks", {}).get("data", [])
 
     if len(embedded_tracks) < nb_tracks:

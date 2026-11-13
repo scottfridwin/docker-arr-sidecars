@@ -31,7 +31,7 @@ from urllib.parse import quote_plus
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
-from shared.python.arrapi import arr_api_request, verify_arr_api_access
+from shared.python.arrapi import verify_arr_api_access
 from shared.python.config import env_bool
 from shared.python.state import get_state, init_state
 
@@ -58,6 +58,7 @@ from .download import (
 from .indexer_search import AmbiguousAlbumError, matches_search_text, resolve_album
 from .lidarr_api import (
     add_download_client,
+    arr_api_request,
     get_album_data,
     get_album_ids_by_artist,
     get_album_ids_by_release_group,
@@ -70,6 +71,7 @@ from .lidarr_api import (
 from .logging import log
 from .matching import MatchResult, ReleaseCandidate, find_all_matches, find_best_match
 from .musicbrainz_api import fetch_musicbrainz_release, fetch_musicbrainz_release_group
+from .quota import DailyDownloadQuota, QuotaStateError
 from .string_utils import calculate_priority, normalize_string, remove_punctuation
 
 # ─── Constants ─────────────────────────────────────────────────────────
@@ -103,6 +105,9 @@ class DailyLimitTracker:
         self._state_file = cfg.work_path / "daily_download_state"
         self._date: str = ""
         self._count: int = 0
+        snapshot = DailyDownloadQuota(cfg.work_path, cfg.daily_download_limit).snapshot()
+        if snapshot.reserved_ids:
+            raise QuotaStateError("Cannot start legacy downloader with unresolved indexer quota reservations")
         self._load()
 
     def _load(self) -> None:
@@ -133,8 +138,6 @@ class DailyLimitTracker:
         return self._count >= cfg.daily_download_limit
 
     def increment(self) -> None:
-        if cfg.daily_download_limit <= 0:
-            return
         self._load()
         self._count += 1
         self._save()
@@ -768,10 +771,10 @@ def search_and_download(
             album_id,
             arl_token,
             priority_entry=priority_entry,
+            on_download_complete=daily_tracker.increment,
         )
         if success:
             _remove_from_missing_file(album_id)
-            daily_tracker.increment()
     else:
         log.info(f"No match: {result.reason}")
         _upsert_missing_file(album_id, artist_name, album_title, album_foreign_id, result.reason)
@@ -925,6 +928,10 @@ def _download_album(
         log.error("Cannot force manual import without Lidarr artist, album, and release IDs")
         return False
 
+    if type(deezer_track_count) is not int or deezer_track_count <= 0:
+        log.error(f'Cannot download "{deezer_title}": Deezer track count is missing or invalid')
+        return False
+
     # Check previously failed
     if not ignore_failure_marker and (cfg.failed_dir / deezer_album_id).exists():
         log.warning(f'Album "{deezer_title}" previously failed, skipping')
@@ -1073,7 +1080,7 @@ def _download_album(
     # Remove from priority file (use original entry if from a prefixed source)
     entry_to_remove = priority_entry if priority_entry else album_id
     # Don't remove mb_artist: entries since they represent multiple albums
-    if not entry_to_remove.startswith("mb_artist:"):
+    if not strict_manual_import and not entry_to_remove.startswith("mb_artist:"):
         _remove_from_priority_file(entry_to_remove)
 
     log.info(f'Successfully downloaded "{deezer_title}"')
@@ -1691,9 +1698,9 @@ def indexer_main() -> None:
     def search(**query: Any) -> list[dict]:
         return _validate_indexer_results(searches.search(**query))
 
-    def clean_up_imported_queue(download_ids: list[str]) -> None:
+    def clean_up_imported_queue(download_ids: list[str]) -> set[str]:
         with _LIDARR_API_LOCK:
-            remove_lidarr_queue_items(download_ids)
+            return remove_lidarr_queue_items(download_ids)
 
     def configure_indexer(_port: int) -> None:
         if env_bool("AUTOCONFIG_DEEMIX_INDEXER"):
@@ -1703,7 +1710,7 @@ def indexer_main() -> None:
     bridge = build_bridge_from_environment(search, download, clean_up_imported_queue)
     worker = searches.start()
     try:
-        bridge.serve(bridge.bind_host, bridge.bind_port, on_listening=configure_indexer)
+        bridge.serve(bridge.bind_host, bridge.bind_port, on_listening=configure_indexer, monitored_worker=worker)
     finally:
         searches.stop()
         worker.join(timeout=10)

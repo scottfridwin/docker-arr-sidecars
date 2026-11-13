@@ -3,7 +3,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -13,6 +13,27 @@ from deemix_downloader.matching import MatchResult
 
 
 class ServiceDownloadRetryTests(unittest.TestCase):
+    def test_legacy_counts_completed_download_even_when_import_fails(self):
+        tracker = Mock()
+        album = {"id": 2, "title": "Album", "artist": {"id": 1}}
+        match = MatchResult(matched=True, deezer_album_id="42", deezer_track_count=1)
+
+        def download(*_args, on_download_complete, **_kwargs):
+            on_download_complete()
+            return False
+
+        with tempfile.TemporaryDirectory() as directory:
+            config = Config(work_path=Path(directory), data_path=Path(directory))
+            with (
+                patch.object(service, "cfg", config),
+                patch.object(service, "get_album_data", return_value=album),
+                patch.object(service, "search_album", return_value=match),
+                patch.object(service, "_write_result_file"),
+                patch.object(service, "_download_album", side_effect=download),
+            ):
+                service.search_and_download("2", set(), tracker, "token")
+        tracker.increment.assert_called_once_with()
+
     def _run_download(self, track_count, attempt_outputs, *, attempt_threshold, quality_fallback):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -142,7 +163,7 @@ class ServiceDownloadRetryTests(unittest.TestCase):
     def test_strict_import_refuses_leftover_staged_audio_before_downloading(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             config = Config(shared_lidarr_path=Path(temp_dir))
-            result = MatchResult(deezer_album_id="42", lidarr_release_id="3")
+            result = MatchResult(deezer_album_id="42", deezer_track_count=1, lidarr_release_id="3")
             stale = Path(temp_dir) / "old"
             stale.mkdir()
             (stale / "track.mp3").touch()
@@ -156,6 +177,62 @@ class ServiceDownloadRetryTests(unittest.TestCase):
                 )
             self.assertFalse(succeeded)
             download.assert_not_called()
+
+    def test_unknown_track_count_never_starts_or_completes_download(self):
+        for count in (0, -1, None):
+            with self.subTest(count=count):
+                result = MatchResult(deezer_album_id="42", deezer_track_count=count, lidarr_release_id="3")
+                with patch.object(service, "download_with_deemix") as download:
+                    completed = Mock()
+                    succeeded = service._download_album(
+                        result,
+                        "Artist",
+                        "1",
+                        "artist",
+                        "Album",
+                        "group",
+                        "2",
+                        "token",
+                        strict_manual_import=True,
+                        on_download_complete=completed,
+                    )
+                self.assertFalse(succeeded)
+                completed.assert_not_called()
+                download.assert_not_called()
+
+    def test_indexer_does_not_modify_priority_file(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            priority = root / "priority.txt"
+            priority.write_text("2 # keep this entry\n")
+            config = Config(
+                work_path=root / "work",
+                data_path=root / "data",
+                shared_lidarr_path=root / "shared",
+                priority_file=str(priority),
+                download_attempt_threshold=1,
+            )
+            config.work_path.mkdir()
+            config.shared_lidarr_path.mkdir()
+            result = MatchResult(deezer_album_id="42", deezer_track_count=1, lidarr_release_id="3")
+
+            def fake_download(*_args, output_dir, **_kwargs):
+                (output_dir / "track.flac").touch()
+                return True
+
+            with (
+                patch.object(service, "cfg", config),
+                patch.object(download, "cfg", config),
+                patch.object(service, "download_with_deemix", side_effect=fake_download),
+                patch.object(service, "verify_flac", return_value=True),
+                patch.object(service, "_tag_and_enrich"),
+                patch.object(service, "manual_import_release", return_value=(True, [])),
+            ):
+                succeeded = service._download_album(
+                    result, "Artist", "1", "artist", "Album", "group", "2", "token", strict_manual_import=True
+                )
+            self.assertTrue(succeeded)
+            self.assertEqual(priority.read_text(), "2 # keep this entry\n")
 
     def test_strict_manual_import_never_falls_back_to_scan(self):
         with tempfile.TemporaryDirectory() as temp_dir:

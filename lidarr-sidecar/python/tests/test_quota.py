@@ -13,6 +13,8 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from deemix_downloader import service
+from deemix_downloader.config import Config
 from deemix_downloader.quota import (
     DailyDownloadQuota,
     QuotaStateError,
@@ -171,11 +173,73 @@ class DailyDownloadQuotaTests(unittest.TestCase):
         self.assertEqual(quota.reserve("one"), ReservationResult.RESERVED)
         quota.complete("one")
         self.assertEqual(quota.reserve("two"), ReservationResult.FULL)
-        self.assertEqual(legacy.read_text(encoding="utf-8"), f"{DAY.isoformat()} 2\n")
+        self.assertEqual(legacy.read_text(encoding="utf-8"), f"{DAY.isoformat()} 3")
         self.day = date(2026, 11, 13)
         self.assertEqual(self.quota(3).snapshot().completed, 0)
         self.day = DAY
         self.assertEqual(self.quota(3).snapshot().completed, 3)
+
+    def test_legacy_and_indexer_counts_reconcile_across_multiple_switches(self):
+        quota = self.quota(5)
+        quota.reserve("indexer-one")
+        quota.complete("indexer-one")
+        legacy = self.path / "daily_download_state"
+        self.assertEqual(legacy.read_text(), f"{DAY.isoformat()} 1")
+        legacy.write_text(f"{DAY.isoformat()} 2")
+        restarted = self.quota(5)
+        self.assertEqual(restarted.snapshot().completed, 2)
+        restarted.reserve("indexer-two")
+        restarted.complete("indexer-two")
+        self.assertEqual(legacy.read_text(), f"{DAY.isoformat()} 3")
+        self.assertEqual(self.quota(5).snapshot().completed, 3)
+
+    def test_failed_mirror_write_rolls_back_completion(self):
+        quota = self.quota()
+        quota.reserve("job")
+        with (
+            patch.object(quota, "_mirror_legacy", side_effect=OSError("disk full")),
+            self.assertRaises(QuotaStateError),
+        ):
+            quota.complete("job")
+        self.assertEqual(quota.snapshot().reserved_ids, ("job",))
+
+    def test_legacy_mode_refuses_unresolved_reservations(self):
+        quota = DailyDownloadQuota(self.path, 1)
+        quota.reserve("uncertain")
+        with patch.object(service, "cfg", Config(work_path=self.path, daily_download_limit=1)):
+            with self.assertRaises(QuotaStateError):
+                service.DailyLimitTracker()
+            quota.fail("uncertain")
+            tracker = service.DailyLimitTracker()
+            self.assertFalse(tracker.is_limit_reached())
+
+    def test_real_legacy_tracker_and_indexer_share_limit_across_switches(self):
+        config = Config(work_path=self.path, daily_download_limit=3)
+        with patch.object(service, "cfg", config):
+            legacy = service.DailyLimitTracker()
+            legacy.increment()
+            indexer = DailyDownloadQuota(self.path, 3)
+            self.assertEqual(indexer.snapshot().completed, 1)
+            indexer.reserve("indexer")
+            indexer.complete("indexer")
+            legacy = service.DailyLimitTracker()
+            self.assertFalse(legacy.is_limit_reached())
+            legacy.increment()
+            self.assertTrue(legacy.is_limit_reached())
+            self.assertEqual(DailyDownloadQuota(self.path, 3).reserve("next"), ReservationResult.FULL)
+
+    def test_crash_after_mirror_write_cannot_undercount(self):
+        quota = self.quota()
+        quota.reserve("job")
+        with (
+            patch.object(quota, "_sync_directory", side_effect=OSError("interrupted")),
+            self.assertRaises(QuotaStateError),
+        ):
+            quota.complete("job")
+        self.assertEqual((self.path / "daily_download_state").read_text(), f"{DAY.isoformat()} 1")
+        snapshot = quota.snapshot()
+        self.assertGreaterEqual(snapshot.completed + len(snapshot.reserved_ids), 1)
+        self.assertTrue(snapshot.full)
 
     def test_old_legacy_day_is_validated_even_if_not_today(self):
         (self.path / "daily_download_state").write_text("2025-01-01 7", encoding="utf-8")

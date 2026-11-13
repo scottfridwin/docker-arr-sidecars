@@ -22,7 +22,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 
 from .config import cfg
-from .deezer_api import get_deezer_album_info
+from .deezer_api import get_deezer_album_info, raise_transient_errors
 from .logging import log
 from .string_utils import levenshtein_distance, normalize_string
 
@@ -121,7 +121,7 @@ def _track_count_matches(mb_count: int, deezer_count: int) -> bool:
     linked to must have the same track count. Any difference means the link points
     at a different edition, so the match is rejected rather than imported.
     """
-    if mb_count <= 0 or deezer_count <= 0:
+    if type(mb_count) is not int or type(deezer_count) is not int or mb_count <= 0 or deezer_count <= 0:
         return True
     return mb_count == deezer_count
 
@@ -261,11 +261,15 @@ def find_all_matches(releases: list[ReleaseCandidate], lidarr_album_title: str) 
     )
     matches = []
     seen: set[tuple[str, str]] = set()
-    for match in _match_candidates(linked, lidarr_album_title, set(), counts):
-        identity = (match.lidarr_release_id, match.deezer_album_id)
-        if identity not in seen:
-            matches.append(match)
-            seen.add(identity)
+    with raise_transient_errors():
+        for match in _match_candidates(linked, lidarr_album_title, set(), counts):
+            if type(match.deezer_track_count) is not int or match.deezer_track_count <= 0:
+                log.warning(f"Skipping Deezer album {match.deezer_album_id}: missing or invalid track count")
+                continue
+            identity = (match.lidarr_release_id, match.deezer_album_id)
+            if identity not in seen:
+                matches.append(match)
+                seen.add(identity)
     return matches
 
 
