@@ -29,6 +29,16 @@ class IndexerSearchTests(unittest.TestCase):
         with self.assertRaises(AmbiguousAlbumError):
             resolve_album([self.album, other], "The Artist", "Björk Friends Live")
 
+    def test_lidarr_query_can_omit_leading_album_article(self):
+        album = {**self.album, "title": "The Life of a Showgirl", "disambiguation": ""}
+        self.assertIs(resolve_album([album], "The Artist", "Life of a Showgirl"), album)
+
+    def test_article_normalization_rejects_ambiguous_albums(self):
+        first = {**self.album, "title": "The Album", "disambiguation": ""}
+        other = {**first, "id": 11, "title": "Album"}
+        with self.assertRaises(AmbiguousAlbumError):
+            resolve_album([first, other], "The Artist", "Album")
+
     def test_year_can_disambiguate_and_unknown_year_does_not_match(self):
         other = {**self.album, "id": 11, "releaseDate": "2006-01-01"}
         self.assertIs(resolve_album([self.album, other], "The Artist", "Björk Friends Live", year=2004), self.album)

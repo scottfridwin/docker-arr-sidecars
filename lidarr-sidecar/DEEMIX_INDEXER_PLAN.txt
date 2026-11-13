@@ -145,9 +145,16 @@ validation; deployment setup is documented in README.md.
    instance returned one Newznab result for Olivia Rodrigo's SOUR album in under
    one second with cached metadata. Lidarr's queue remained empty and the test
    import directory contained no files. MusicBrainz requests are serialized
-   within the sidecar process, honor `Retry-After`, and use a 60-second
-   Newznab-search budget; budget expiry returns service unavailable rather than
-   an empty result. No Deezer token or download was used for this check.
+   within the sidecar process and honor `Retry-After`. That version used a
+   60-second Newznab-search budget. It has since been replaced by persistent
+   background searches with cached release-group pages, transient-error retry,
+   and an explicit warming response until the search completes. No Deezer token
+   or download was used for this check.
+
+   An isolated Taylor Swift artist search subsequently warmed in the background,
+   retried MusicBrainz 503 responses, and returned 16 results on a manual
+   search-only retry. A cached manual album search through Lidarr returned one
+   result for The Life of a Showgirl. Neither search submitted a download.
 
    A later user-triggered isolated grab successfully downloaded Olivia
    Rodrigo's SOUR and Lidarr imported 11 tracks. The queue item remained in

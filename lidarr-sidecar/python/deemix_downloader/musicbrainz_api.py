@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+import random
 import threading
 import time
 from collections.abc import Iterator
@@ -28,10 +29,21 @@ _retry_not_before: float = 0.0
 _MIN_REQUEST_INTERVAL: float = 1.1  # MusicBrainz rate limit: 1 req/sec
 _REQUEST_LOCK = threading.Lock()
 _REQUEST_DEADLINE: ContextVar[float | None] = ContextVar("musicbrainz_request_deadline", default=None)
+_RETRY_INDEFINITELY: ContextVar[bool] = ContextVar("musicbrainz_retry_indefinitely", default=False)
 
 
 class MusicBrainzUnavailable(RuntimeError):
     """MusicBrainz could not be queried within the active search budget."""
+
+
+@contextmanager
+def retry_transient_indefinitely() -> Iterator[None]:
+    """Keep retrying transient failures for background metadata work."""
+    token = _RETRY_INDEFINITELY.set(True)
+    try:
+        yield
+    finally:
+        _RETRY_INDEFINITELY.reset(token)
 
 
 @contextmanager
@@ -120,7 +132,7 @@ def _request(url: str, *, backoff: float) -> tuple[requests.Response, float | No
         try:
             response = _get_session().get(url, timeout=timeout, allow_redirects=True)
         except requests.RequestException:
-            _retry_not_before = max(_retry_not_before, time.monotonic() + backoff)
+            _retry_not_before = max(_retry_not_before, time.monotonic() + _retry_delay(backoff, None))
             raise
 
         remaining_after_request = _remaining_budget()
@@ -129,11 +141,15 @@ def _request(url: str, *, backoff: float) -> tuple[requests.Response, float | No
 
         retry_after = _retry_after_seconds(response.headers.get("Retry-After"))
         if response.status_code in (429, 503) or response.status_code >= 500:
-            delay = backoff if retry_after is None else retry_after
+            delay = _retry_delay(backoff, retry_after)
             _retry_not_before = max(_retry_not_before, time.monotonic() + delay)
             return response, delay
 
         return response, None
+
+
+def _retry_delay(backoff: float, retry_after: float | None) -> float:
+    return max(backoff, retry_after or 0.0) + random.uniform(0.0, backoff / 2)  # noqa: S311 - retry jitter.
 
 
 def call_musicbrainz_api(url: str) -> dict | None:
@@ -144,8 +160,10 @@ def call_musicbrainz_api(url: str) -> dict | None:
     max_attempts = 10
     backoff = 5.0
 
-    for attempt in range(1, max_attempts + 1):
-        log.debug(f"Calling MusicBrainz API ({attempt}/{max_attempts}): {url}")
+    attempt = 0
+    while _RETRY_INDEFINITELY.get() or attempt < max_attempts:
+        attempt += 1
+        log.debug(f"Calling MusicBrainz API (attempt {attempt}): {url}")
         try:
             resp, retry_delay = _request(url, backoff=backoff)
             if resp.status_code == 200:
@@ -153,14 +171,17 @@ def call_musicbrainz_api(url: str) -> dict | None:
                     return resp.json()
                 except ValueError:
                     log.warning("Invalid JSON from MusicBrainz, retrying...")
-                    retry_delay = backoff
+                    retry_delay = _retry_delay(backoff, None)
                     _schedule_retry(retry_delay)
+                    if _RETRY_INDEFINITELY.get() or attempt < max_attempts:
+                        _ensure_wait_fits_budget(retry_delay)
+                    backoff = min(backoff * 2, 60.0)
             elif resp.status_code == 429 or resp.status_code >= 500:
                 delay = backoff if retry_delay is None else retry_delay
                 log.warning(f"HTTP {resp.status_code} from MusicBrainz, retrying in {delay:g}s...")
-                if attempt < max_attempts:
+                if _RETRY_INDEFINITELY.get() or attempt < max_attempts:
                     _ensure_wait_fits_budget(delay)
-                backoff = min(backoff * 2, 30.0)
+                backoff = min(backoff * 2, 60.0)
                 continue
             else:
                 log.warning(f"Unexpected HTTP {resp.status_code} from MusicBrainz")
@@ -168,9 +189,9 @@ def call_musicbrainz_api(url: str) -> dict | None:
 
         except requests.RequestException as e:
             log.warning(f"MusicBrainz request failed: {e}, retrying...")
-            if attempt < max_attempts:
+            if _RETRY_INDEFINITELY.get() or attempt < max_attempts:
                 _ensure_wait_fits_budget(backoff)
-            backoff = min(backoff * 2, 30.0)
+            backoff = min(backoff * 2, 60.0)
 
     log.error(f"CallMusicBrainzAPI failed after {max_attempts} attempts")
     if _REQUEST_DEADLINE.get() is not None:
@@ -179,10 +200,9 @@ def call_musicbrainz_api(url: str) -> dict | None:
 
 
 def _read_cached_json(cache_file: Path) -> dict | None:
-    if not cache_file.is_file():
-        return None
-
     try:
+        if not cache_file.is_file() or time.time() - cache_file.stat().st_mtime > cfg.cache_max_age_musicbrainz * 86400:
+            return None
         data = json.loads(cache_file.read_text(encoding="utf-8"))
         if isinstance(data, dict):
             return data
@@ -191,7 +211,7 @@ def _read_cached_json(cache_file: Path) -> dict | None:
     return None
 
 
-def _write_cached_json(cache_file: Path, data: dict, *, shorter_cache: bool = False) -> None:
+def _write_cached_json(cache_file: Path, data: dict, *, shorter_cache: bool = False) -> bool:
     try:
         cache_file.parent.mkdir(parents=True, exist_ok=True)
         cache_file.write_text(json.dumps(data), encoding="utf-8")
@@ -199,11 +219,19 @@ def _write_cached_json(cache_file: Path, data: dict, *, shorter_cache: bool = Fa
             # Set mtime to be 23 days old so it expires in ~7 days instead of 30
             import os as _os
 
-            age_offset = (cfg.cache_max_age_musicbrainz - 7) * 86400
+            age_offset = max(cfg.cache_max_age_musicbrainz - 7, 0) * 86400
             now = time.time()
             _os.utime(cache_file, (now - age_offset, now - age_offset))
-    except OSError:
-        pass
+        return True
+    except OSError as exc:
+        log.warning(f"Could not write MusicBrainz cache {cache_file}: {exc}")
+        return False
+
+
+def cached_musicbrainz_release(mbid: str) -> dict | None:
+    if not mbid or mbid == "null":
+        return None
+    return _read_cached_json(cfg.cache_dir / f"mb-release-{mbid}.json")
 
 
 def fetch_musicbrainz_release(mbid: str) -> dict | None:
@@ -216,7 +244,7 @@ def fetch_musicbrainz_release(mbid: str) -> dict | None:
 
     cache_file = cfg.cache_dir / f"mb-release-{mbid}.json"
 
-    cached = _read_cached_json(cache_file)
+    cached = cached_musicbrainz_release(mbid)
     if cached is not None:
         log.debug(f"Using cached MB release for {mbid}")
         return cached
@@ -251,3 +279,36 @@ def fetch_musicbrainz_release_group(mbid: str) -> dict | None:
         _write_cached_json(cache_file, data)
 
     return data
+
+
+def fetch_musicbrainz_group_releases(mbid: str) -> dict[str, dict]:
+    """Browse release URL relations in pages without replacing full-release cache entries."""
+    releases: dict[str, dict] = {}
+    offset = 0
+    while True:
+        cache_file = cfg.cache_dir / f"mb-release-group-releases-{mbid}-{offset}.json"
+        data = _read_cached_json(cache_file)
+        fetched = data is None
+        if data is None:
+            url = (
+                f"https://musicbrainz.org/ws/2/release?release-group={mbid}"
+                f"&inc=url-rels&limit=100&offset={offset}&fmt=json"
+            )
+            data = call_musicbrainz_api(url)
+            if data is None:
+                raise MusicBrainzUnavailable("Could not browse MusicBrainz release group")
+        page = data.get("releases")
+        count = data.get("release-count")
+        if not isinstance(page, list) or not isinstance(count, int) or count < 0:
+            raise MusicBrainzUnavailable("MusicBrainz returned an invalid release-group page")
+        for release in page:
+            if not isinstance(release, dict) or not isinstance(release.get("id"), str):
+                raise MusicBrainzUnavailable("MusicBrainz returned an invalid release")
+            releases[release["id"]] = {**release, "release-group": {"id": mbid}}
+        if not page and offset < count:
+            raise MusicBrainzUnavailable("MusicBrainz returned an incomplete release-group page")
+        if fetched and not _write_cached_json(cache_file, data, shorter_cache=True):
+            raise MusicBrainzUnavailable("Could not save MusicBrainz release-group progress")
+        offset += len(page)
+        if offset >= count:
+            return releases

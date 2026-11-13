@@ -20,6 +20,7 @@ from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from deemix_downloader.indexer_background import SearchWarming
 from deemix_downloader.indexer_bridge import BridgeStore, IndexerBridge
 
 
@@ -64,6 +65,22 @@ class IndexerBridgeTests(unittest.TestCase):
         handler._respond(HTTPStatus.OK, b"response", "application/rss+xml")
 
         handler.send_response.assert_called_once_with(HTTPStatus.OK)
+
+    def test_warming_search_returns_a_specific_retry_message(self):
+        self.bridge.search_callback = Mock(
+            side_effect=SearchWarming("Search is warming in the background; retry later")
+        )
+        server = ThreadingHTTPServer(("127.0.0.1", 0), self.bridge.handler())
+        thread = threading.Thread(target=server.serve_forever)
+        thread.start()
+        self.addCleanup(lambda: (server.shutdown(), thread.join(), server.server_close()))
+        url = f"http://127.0.0.1:{server.server_port}/api?t=search&q=artist&apikey=" + ("x" * 32)
+        with self.assertRaises(urllib.error.HTTPError) as response:
+            urllib.request.urlopen(url, timeout=3)  # noqa: S310 - loopback-only test server.
+        self.assertEqual(response.exception.code, 503)
+        body = response.exception.read()
+        response.exception.close()
+        self.assertIn(b"Search is warming in the background; retry later", body)
 
     @staticmethod
     def release():

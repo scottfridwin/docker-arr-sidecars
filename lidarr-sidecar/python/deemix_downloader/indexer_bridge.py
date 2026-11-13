@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
+from .indexer_background import SearchWarming
 from .indexer_search import AmbiguousAlbumError
 from .logging import log
 from .quota import DailyDownloadQuota, QuotaStateError, ReservationResult
@@ -296,7 +297,6 @@ class IndexerBridge:
         self.search_callback = search
         self.download_callback = download
         self.worker_interval = worker_interval
-        self._search_lock = threading.Lock()
         self._worker_stop = threading.Event()
         self.store.recover(self.quota)
 
@@ -395,8 +395,7 @@ class IndexerBridge:
             return []
         if request_type == "search" and not (q or artist or album):
             return []
-        with self._search_lock:
-            return self.search_callback(artist=artist, album=album, q=q, year=year, request_type=request_type)
+        return self.search_callback(artist=artist, album=album, q=q, year=year, request_type=request_type)
 
     def _rss(self, results: list[dict[str, Any]]) -> bytes:
         rss = ET.Element("rss", {"version": "2.0", "xmlns:newznab": _NEWZNAB_NAMESPACE})
@@ -658,6 +657,8 @@ class IndexerBridge:
                     self._respond(HTTPStatus.OK, bridge._rss(results), "application/rss+xml; charset=utf-8")
                 except BridgeRequestError as exc:
                     self._error(HTTPStatus.BAD_REQUEST, str(exc))
+                except SearchWarming as exc:
+                    self._error(HTTPStatus.SERVICE_UNAVAILABLE, str(exc))
                 except (OSError, RuntimeError, sqlite3.Error) as exc:
                     log.error(f"Indexer search unavailable: {exc}")
                     self._error(HTTPStatus.SERVICE_UNAVAILABLE, "Search upstream is unavailable")

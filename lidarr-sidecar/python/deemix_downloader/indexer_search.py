@@ -19,6 +19,11 @@ def _search_key(value: str) -> str:
     return " ".join(unicodedata.normalize("NFKC", value).replace("+", " ").casefold().split())
 
 
+def _album_search_key(value: str) -> str:
+    key = _search_key(value)
+    return key.removeprefix("the ")
+
+
 def resolve_album(
     albums: Iterable[dict[str, Any]], artist: str, album: str, *, year: int | None = None
 ) -> dict[str, Any] | None:
@@ -28,7 +33,7 @@ def resolve_album(
     albums from the complete local library, not just the wanted list.
     """
     artist_key = _search_key(artist)
-    album_key = _search_key(album)
+    album_key = _album_search_key(album)
     if not artist_key or not album_key:
         return None
 
@@ -43,7 +48,7 @@ def resolve_album(
         if not all(isinstance(value, str) for value in (artist_name, title, disambiguation)):
             continue
         title_with_disambiguation = f"{title} {disambiguation}" if disambiguation.strip() else title
-        if _search_key(artist_name) != artist_key or _search_key(title_with_disambiguation) != album_key:
+        if _search_key(artist_name) != artist_key or _album_search_key(title_with_disambiguation) != album_key:
             continue
         if year is not None:
             release_date = candidate.get("releaseDate")

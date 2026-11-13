@@ -90,7 +90,6 @@ _INSTRUMENTAL_RE = (
     else None
 )
 _LIDARR_API_LOCK = threading.RLock()
-_INDEXER_MUSICBRAINZ_BUDGET_SECONDS = 60.0
 
 
 # ─── Daily download limit ──────────────────────────────────────────────
@@ -271,6 +270,16 @@ def _build_candidates(album_data: dict, album_release_year: str) -> list[Release
     Fetches MusicBrainz data to extract Deezer links.
     """
     candidates: list[ReleaseCandidate] = []
+    group_id = album_data.get("foreignAlbumId")
+    release_ids = [
+        release.get("foreignReleaseId") for release in album_data.get("releases", []) if release.get("foreignReleaseId")
+    ]
+    cached = {release_id: musicbrainz_api.cached_musicbrainz_release(release_id) for release_id in release_ids}
+    group_releases = (
+        musicbrainz_api.fetch_musicbrainz_group_releases(group_id)
+        if group_id and any(data is None for data in cached.values())
+        else {}
+    )
 
     for release_json in album_data.get("releases", []):
         title = release_json.get("title", "")
@@ -286,7 +295,9 @@ def _build_candidates(album_data: dict, album_release_year: str) -> list[Release
         country_priority = calculate_priority(countries_str, cfg.preferred_countries)
 
         # Fetch MusicBrainz release to get Deezer link
-        mb_data = fetch_musicbrainz_release(foreign_release_id)
+        mb_data = cached.get(foreign_release_id) or group_releases.get(foreign_release_id)
+        if mb_data is None:
+            mb_data = fetch_musicbrainz_release(foreign_release_id)
         if mb_data is None:
             continue
 
@@ -314,7 +325,7 @@ def _build_candidates(album_data: dict, album_release_year: str) -> list[Release
 
         alternate_titles: list[str] = []
         release_group = mb_data.get("release-group", {})
-        if isinstance(release_group, dict):
+        if deezer_album_id and isinstance(release_group, dict):
             release_group_id = release_group.get("id", "")
             if release_group_id:
                 log.debug(f"Fetching MusicBrainz aliases for release-group {release_group_id}")
@@ -479,8 +490,8 @@ def _indexer_match_album(album: dict, year: int | None) -> dict | None:
 
 
 def search_indexer_releases(*, artist: str, album: str, q: str, year: int | None, request_type: str) -> list[dict]:
-    """Resolve Lidarr's actual Newznab text requests against its local library."""
-    with musicbrainz_api.request_budget(_INDEXER_MUSICBRAINZ_BUDGET_SECONDS):
+    """Resolve a background Newznab search, retrying transient MusicBrainz failures."""
+    with musicbrainz_api.retry_transient_indefinitely():
         return _search_indexer_releases(artist=artist, album=album, q=q, year=year, request_type=request_type)
 
 
@@ -1528,8 +1539,16 @@ def indexer_main() -> None:
         token = cfg.deemix_arl_file.read_text(encoding="utf-8").strip().strip('\r\n"')
         return download_indexer_release(release, on_download_complete, token or arl_token)
 
-    bridge = build_bridge_from_environment(search_indexer_releases, download)
-    bridge.serve(bridge.bind_host, bridge.bind_port)
+    from .indexer_background import BackgroundSearch
+
+    searches = BackgroundSearch(cfg.work_path, search_indexer_releases)
+    bridge = build_bridge_from_environment(searches.search, download)
+    worker = searches.start()
+    try:
+        bridge.serve(bridge.bind_host, bridge.bind_port)
+    finally:
+        searches.stop()
+        worker.join(timeout=10)
 
 
 if __name__ == "__main__":

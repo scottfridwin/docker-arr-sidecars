@@ -64,6 +64,47 @@ class ServiceSearchTests(unittest.TestCase):
         build.assert_called_once_with({"title": "Album", "releaseDate": None}, "")
         match.assert_called_once_with([], "Album", failed)
 
+    def test_build_candidates_uses_batched_release_metadata_and_only_fetches_needed_aliases(self):
+        album = {
+            "foreignAlbumId": "group",
+            "releases": [
+                {"id": 1, "foreignReleaseId": "unlinked", "title": "Album"},
+                {"id": 2, "foreignReleaseId": "linked", "title": "Album", "trackCount": 10},
+            ],
+        }
+        releases = {
+            "unlinked": {"status": "Official", "release-group": {"id": "group"}},
+            "linked": {
+                "status": "Official",
+                "barcode": "123",
+                "release-group": {"id": "group"},
+                "relations": [{"ended": False, "url": {"resource": "https://deezer.com/album/42"}}],
+            },
+        }
+        with (
+            patch.object(service.musicbrainz_api, "fetch_musicbrainz_group_releases", return_value=releases) as browse,
+            patch.object(service, "fetch_musicbrainz_release") as fetch_release,
+            patch.object(service, "fetch_musicbrainz_release_group", return_value={"aliases": []}) as fetch_group,
+        ):
+            candidates = service._build_candidates(album, "2025")
+        browse.assert_called_once_with("group")
+        fetch_release.assert_not_called()
+        fetch_group.assert_called_once_with("group")
+        self.assertEqual(candidates[1].deezer_album_id, "42")
+        self.assertEqual(candidates[1].musicbrainz_barcode, "123")
+
+    def test_build_candidates_uses_complete_release_cache_without_browsing(self):
+        album = {"foreignAlbumId": "group", "releases": [{"id": 1, "foreignReleaseId": "release"}]}
+        with (
+            patch.object(service.musicbrainz_api, "cached_musicbrainz_release", return_value={"status": "Official"}),
+            patch.object(service.musicbrainz_api, "fetch_musicbrainz_group_releases") as browse,
+            patch.object(service, "fetch_musicbrainz_release") as fetch,
+        ):
+            candidates = service._build_candidates(album, "2025")
+        self.assertEqual(len(candidates), 1)
+        browse.assert_not_called()
+        fetch.assert_not_called()
+
     def test_text_artist_search_returns_matching_albums(self):
         artist = {"id": 11, "artistName": "Taylor Swift"}
         albums = [{"id": 22}, {"id": 23}]
