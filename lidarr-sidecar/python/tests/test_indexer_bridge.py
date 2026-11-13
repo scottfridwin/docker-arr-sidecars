@@ -3,16 +3,18 @@
 
 import base64
 import json
+import os
 import sqlite3
 import sys
 import tempfile
 import threading
+import time
 import unittest
 import urllib.error
 import urllib.request
 import xml.etree.ElementTree as ET
 from contextlib import closing
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from http import HTTPStatus
 from http.server import ThreadingHTTPServer
 from pathlib import Path
@@ -21,7 +23,12 @@ from unittest.mock import Mock, patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from deemix_downloader.indexer_background import SearchWarming
-from deemix_downloader.indexer_bridge import BridgeRequestError, BridgeStore, IndexerBridge
+from deemix_downloader.indexer_bridge import (
+    BridgeRequestError,
+    BridgeStore,
+    IndexerBridge,
+    build_bridge_from_environment,
+)
 
 
 class IndexerBridgeTests(unittest.TestCase):
@@ -80,6 +87,24 @@ class IndexerBridgeTests(unittest.TestCase):
         ):
             self.bridge.serve("127.0.0.1", 0, on_listening=configure)
         start_worker.assert_not_called()
+
+    def test_retention_configuration_comes_from_environment(self):
+        environment = {
+            "AUDIO_INDEXER_PUBLIC_URL": "http://localhost:9797",
+            "AUDIO_INDEXER_API_KEY": "x" * 32,
+            "AUDIO_INDEXER_CLIENT_PASSWORD": "p" * 16,
+            "AUDIO_WORK_PATH": str(self.work_path),
+            "AUDIO_SHARED_LIDARR_PATH": str(self.work_path / "import"),
+            "AUDIO_INDEXER_RETENTION_DAYS": "7",
+        }
+        with patch.dict(os.environ, environment):
+            bridge = build_bridge_from_environment(Mock(), Mock())
+            self.assertEqual(bridge.retention_days, 7)
+        with (
+            patch.dict(os.environ, {**environment, "AUDIO_INDEXER_RETENTION_DAYS": "-1"}),
+            self.assertRaises(ValueError),
+        ):
+            build_bridge_from_environment(Mock(), Mock())
 
     def test_server_stops_if_download_worker_dies(self):
         worker = threading.Thread(target=lambda: None)
@@ -279,6 +304,163 @@ class IndexerBridgeTests(unittest.TestCase):
         self.assertNotEqual(new_id, job["nzb_id"])
         self.bridge._run_job(self.bridge.store.next_job())
         self.assertEqual(self.bridge.store.next_job()["status"], "waiting_quota")
+
+    def test_removing_recovery_deletes_only_its_flat_audio(self):
+        release = self.bridge.store.register_release(self.release())
+        self._submit(release["token"])
+        job = self.bridge.store.next_job()
+        self.bridge.quota.reserve(f"{job['id']}:1")
+        self.bridge.store.set_job(job["id"], "needs_recovery")
+        folder = self.bridge._release_import_path(self.release())
+        folder.mkdir(parents=True)
+        (folder / f".deemix-owner-{job['id']}").touch()
+        (folder / "track.flac").touch()
+        (folder / "notes.txt").write_text("keep")
+        outside = self.work_path / "outside.mp3"
+        outside.write_text("untouched")
+        (folder / "link.mp3").symlink_to(outside)
+
+        self.assertTrue(self.bridge._remove_job(job["nzb_id"]))
+        self.assertFalse((folder / "track.flac").exists())
+        self.assertEqual((folder / "notes.txt").read_text(), "keep")
+        self.assertEqual(outside.read_text(), "untouched")
+        self.assertTrue((folder / "link.mp3").is_symlink())
+        self.assertEqual(self.bridge.quota.snapshot().completed, 1)
+
+    def test_recovery_audio_is_kept_if_another_job_uses_same_folder(self):
+        first = self.bridge.store.register_release(self.release())
+        second = self.bridge.store.register_release({**self.release(), "deezer_album_id": "45"})
+        self._submit(first["token"], "first")
+        job = self.bridge.store.next_job()
+        self.bridge.store.set_job(job["id"], "needs_recovery")
+        self._submit(second["token"], "second")
+        folder = self.bridge._release_import_path(self.release())
+        folder.mkdir(parents=True)
+        (folder / f".deemix-owner-{job['id']}").touch()
+        audio = folder / "track.flac"
+        audio.touch()
+        self.assertTrue(self.bridge._remove_job(job["nzb_id"]))
+        self.assertTrue(audio.exists())
+        self.assertFalse((folder / f".deemix-owner-{job['id']}").exists())
+
+    def test_recovery_does_not_remove_audio_without_ownership(self):
+        release = self.bridge.store.register_release(self.release())
+        self._submit(release["token"])
+        job = self.bridge.store.next_job()
+        self.bridge.store.set_job(job["id"], "needs_recovery", "Quota reservation failed")
+        folder = self.bridge._release_import_path(self.release())
+        folder.mkdir(parents=True)
+        audio = folder / "track.flac"
+        audio.touch()
+        self.assertTrue(self.bridge._remove_job(job["nzb_id"]))
+        self.assertTrue(audio.exists())
+
+    def test_recovery_removal_refuses_symlinked_album_folder(self):
+        release = self.bridge.store.register_release(self.release())
+        self._submit(release["token"])
+        job = self.bridge.store.next_job()
+        self.bridge.store.set_job(job["id"], "needs_recovery")
+        folder = self.bridge._release_import_path(self.release())
+        folder.parent.mkdir(parents=True)
+        outside = self.work_path / "outside"
+        outside.mkdir()
+        (outside / "track.flac").touch()
+        folder.symlink_to(outside, target_is_directory=True)
+        with self.assertRaisesRegex(RuntimeError, "Unsafe recovery import path"):
+            self.bridge._remove_job(job["nzb_id"])
+        self.assertTrue((outside / "track.flac").exists())
+        self.assertEqual(self.bridge.store.get_job(job["id"])["status"], "needs_recovery")
+
+    def test_recovery_removal_failure_keeps_job_for_retry(self):
+        release = self.bridge.store.register_release(self.release())
+        self._submit(release["token"])
+        job = self.bridge.store.next_job()
+        self.bridge.store.set_job(job["id"], "needs_recovery")
+        folder = self.bridge._release_import_path(self.release())
+        folder.mkdir(parents=True)
+        (folder / f".deemix-owner-{job['id']}").touch()
+        (folder / "track.flac").touch()
+        with (
+            patch.object(self.bridge.quota, "settle_uncertain", return_value=None),
+            patch.object(Path, "unlink", side_effect=PermissionError("read only")),
+            self.assertRaises(PermissionError),
+        ):
+            self.bridge._remove_job(job["nzb_id"])
+        self.assertEqual(self.bridge.store.get_job(job["id"])["status"], "needs_recovery")
+
+    def test_retention_prunes_only_old_removed_jobs_and_unused_releases(self):
+        old = (datetime.now(UTC) - timedelta(days=31)).isoformat()
+        release = self.bridge.store.register_release(self.release())
+        self._submit(release["token"], "removed")
+        removed = self.bridge.store.next_job()
+        self.bridge.quota._today = lambda: date.today() - timedelta(days=31)
+        self.bridge.quota.reserve(f"{removed['id']}:1")
+        self.bridge.quota.complete(f"{removed['id']}:1")
+        self.bridge.quota._today = date.today
+        self.bridge.store.set_job(removed["id"], "removed")
+        history = self.bridge._history_dest_dir(removed["id"])
+        history.mkdir(parents=True)
+        active_release = self.bridge.store.register_release({**self.release(), "deezer_album_id": "45"})
+        self._submit(active_release["token"], "active")
+        active = self.bridge.store.next_job()
+        unused = self.bridge.store.register_release({**self.release(), "deezer_album_id": "46"})
+        with closing(sqlite3.connect(self.bridge.store.path)) as db, db:
+            db.execute("UPDATE jobs SET updated=? WHERE id=?", (old, removed["id"]))
+            db.execute("UPDATE release_activity SET updated=0")
+        self.bridge._maintenance()
+        self.assertIsNone(self.bridge.store.get_job(removed["id"]))
+        self.assertFalse(history.exists())
+        self.assertIsNone(self.bridge.store.get_release(release["token"]))
+        self.assertIsNone(self.bridge.store.get_release(unused["token"]))
+        self.assertIsNotNone(self.bridge.store.get_job(active["id"]))
+        self.assertIsNotNone(self.bridge.store.get_release(active_release["token"]))
+        self.assertEqual(self.bridge.quota.snapshot().completed, 0)
+
+    def test_retention_preserves_pending_cleanup_and_unresolved_reservations(self):
+        old = (datetime.now(UTC) - timedelta(days=31)).isoformat()
+        release = self.bridge.store.register_release(self.release())
+        self._submit(release["token"], "pending")
+        pending = self.bridge.store.next_job()
+        self.bridge.store.set_job(pending["id"], "removed")
+        reserved_release = self.bridge.store.register_release({**self.release(), "deezer_album_id": "45"})
+        self._submit(reserved_release["token"], "reserved")
+        reserved = self.bridge.store.next_job()
+        self.bridge.quota.reserve(f"{reserved['id']}:1")
+        self.bridge.store.set_job(reserved["id"], "removed")
+        with closing(sqlite3.connect(self.bridge.store.path)) as db, db:
+            db.execute("UPDATE jobs SET updated=?", (old,))
+            db.execute("INSERT INTO job_cleanup(job_id,client_id) VALUES (?,?)", (pending["id"], "pending"))
+        self.bridge._maintenance()
+        self.assertIsNotNone(self.bridge.store.get_job(pending["id"]))
+        self.assertIsNotNone(self.bridge.store.get_job(reserved["id"]))
+        self.assertEqual(self.bridge.quota.snapshot().reserved_ids, (f"{reserved['id']}:1",))
+
+    def test_zero_retention_preserves_old_removed_jobs_and_handoffs(self):
+        release = self.bridge.store.register_release(self.release())
+        self._submit(release["token"])
+        job = self.bridge.store.next_job()
+        self.bridge.store.set_job(job["id"], "removed")
+        with closing(sqlite3.connect(self.bridge.store.path)) as db, db:
+            db.execute("UPDATE jobs SET updated='2000-01-01T00:00:00+00:00'")
+            db.execute("UPDATE release_activity SET updated=0")
+        self.bridge.retention_days = 0
+        self.bridge._maintenance()
+        self.assertIsNotNone(self.bridge.store.get_job(job["id"]))
+        self.assertIsNotNone(self.bridge.store.get_release(release["token"]))
+
+    def test_retention_removes_only_empty_old_orphan_history_directories(self):
+        root = Path(self.bridge.import_path) / ".deemix-bridge"
+        empty = root / ("a" * 32)
+        nonempty = root / ("b" * 32)
+        empty.mkdir(parents=True)
+        nonempty.mkdir()
+        (nonempty / "keep.txt").touch()
+        old_time = time.time() - 31 * 86400
+        os.utime(empty, (old_time, old_time))
+        os.utime(nonempty, (old_time, old_time))
+        self.bridge._maintenance()
+        self.assertFalse(empty.exists())
+        self.assertTrue((nonempty / "keep.txt").exists())
 
     def test_recovery_removal_is_idempotent_after_quota_was_charged(self):
         release = self.bridge.store.register_release(self.release())

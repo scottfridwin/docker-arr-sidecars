@@ -11,13 +11,14 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import sqlite3
 import threading
 import time
 import xml.etree.ElementTree as ET
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -27,10 +28,12 @@ from urllib.parse import parse_qs, urlsplit
 from defusedxml import ElementTree as SafeET
 from defusedxml.common import DefusedXmlException
 
+from .download import AUDIO_EXTENSIONS, get_import_path
 from .indexer_background import SearchWarming
 from .indexer_search import AmbiguousAlbumError
 from .logging import log
 from .quota import DailyDownloadQuota, QuotaStateError, ReservationResult
+from .sqlite_maintenance import compact_if_needed
 
 _NZB_NAMESPACE = "http://www.newzbin.com/DTD/2003/nzb"
 _NEWZNAB_NAMESPACE = "http://www.newznab.com/DTD/2010/feeds/attributes/"
@@ -84,12 +87,21 @@ class BridgeStore:
                         PRIMARY KEY(job_id, client_id),
                         FOREIGN KEY(job_id) REFERENCES jobs(id)
                     );
+                    CREATE TABLE IF NOT EXISTS release_activity (
+                        token TEXT PRIMARY KEY,
+                        updated REAL NOT NULL,
+                        FOREIGN KEY(token) REFERENCES releases(token)
+                    );
                     CREATE INDEX IF NOT EXISTS jobs_status_nzb_id ON jobs(status, nzb_id);
                     CREATE INDEX IF NOT EXISTS jobs_token_nzb_id ON jobs(token, nzb_id);
                     """
                 )
                 connection.execute("PRAGMA journal_mode=WAL")
                 connection.execute("PRAGMA synchronous=FULL")
+                connection.execute(
+                    "INSERT OR IGNORE INTO release_activity(token, updated) SELECT token, ? FROM releases",
+                    (time.time(),),
+                )
                 connection.execute(
                     "INSERT OR IGNORE INTO job_cleanup(job_id, client_id) "
                     "SELECT jobs.id, job_clients.client_id FROM jobs JOIN job_clients ON job_clients.job_id=jobs.id "
@@ -118,6 +130,11 @@ class BridgeStore:
         finally:
             connection.close()
 
+    @contextmanager
+    def locked(self) -> Iterator[None]:
+        with self._lock:
+            yield
+
     def register_release(self, payload: dict[str, Any]) -> dict[str, Any]:
         if not all(payload.get(key) for key in ("artist_id", "album_id", "release_id", "deezer_album_id")):
             raise ValueError("a release requires Lidarr artist, album, release and Deezer album IDs")
@@ -130,6 +147,7 @@ class BridgeStore:
         with self._lock, self._connection() as connection:
             existing = connection.execute("SELECT token, payload FROM releases WHERE target=?", (target,)).fetchone()
             if existing:
+                self._touch_release(connection, existing["token"])
                 return {"token": existing["token"], **json.loads(existing["payload"])}
             legacy = connection.execute(
                 "SELECT token, payload FROM releases WHERE target=?", (legacy_target,)
@@ -137,17 +155,29 @@ class BridgeStore:
             if legacy:
                 previous = json.loads(legacy["payload"])
                 if {key: value for key, value in previous.items() if key != "report_title"} == snapshot:
+                    self._touch_release(connection, legacy["token"])
                     return {"token": legacy["token"], **previous}
             token = os.urandom(24).hex()
             connection.execute(
                 "INSERT INTO releases(token, target, payload) VALUES (?, ?, ?)",
                 (token, target, json.dumps(payload, separators=(",", ":"), ensure_ascii=True)),
             )
+            self._touch_release(connection, token)
             return {"token": token, **payload}
+
+    @staticmethod
+    def _touch_release(connection: sqlite3.Connection, token: str) -> None:
+        connection.execute(
+            "INSERT INTO release_activity(token, updated) VALUES (?, ?) "
+            "ON CONFLICT(token) DO UPDATE SET updated=excluded.updated",
+            (token, time.time()),
+        )
 
     def get_release(self, token: str) -> dict[str, Any] | None:
         with self._lock, self._connection() as connection:
             row = connection.execute("SELECT payload FROM releases WHERE token=?", (token,)).fetchone()
+            if row:
+                self._touch_release(connection, token)
         return {"token": token, **json.loads(row["payload"])} if row else None
 
     def submit(self, token: str, client_id: str) -> sqlite3.Row:
@@ -162,6 +192,7 @@ class BridgeStore:
             connection.execute("BEGIN IMMEDIATE")
             if not connection.execute("SELECT 1 FROM releases WHERE token=?", (token,)).fetchone():
                 raise BridgeRequestError("unknown release identity")
+            self._touch_release(connection, token)
             placeholders = ",".join("?" for _ in _IDEMPOTENT_STATES)
             active = connection.execute(
                 # All statuses are bound values; only the placeholder count is formatted.
@@ -252,6 +283,38 @@ class BridgeStore:
                 "UPDATE job_cleanup SET done=1 WHERE job_id=? AND client_id=?",
                 [(job_id, client_id) for client_id in client_ids],
             )
+
+    def removable_jobs(self, cutoff: str) -> list[str]:
+        with self._lock, self._connection() as connection:
+            rows = connection.execute(
+                "SELECT id FROM jobs WHERE status='removed' AND updated < ? "
+                "AND NOT EXISTS (SELECT 1 FROM job_cleanup WHERE job_id=jobs.id AND done=0)",
+                (cutoff,),
+            ).fetchall()
+        return [row["id"] for row in rows]
+
+    def prune_jobs_and_releases(self, job_ids: set[str], cutoff: str, release_cutoff: float) -> None:
+        with self._lock, self._connection() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            for job_id in job_ids:
+                row = connection.execute(
+                    "SELECT id FROM jobs WHERE id=? AND status='removed' AND updated < ? "
+                    "AND NOT EXISTS (SELECT 1 FROM job_cleanup WHERE job_id=jobs.id AND done=0)",
+                    (job_id, cutoff),
+                ).fetchone()
+                if not row:
+                    continue
+                connection.execute("DELETE FROM job_cleanup WHERE job_id=?", (job_id,))
+                connection.execute("DELETE FROM job_clients WHERE job_id=?", (job_id,))
+                connection.execute("DELETE FROM jobs WHERE id=?", (job_id,))
+            old_releases = connection.execute(
+                "SELECT token FROM release_activity WHERE updated < ? "
+                "AND NOT EXISTS (SELECT 1 FROM jobs WHERE jobs.token=release_activity.token)",
+                (release_cutoff,),
+            ).fetchall()
+            for row in old_releases:
+                connection.execute("DELETE FROM release_activity WHERE token=?", (row["token"],))
+                connection.execute("DELETE FROM releases WHERE token=?", (row["token"],))
 
     def get_release_for_job(self, job_id: str) -> dict[str, Any]:
         with self._lock, self._connection() as connection:
@@ -357,7 +420,11 @@ class IndexerBridge:
         download: Callable[[dict[str, Any], Callable[[], None]], bool],
         on_import_complete: Callable[[list[str]], set[str]] | None = None,
         worker_interval: float = 2,
+        retention_days: int = 30,
+        maintenance: Callable[[], None] | None = None,
     ):
+        if type(retention_days) is not int or retention_days < 0:
+            raise ValueError("indexer retention days must be a non-negative integer")
         parsed_url = urlsplit(public_url)
         if (
             parsed_url.scheme not in ("http", "https")
@@ -383,6 +450,8 @@ class IndexerBridge:
         self.download_callback = download
         self.on_import_complete = on_import_complete
         self.worker_interval = worker_interval
+        self.retention_days = retention_days
+        self.maintenance_callback = maintenance
         self._worker_stop = threading.Event()
         self._removal_lock = threading.Lock()
         self.store.recover(self.quota)
@@ -397,7 +466,14 @@ class IndexerBridge:
 
     def _worker_loop(self) -> None:
         next_cleanup = 0.0
+        next_maintenance = 0.0
         while not self._worker_stop.is_set():
+            if time.monotonic() >= next_maintenance:
+                try:
+                    self._maintenance()
+                except (OSError, sqlite3.Error, RuntimeError) as exc:
+                    log.error(f"Indexer maintenance failed; will retry: {exc}")
+                next_maintenance = time.monotonic() + 3600
             if time.monotonic() >= next_cleanup:
                 self._retry_cleanup()
                 next_cleanup = time.monotonic() + 30
@@ -413,6 +489,46 @@ class IndexerBridge:
                 if current and current["status"] not in _TERMINAL_STATES:
                     self.store.set_job(row["id"], "needs_recovery", f"Unexpected worker error: {exc}")
             self._worker_stop.wait(self.worker_interval)
+
+    def _maintenance(self) -> None:
+        if self.maintenance_callback is not None:
+            self.maintenance_callback()
+        if not self.retention_days:
+            return
+        cutoff = (datetime.now(UTC) - timedelta(days=self.retention_days)).isoformat()
+        history_root = Path(self.import_path) / ".deemix-bridge"
+        if history_root.is_symlink():
+            raise RuntimeError(f"Unsafe indexer history path: {history_root}")
+        candidates = [job_id for job_id in self.store.removable_jobs(cutoff) if re.fullmatch(r"[0-9a-f]{32}", job_id)]
+        eligible = self.quota.prune_removed_jobs(candidates, self.retention_days)
+        removable = set()
+        for job_id in eligible:
+            directory = self._history_dest_dir(job_id)
+            try:
+                directory.rmdir()
+            except FileNotFoundError:
+                pass
+            except OSError as exc:
+                log.warning(f"Cannot remove indexer history directory {directory}: {exc}")
+                continue
+            removable.add(job_id)
+        self.store.prune_jobs_and_releases(removable, cutoff, time.time() - self.retention_days * 86400)
+        if history_root.is_dir():
+            for directory in history_root.iterdir():
+                if (
+                    not re.fullmatch(r"[0-9a-f]{32}", directory.name)
+                    or directory.is_symlink()
+                    or not directory.is_dir()
+                    or directory.stat().st_mtime >= time.time() - self.retention_days * 86400
+                    or self.store.get_job(directory.name) is not None
+                ):
+                    continue
+                try:
+                    directory.rmdir()
+                except OSError as exc:
+                    log.warning(f"Cannot remove orphaned indexer history directory {directory}: {exc}")
+        compact_if_needed(self.store.path)
+        self.quota.compact()
 
     def _retry_cleanup(self, job_id: str | None = None) -> None:
         if self.on_import_complete is None:
@@ -458,6 +574,7 @@ class IndexerBridge:
 
         try:
             release["lidarr_download_ids"] = list(self.store.client_ids(job_id))
+            release["bridge_job_id"] = job_id
         except (sqlite3.Error, RuntimeError):
             self.quota.fail(quota_id)
             raise
@@ -501,8 +618,42 @@ class IndexerBridge:
     def _history_dest_dir(self, job_id: str) -> Path:
         return Path(self.import_path) / ".deemix-bridge" / job_id
 
+    def _release_import_path(self, release: dict[str, Any]) -> Path:
+        return get_import_path(
+            release["artist_name"],
+            release["album_title"],
+            release.get("year", ""),
+            release.get("album_foreign_id", ""),
+            import_root=Path(self.import_path),
+        )
+
+    def _remove_recovery_audio(self, job_id: str) -> None:
+        folder = self._release_import_path(self.store.get_release_for_job(job_id))
+        root = Path(self.import_path).resolve()
+        if folder.parent.resolve() != root or folder.is_symlink():
+            raise RuntimeError(f"Unsafe recovery import path: {folder}")
+        marker = folder / f".deemix-owner-{job_id}"
+        if marker.is_symlink() or not marker.is_file():
+            log.warning(f"Keeping recovery audio in {folder}: job ownership is not recorded")
+            return
+        for row in self.store.jobs((*_ACTIVE_STATES, "completed")):
+            if row["id"] != job_id and self._release_import_path(json.loads(row["payload"])) == folder:
+                log.warning(f"Keeping recovery audio in {folder}: another job uses the same folder")
+                marker.unlink()
+                return
+        removed = 0
+        for path in folder.iterdir():
+            if not path.is_symlink() and path.is_file() and path.suffix.lower() in AUDIO_EXTENSIONS:
+                path.unlink()
+                removed += 1
+        marker.unlink()
+        if removed:
+            log.info(f"Removed {removed} recovery audio file(s) from {folder}")
+        if not any(folder.iterdir()):
+            folder.rmdir()
+
     def _remove_job(self, nzb_id: int) -> bool:
-        with self._removal_lock:
+        with self._removal_lock, self.store.locked():
             job = self.store.get_job_by_nzb_id(nzb_id)
             if job and job["status"] == "needs_recovery":
                 quota_id = f"{job['id']}:{job['attempt']}"
@@ -514,6 +665,7 @@ class IndexerBridge:
                     )
                 else:
                     log.warning(f"Removing recovery job {job['id']}; review staged or partially imported files")
+                self._remove_recovery_audio(job["id"])
                 return self.store.remove_job(nzb_id, allow_recovery=True)
             return self.store.remove_job(nzb_id)
 
@@ -892,6 +1044,7 @@ def build_bridge_from_environment(
     search: Callable[..., list[dict[str, Any]]],
     download: Callable[[dict[str, Any], Callable[[], None]], bool],
     on_import_complete: Callable[[list[str]], set[str]] | None = None,
+    maintenance: Callable[[], None] | None = None,
 ) -> IndexerBridge:
     """Build the bridge from required, explicit deployment settings."""
     api_key = os.environ.get("AUDIO_INDEXER_API_KEY", "")
@@ -916,6 +1069,8 @@ def build_bridge_from_environment(
         search=search,
         download=download,
         on_import_complete=on_import_complete,
+        retention_days=int(os.environ.get("AUDIO_INDEXER_RETENTION_DAYS", "30")),
+        maintenance=maintenance,
     )
     bridge.bind_host = host
     bridge.bind_port = port

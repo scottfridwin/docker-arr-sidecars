@@ -5,6 +5,7 @@ import sqlite3
 import sys
 import tempfile
 import threading
+import time
 import unittest
 from contextlib import closing
 from pathlib import Path
@@ -63,6 +64,23 @@ class BackgroundSearchTests(unittest.TestCase):
             finally:
                 recovered.stop()
                 worker.join(2)
+
+    def test_periodic_pruning_keeps_pending_and_recent_searches(self):
+        with tempfile.TemporaryDirectory() as directory:
+            background = BackgroundSearch(directory, Mock(), wait_seconds=0)
+            with closing(sqlite3.connect(background.path)) as db, db:
+                db.executemany(
+                    "INSERT INTO searches VALUES (?, ?, '[]', NULL, ?)",
+                    [
+                        ('{"q":"old"}', "completed", time.time() - 301),
+                        ('{"q":"pending"}', "pending", time.time() - 301),
+                        ('{"q":"recent"}', "completed", time.time()),
+                    ],
+                )
+            background.prune()
+            with closing(sqlite3.connect(background.path)) as db:
+                rows = db.execute("SELECT query FROM searches ORDER BY query").fetchall()
+            self.assertEqual(rows, [('{"q":"pending"}',), ('{"q":"recent"}',)])
 
     def test_upgrading_search_cache_keeps_pending_work_and_discards_old_results(self):
         for version in (0, 1, 2, 3, 4, 5, 6):

@@ -13,7 +13,7 @@ from contextvars import ContextVar
 
 import requests
 
-from .config import cfg
+from .config import CACHE_LOCK, cfg
 from .logging import log
 
 _session: requests.Session | None = None
@@ -96,15 +96,22 @@ def get_deezer_album_info(album_id: str | int) -> dict | None:
     cache_file = cfg.cache_dir / f"deezer-album-{album_id}.json"
 
     # Try cache
-    if cache_file.is_file() and (
-        cfg.cache_max_age_deezer <= 0 or time.time() - cache_file.stat().st_mtime <= cfg.cache_max_age_deezer * 86400
-    ):
+    with CACHE_LOCK:
         try:
-            data = json.loads(cache_file.read_text(encoding="utf-8"))
-            if isinstance(data, dict) and "id" in data and type(data.get("nb_tracks")) is int and data["nb_tracks"] > 0:
-                log.debug(f"Using cached Deezer album data for {album_id}")
-                return data
-            log.warning(f"Cached album JSON has no valid track count, refetching: {cache_file}")
+            if cache_file.is_file() and (
+                cfg.cache_max_age_deezer <= 0
+                or time.time() - cache_file.stat().st_mtime <= cfg.cache_max_age_deezer * 86400
+            ):
+                data = json.loads(cache_file.read_text(encoding="utf-8"))
+                if (
+                    isinstance(data, dict)
+                    and "id" in data
+                    and type(data.get("nb_tracks")) is int
+                    and data["nb_tracks"] > 0
+                ):
+                    log.debug(f"Using cached Deezer album data for {album_id}")
+                    return data
+                log.warning(f"Cached album JSON has no valid track count, refetching: {cache_file}")
         except (json.JSONDecodeError, OSError):
             log.warning(f"Cached album JSON invalid, refetching: {cache_file}")
 
@@ -155,8 +162,9 @@ def get_deezer_album_info(album_id: str | int) -> dict | None:
 
     # Write cache
     try:
-        cache_file.parent.mkdir(parents=True, exist_ok=True)
-        cache_file.write_text(json.dumps(data), encoding="utf-8")
+        with CACHE_LOCK:
+            cache_file.parent.mkdir(parents=True, exist_ok=True)
+            cache_file.write_text(json.dumps(data), encoding="utf-8")
     except OSError as e:
         log.warning(f"Failed to write cache: {e}")
 

@@ -26,7 +26,7 @@ import time
 from collections.abc import Callable
 from datetime import date
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import quote_plus
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
@@ -73,6 +73,9 @@ from .matching import MatchResult, ReleaseCandidate, find_all_matches, find_best
 from .musicbrainz_api import fetch_musicbrainz_release, fetch_musicbrainz_release_group
 from .quota import DailyDownloadQuota, QuotaStateError
 from .string_utils import calculate_priority, normalize_string, remove_punctuation
+
+if TYPE_CHECKING:
+    from .indexer_bridge import IndexerBridge
 
 # ─── Constants ─────────────────────────────────────────────────────────
 
@@ -240,6 +243,39 @@ def folder_cleaner() -> None:
     _clean(cfg.notfound_dir, cfg.retry_notfound_days)
     _clean(cfg.downloaded_dir, cfg.retry_downloaded_days)
     _clean(cfg.failed_dir, cfg.retry_failed_days)
+
+
+def clean_abandoned_attempts(bridge: IndexerBridge) -> None:
+    """Clean old staging only when no active or unresolved job can own it."""
+    if not bridge.retention_days:
+        return
+    cutoff = time.time() - bridge.retention_days * 86400
+    with bridge.store.locked():
+        if bridge.store.jobs(("downloading", "downloaded", "needs_recovery")):
+            return
+        candidates = [
+            path for path in cfg.work_path.iterdir() if re.fullmatch(r"deemix-attempt-[a-z0-9_]{8}", path.name)
+        ]
+        if cfg.staging_dir.exists():
+            candidates.append(cfg.staging_dir)
+        for directory in candidates:
+            if directory.is_symlink() or not directory.is_dir():
+                continue
+            if directory.stat().st_mtime >= cutoff:
+                continue
+            if any(path.is_symlink() or path.stat().st_mtime >= cutoff for path in directory.rglob("*")):
+                continue
+            shutil.rmtree(directory)
+            log.info(f"Removed abandoned download staging directory {directory}")
+        for path in cfg.work_path.iterdir():
+            if (
+                re.fullmatch(r"deemix-quota-[a-z0-9_]{8}", path.name)
+                and not path.is_symlink()
+                and path.is_file()
+                and path.stat().st_mtime < cutoff
+            ):
+                path.unlink()
+                log.info(f"Removed abandoned quota temporary file {path}")
 
 
 # ─── State helpers ───────────────────────────────────────────────────────
@@ -712,6 +748,7 @@ def download_indexer_release(
         strict_manual_import=True,
         ignore_failure_marker=True,
         on_download_complete=on_download_complete,
+        staging_owner_id=release.get("bridge_job_id", ""),
     )
 
 
@@ -917,6 +954,7 @@ def _download_album(
     strict_manual_import: bool = False,
     ignore_failure_marker: bool = False,
     on_download_complete: Callable[[], None] | None = None,
+    staging_owner_id: str = "",
 ) -> bool:
     """Download, tag, and import an album. Returns True on success."""
     deezer_album_id = result.deezer_album_id
@@ -1003,8 +1041,9 @@ def _download_album(
         log.warning(
             f"Failed to collect all tracks after exhausting {attempt_limit} attempts for each quality, giving up"
         )
-        cfg.failed_dir.mkdir(parents=True, exist_ok=True)
-        (cfg.failed_dir / deezer_album_id).touch()
+        if not strict_manual_import:
+            cfg.failed_dir.mkdir(parents=True, exist_ok=True)
+            (cfg.failed_dir / deezer_album_id).touch()
         clean_staging()
         return False
 
@@ -1028,6 +1067,20 @@ def _download_album(
         deezer_album_id,
         downloaded_timestamp,
     )
+
+    owner_marker = None
+    if strict_manual_import and staging_owner_id:
+        if not re.fullmatch(r"[0-9a-f]{32}", staging_owner_id):
+            raise ValueError("Invalid indexer staging owner ID")
+        dest = get_import_path(artist_name, album_title, release_year, album_foreign_id)
+        if dest.parent.resolve() != cfg.shared_lidarr_path.resolve() or dest.is_symlink():
+            raise RuntimeError(f"Unsafe indexer import path: {dest}")
+        dest.mkdir(parents=True, exist_ok=True)
+        if any(path.is_file() and path.suffix.lower() in AUDIO_EXTENSIONS for path in dest.rglob("*")):
+            raise RuntimeError(f"Cannot stage download: audio already exists in {dest}")
+        owner_marker = dest / f".deemix-owner-{staging_owner_id}"
+        with owner_marker.open("x", encoding="utf-8"):
+            pass
 
     # Move and import
     dest = move_to_import(artist_name, album_title, release_year, album_foreign_id)
@@ -1068,14 +1121,19 @@ def _download_album(
 
     if not import_ok:
         log.error(f'Import FAILED for "{deezer_title}"; leaving files in {dest} for manual review')
-        cfg.failed_dir.mkdir(parents=True, exist_ok=True)
-        (cfg.failed_dir / deezer_album_id).touch()
+        if not strict_manual_import:
+            cfg.failed_dir.mkdir(parents=True, exist_ok=True)
+            (cfg.failed_dir / deezer_album_id).touch()
         return False
 
+    if owner_marker is not None:
+        owner_marker.unlink(missing_ok=True)
+
     # Mark downloaded
-    marker = f"{album_id}--{artist_foreign_id}--{album_foreign_id}"
-    cfg.downloaded_dir.mkdir(parents=True, exist_ok=True)
-    (cfg.downloaded_dir / marker).touch()
+    if not strict_manual_import:
+        marker = f"{album_id}--{artist_foreign_id}--{album_foreign_id}"
+        cfg.downloaded_dir.mkdir(parents=True, exist_ok=True)
+        (cfg.downloaded_dir / marker).touch()
 
     # Remove from priority file (use original entry if from a prefixed source)
     entry_to_remove = priority_entry if priority_entry else album_id
@@ -1707,7 +1765,13 @@ def indexer_main() -> None:
             script = Path(__file__).resolve().parents[2] / "services" / "one-time" / "IndexerConfig.py"
             subprocess.run([sys.executable, str(script), "--bridge-ready"], check=True)
 
-    bridge = build_bridge_from_environment(search, download, clean_up_imported_queue)
+    def maintain_indexer() -> None:
+        prune_cache()
+        folder_cleaner()
+        searches.prune()
+        clean_abandoned_attempts(bridge)
+
+    bridge = build_bridge_from_environment(search, download, clean_up_imported_queue, maintain_indexer)
     worker = searches.start()
     try:
         bridge.serve(bridge.bind_host, bridge.bind_port, on_listening=configure_indexer, monitored_worker=worker)

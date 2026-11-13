@@ -22,7 +22,8 @@ restart. ``snapshot`` exposes them for reconciliation; use ``complete`` only
 with evidence of success and ``fail`` only with evidence of failure. Unknown
 outcomes remain reserved until an operator discards the job, at which point
 ``settle_uncertain`` charges it conservatively. A limit of zero is unlimited but
-jobs and completions are still recorded. State is retained indefinitely.
+jobs and completions are still recorded. Removed bridge jobs can be pruned
+after their retention period, but current-day charges and reservations remain.
 
 The legacy ``daily_download_state`` date/count is reconciled with completed
 downloads and mirrored for rollback. Stop the old service before switching:
@@ -42,9 +43,11 @@ import sqlite3
 import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from enum import StrEnum
 from pathlib import Path
+
+from .sqlite_maintenance import compact_if_needed
 
 _SCHEMA = {
     "metadata": "CREATE TABLE metadata (version INTEGER NOT NULL)",
@@ -265,7 +268,9 @@ class DailyDownloadQuota:
             return
         temporary = None
         try:
-            with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=self._work, delete=False) as handle:
+            with tempfile.NamedTemporaryFile(
+                mode="w", encoding="utf-8", dir=self._work, prefix="deemix-quota-", delete=False
+            ) as handle:
                 temporary = Path(handle.name)
                 handle.write(f"{snapshot.day.isoformat()} {snapshot.completed}")
                 handle.flush()
@@ -345,3 +350,28 @@ class DailyDownloadQuota:
     def fail(self, job_id: str) -> None:
         """Release a reservation only for a download known to have failed."""
         self._finish(job_id, "failed")
+
+    def prune_removed_jobs(self, job_ids: list[str], retention_days: int = 30) -> set[str]:
+        """Forget terminal attempts only when their removed job is no longer needed."""
+
+        def prune_transaction(connection):
+            eligible = set()
+            today = self._day()
+            for job_id in job_ids:
+                prefix = f"{job_id}:"
+                rows = connection.execute(
+                    "SELECT id, status, day FROM jobs WHERE substr(id, 1, ?) = ?",
+                    (len(prefix), prefix),
+                ).fetchall()
+                if any(status == "reserved" or (status == "completed" and day >= today) for _, status, day in rows):
+                    continue
+                connection.executemany("DELETE FROM jobs WHERE id=?", [(row[0],) for row in rows])
+                eligible.add(job_id)
+            cutoff = (self._today() - timedelta(days=retention_days)).isoformat()
+            connection.execute("DELETE FROM legacy WHERE day < ?", (cutoff,))
+            return eligible
+
+        return self._run(prune_transaction)
+
+    def compact(self) -> None:
+        compact_if_needed(self._db)

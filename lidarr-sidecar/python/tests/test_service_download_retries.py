@@ -1,7 +1,10 @@
+import os
 import re
 import sys
 import tempfile
+import time
 import unittest
+from contextlib import nullcontext
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -13,6 +16,52 @@ from deemix_downloader.matching import MatchResult
 
 
 class ServiceDownloadRetryTests(unittest.TestCase):
+    def test_expired_cache_and_markers_are_cleaned_using_their_settings(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config = Config(work_path=Path(temp_dir) / "work", data_path=Path(temp_dir) / "data")
+            config.cache_dir.mkdir(parents=True)
+            config.failed_dir.mkdir(parents=True)
+            old_cache = config.cache_dir / "deezer-album-1.json"
+            recent_cache = config.cache_dir / "mb-recent.json"
+            old_marker = config.failed_dir / "1"
+            for path in (old_cache, recent_cache, old_marker):
+                path.touch()
+            old_time = time.time() - 181 * 86400
+            os.utime(old_cache, (old_time, old_time))
+            os.utime(old_marker, (old_time, old_time))
+            with patch.object(download, "cfg", config), patch.object(service, "cfg", config):
+                download.prune_cache()
+                service.folder_cleaner()
+            self.assertFalse(old_cache.exists())
+            self.assertFalse(old_marker.exists())
+            self.assertTrue(recent_cache.exists())
+
+    def test_abandoned_attempts_are_pruned_only_without_active_or_recovery_jobs(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config = Config(work_path=Path(temp_dir))
+            bridge = Mock(retention_days=30)
+            bridge.store.locked.return_value = nullcontext()
+            old = config.work_path / "deemix-attempt-abcdefgh"
+            recent = config.work_path / "deemix-attempt-12345678"
+            quota_temp = config.work_path / "deemix-quota-abcdefgh"
+            quota_temp.touch()
+            old.mkdir()
+            recent.mkdir()
+            (old / "track.flac").touch()
+            old_time = time.time() - 31 * 86400
+            os.utime(old / "track.flac", (old_time, old_time))
+            os.utime(old, (old_time, old_time))
+            os.utime(quota_temp, (old_time, old_time))
+            bridge.store.jobs.return_value = [{"status": "needs_recovery"}]
+            with patch.object(service, "cfg", config):
+                service.clean_abandoned_attempts(bridge)
+                self.assertTrue(old.exists())
+                bridge.store.jobs.return_value = []
+                service.clean_abandoned_attempts(bridge)
+            self.assertFalse(old.exists())
+            self.assertTrue(recent.exists())
+            self.assertFalse(quota_temp.exists())
+
     def test_legacy_counts_completed_download_even_when_import_fails(self):
         tracker = Mock()
         album = {"id": 2, "title": "Album", "artist": {"id": 1}}
@@ -229,10 +278,22 @@ class ServiceDownloadRetryTests(unittest.TestCase):
                 patch.object(service, "manual_import_release", return_value=(True, [])),
             ):
                 succeeded = service._download_album(
-                    result, "Artist", "1", "artist", "Album", "group", "2", "token", strict_manual_import=True
+                    result,
+                    "Artist",
+                    "1",
+                    "artist",
+                    "Album",
+                    "group",
+                    "2",
+                    "token",
+                    strict_manual_import=True,
+                    staging_owner_id="a" * 32,
                 )
             self.assertTrue(succeeded)
             self.assertEqual(priority.read_text(), "2 # keep this entry\n")
+            self.assertFalse(config.downloaded_dir.exists())
+            self.assertFalse(config.failed_dir.exists())
+            self.assertEqual(list(config.shared_lidarr_path.rglob(".deemix-owner-*")), [])
 
     def test_strict_manual_import_never_falls_back_to_scan(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -279,9 +340,12 @@ class ServiceDownloadRetryTests(unittest.TestCase):
                     "2",
                     "token",
                     strict_manual_import=True,
+                    staging_owner_id="a" * 32,
                 )
 
             self.assertFalse(succeeded)
+            self.assertFalse(config.failed_dir.exists())
+            self.assertEqual(len(list(config.shared_lidarr_path.rglob(".deemix-owner-*"))), 1)
             manual.assert_called_once()
             self.assertEqual(manual.call_args.kwargs["artist_id"], "1")
             self.assertEqual(manual.call_args.kwargs["album_id"], "2")

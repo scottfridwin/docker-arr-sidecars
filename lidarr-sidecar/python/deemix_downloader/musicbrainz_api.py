@@ -21,7 +21,7 @@ from uuid import UUID
 
 import requests
 
-from .config import cfg
+from .config import CACHE_LOCK, cfg
 from .logging import log
 
 MB_USER_AGENT = "docker-arr-sidecars/1.0.0 (https://github.com/scottfridwin/docker-arr-sidecars)"
@@ -203,28 +203,33 @@ def call_musicbrainz_api(url: str) -> dict | None:
 
 
 def _read_cached_json(cache_file: Path) -> dict | None:
-    try:
-        if not cache_file.is_file() or time.time() - cache_file.stat().st_mtime > cfg.cache_max_age_musicbrainz * 86400:
-            return None
-        data = json.loads(cache_file.read_text(encoding="utf-8"))
-        if isinstance(data, dict):
-            return data
-    except (json.JSONDecodeError, OSError):
-        pass
+    with CACHE_LOCK:
+        try:
+            if (
+                not cache_file.is_file()
+                or time.time() - cache_file.stat().st_mtime > cfg.cache_max_age_musicbrainz * 86400
+            ):
+                return None
+            data = json.loads(cache_file.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                return data
+        except (json.JSONDecodeError, OSError):
+            pass
     return None
 
 
 def _write_cached_json(cache_file: Path, data: dict, *, shorter_cache: bool = False) -> bool:
     try:
-        cache_file.parent.mkdir(parents=True, exist_ok=True)
-        cache_file.write_text(json.dumps(data), encoding="utf-8")
-        if shorter_cache:
-            # Set mtime to be 23 days old so it expires in ~7 days instead of 30
-            import os as _os
+        with CACHE_LOCK:
+            cache_file.parent.mkdir(parents=True, exist_ok=True)
+            cache_file.write_text(json.dumps(data), encoding="utf-8")
+            if shorter_cache:
+                # Set mtime to be 23 days old so it expires in ~7 days instead of 30
+                import os as _os
 
-            age_offset = max(cfg.cache_max_age_musicbrainz - 7, 0) * 86400
-            now = time.time()
-            _os.utime(cache_file, (now - age_offset, now - age_offset))
+                age_offset = max(cfg.cache_max_age_musicbrainz - 7, 0) * 86400
+                now = time.time()
+                _os.utime(cache_file, (now - age_offset, now - age_offset))
         return True
     except OSError as exc:
         log.warning(f"Could not write MusicBrainz cache {cache_file}: {exc}")

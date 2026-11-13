@@ -17,6 +17,7 @@ from typing import Any
 from .deezer_api import DeezerUnavailable
 from .indexer_search import AmbiguousAlbumError
 from .logging import log
+from .sqlite_maintenance import compact_if_needed
 
 
 class SearchWarming(RuntimeError):
@@ -68,6 +69,14 @@ class BackgroundSearch:
         with self.condition:
             self.stopping = True
             self.condition.notify_all()
+
+    def prune(self) -> None:
+        with self.condition, closing(self._connect()) as db, db:
+            db.execute(
+                "DELETE FROM searches WHERE status IN ('completed', 'failed', 'ambiguous') AND updated < ?",
+                (time.time() - 300,),
+            )
+        compact_if_needed(self.path)
 
     def search(self, **query: Any) -> list[dict[str, Any]]:
         key = json.dumps(query, sort_keys=True, separators=(",", ":"), ensure_ascii=True)

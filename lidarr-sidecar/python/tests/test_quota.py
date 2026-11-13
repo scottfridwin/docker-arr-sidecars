@@ -241,6 +241,48 @@ class DailyDownloadQuotaTests(unittest.TestCase):
         self.assertGreaterEqual(snapshot.completed + len(snapshot.reserved_ids), 1)
         self.assertTrue(snapshot.full)
 
+    def test_retention_keeps_reservations_and_current_day_charges(self):
+        quota = self.quota(0)
+        quota.reserve("old:1")
+        quota.complete("old:1")
+        quota.reserve("failed:1")
+        quota.fail("failed:1")
+        quota.reserve("uncertain:1")
+        self.day = date(2026, 11, 13)
+        quota.reserve("today:1")
+        quota.complete("today:1")
+        self.assertEqual(quota.prune_removed_jobs(["old", "failed", "uncertain", "today"]), {"old", "failed"})
+        self.assertEqual(quota.snapshot().completed, 1)
+        self.assertEqual(quota.snapshot().reserved_ids, ("uncertain:1",))
+        self.assertEqual(quota.reserve("today:1"), ReservationResult.COMPLETED)
+
+    def test_retention_prunes_only_old_legacy_day_totals(self):
+        quota = self.quota(0)
+        with closing(sqlite3.connect(quota._db)) as connection, connection:
+            connection.executemany(
+                "INSERT INTO legacy(day, count) VALUES (?, ?)",
+                [("2026-10-12", 3), ("2026-11-12", 2)],
+            )
+        quota.prune_removed_jobs([], 30)
+        with closing(sqlite3.connect(quota._db)) as connection:
+            rows = connection.execute("SELECT day, count FROM legacy").fetchall()
+        self.assertEqual(rows, [("2026-11-12", 2)])
+        self.assertEqual(quota.snapshot().completed, 2)
+
+    def test_compaction_reclaims_unused_sqlite_pages(self):
+        quota = self.quota()
+        database = self.path / "temporary.sqlite3"
+        with closing(sqlite3.connect(database)) as connection, connection:
+            connection.execute("CREATE TABLE payload (data BLOB)")
+            connection.execute("INSERT INTO payload VALUES (zeroblob(2097152))")
+            connection.execute("DELETE FROM payload")
+        before = database.stat().st_size
+        from deemix_downloader.sqlite_maintenance import compact_if_needed
+
+        compact_if_needed(database)
+        self.assertLess(database.stat().st_size, before)
+        self.assertEqual(quota.snapshot().completed, 0)
+
     def test_old_legacy_day_is_validated_even_if_not_today(self):
         (self.path / "daily_download_state").write_text("2025-01-01 7", encoding="utf-8")
         self.assertEqual(self.quota().snapshot().completed, 0)

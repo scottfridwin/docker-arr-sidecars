@@ -7,8 +7,11 @@ from __future__ import annotations
 
 import os
 import re
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
+
+CACHE_LOCK = threading.RLock()
 
 
 def _env(key: str, default: str = "") -> str:
