@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import random
+import re
 import threading
 import time
 from collections.abc import Iterator
@@ -15,6 +16,8 @@ from contextvars import ContextVar
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from pathlib import Path
+from urllib.parse import urlsplit
+from uuid import UUID
 
 import requests
 
@@ -232,6 +235,45 @@ def cached_musicbrainz_release(mbid: str) -> dict | None:
     if not mbid or mbid == "null":
         return None
     return _read_cached_json(cfg.cache_dir / f"mb-release-{mbid}.json")
+
+
+def fetch_musicbrainz_artist(mbid: str) -> dict | None:
+    """Fetch artist URL relations, caching absent links for a shorter period."""
+    try:
+        mbid = str(UUID(mbid))
+    except (ValueError, TypeError, AttributeError):
+        raise ValueError("Invalid MusicBrainz artist ID") from None
+    cache_file = cfg.cache_dir / f"mb-artist-{mbid}.json"
+    cached = _read_cached_json(cache_file)
+    if cached is not None:
+        return cached
+    data = call_musicbrainz_api(f"https://musicbrainz.org/ws/2/artist/{mbid}?fmt=json&inc=url-rels")
+    if data is not None and isinstance(data.get("relations"), list):
+        _write_cached_json(cache_file, data, shorter_cache=not deezer_artist_links(data))
+    return data
+
+
+def deezer_artist_links(data: dict) -> list[str]:
+    links = []
+    for relation in data.get("relations", []):
+        if not isinstance(relation, dict) or relation.get("ended"):
+            continue
+        url = relation.get("url")
+        resource = url.get("resource") if isinstance(url, dict) else None
+        if not isinstance(resource, str):
+            continue
+        try:
+            parsed = urlsplit(resource)
+            host = parsed.hostname
+        except ValueError:
+            continue
+        if (
+            parsed.scheme in ("http", "https")
+            and host in ("deezer.com", "www.deezer.com")
+            and re.fullmatch(r"/(?:[a-z]{2}(?:-[a-z]{2})?/)?artist/[0-9]+/?", parsed.path, re.IGNORECASE)
+        ):
+            links.append(resource)
+    return links
 
 
 def fetch_musicbrainz_release(mbid: str) -> dict | None:

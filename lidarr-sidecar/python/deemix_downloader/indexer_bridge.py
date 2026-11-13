@@ -502,7 +502,7 @@ class IndexerBridge:
         ET.SubElement(root, "server", {"version": "1.0", "title": "Lidarr Deemix Indexer"})
         ET.SubElement(root, "limits", {"max": "100", "default": "100"})
         searching = ET.SubElement(root, "searching")
-        ET.SubElement(searching, "search", {"available": "yes", "supportedParams": "q"})
+        ET.SubElement(searching, "search", {"available": "yes", "supportedParams": "q", "searchEngine": "raw"})
         ET.SubElement(searching, "musicSearch", {"available": "yes", "supportedParams": "q,artist,album"})
         categories = ET.SubElement(root, "categories")
         audio = ET.SubElement(categories, "category", {"id": "3000", "name": "Audio"})

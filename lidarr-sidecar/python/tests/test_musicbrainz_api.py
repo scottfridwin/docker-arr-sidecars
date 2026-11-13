@@ -50,6 +50,29 @@ class MusicBrainzApiTests(unittest.TestCase):
         self.assertIsNotNone(parsed)
         self.assertAlmostEqual(parsed, 30, delta=1)
 
+    def test_artist_links_are_cached_and_only_active_deezer_artist_urls_count(self):
+        mbid = "00000000-0000-0000-0000-000000000001"
+        data = {
+            "relations": [
+                {"ended": True, "url": {"resource": "https://www.deezer.com/artist/123"}},
+                {"url": {"resource": "https://evil-deezer.com/artist/123"}},
+                {"url": {"resource": "https://www.deezer.com/album/123"}},
+            ]
+        }
+        with (
+            tempfile.TemporaryDirectory() as tmpdir,
+            patch.object(musicbrainz_api.cfg, "work_path", Path(tmpdir)),
+            patch.object(musicbrainz_api, "call_musicbrainz_api", return_value=data) as call,
+        ):
+            self.assertEqual(musicbrainz_api.fetch_musicbrainz_artist(mbid), data)
+            self.assertEqual(musicbrainz_api.fetch_musicbrainz_artist(mbid), data)
+            call.assert_called_once()
+            self.assertEqual(musicbrainz_api.deezer_artist_links(data), [])
+            cache = Path(tmpdir) / "cache" / f"mb-artist-{mbid}.json"
+            self.assertGreater(time.time() - cache.stat().st_mtime, 20 * 86400)
+        data["relations"].append({"ended": False, "url": {"resource": "https://www.deezer.com/en/artist/123"}})
+        self.assertEqual(musicbrainz_api.deezer_artist_links(data), ["https://www.deezer.com/en/artist/123"])
+
     def test_503_retry_after_is_applied_before_retry(self):
         class FakeSession:
             def __init__(self):

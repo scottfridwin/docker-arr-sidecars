@@ -216,6 +216,83 @@ class ServiceSearchTests(unittest.TestCase):
         ):
             service.search_indexer_releases(artist="", album="", q="Taylor Swift", year=None, request_type="search")
 
+    def test_struts_search_resolves_cleaned_name_and_refuses_collision(self):
+        artist = {"id": 11, "artistName": "The Struts"}
+        album = {"id": 22, "title": "Pretty Vicious", "artist": artist}
+        release = self.indexer_release()
+        with (
+            patch.object(service, "_indexer_api_get", return_value=[artist]),
+            patch.object(service, "_indexer_artist_albums", return_value=[album]),
+            patch.object(service, "_warn_missing_artist_link"),
+            patch.object(service, "_indexer_match_album", return_value=[release]),
+        ):
+            self.assertEqual(
+                service.search_indexer_releases(
+                    artist="", album="", q="Struts Pretty Vicious", year=None, request_type="search"
+                ),
+                [release],
+            )
+        with (
+            patch.object(service, "_indexer_api_get", return_value=[artist, {"id": 12, "artistName": "Struts"}]),
+            self.assertRaises(service.AmbiguousAlbumError),
+        ):
+            service.search_indexer_releases(artist="", album="", q="Struts", year=None, request_type="search")
+
+    def test_artist_link_warning_does_not_block_linked_release(self):
+        artist = {"artistName": "Artist", "foreignArtistId": "00000000-0000-0000-0000-000000000001"}
+        with (
+            patch.object(service.musicbrainz_api, "fetch_musicbrainz_artist", return_value={"relations": []}),
+            patch.object(service.log, "warning") as warning,
+        ):
+            service._warn_missing_artist_link(artist)
+        self.assertIn("No Deezer artist link", warning.call_args.args[0])
+        with (
+            patch.object(
+                service.musicbrainz_api,
+                "fetch_musicbrainz_artist",
+                side_effect=service.musicbrainz_api.MusicBrainzUnavailable("unavailable"),
+            ),
+            patch.object(service.log, "warning") as warning,
+        ):
+            service._warn_missing_artist_link(artist)
+        self.assertIn("Cannot check", warning.call_args.args[0])
+        with (
+            patch.object(
+                service.musicbrainz_api,
+                "fetch_musicbrainz_artist",
+                return_value={"relations": [{"url": {"resource": "https://www.deezer.com/artist/123"}}]},
+            ),
+            patch.object(service.log, "warning") as warning,
+        ):
+            service._warn_missing_artist_link(artist)
+        warning.assert_not_called()
+
+        with (
+            patch.object(service.musicbrainz_api, "fetch_musicbrainz_artist", return_value={"relations": []}),
+            patch.object(service.log, "warning") as warning,
+            patch.object(service, "_indexer_artist_albums", return_value=[{"id": 22}]),
+            patch.object(service, "_indexer_match_album", return_value=[self.indexer_release()]),
+        ):
+            results = service._indexer_artist_releases([artist], None)
+        self.assertEqual(len(results), 1)
+        self.assertIn("No Deezer artist link", warning.call_args.args[0])
+
+    def test_ambiguous_artist_album_split_is_rejected_before_fetching_releases(self):
+        first = {"id": 1, "artistName": "The Band"}
+        second = {"id": 2, "artistName": "Band Album"}
+        albums = {
+            1: [{"id": 10, "title": "Album Live", "artist": first}],
+            2: [{"id": 20, "title": "Live", "artist": second}],
+        }
+        with (
+            patch.object(service, "_indexer_api_get", return_value=[first, second]),
+            patch.object(service, "_indexer_artist_albums", side_effect=lambda artist: albums[artist["id"]]),
+            patch.object(service, "_indexer_match_album") as match,
+            self.assertRaises(service.AmbiguousAlbumError),
+        ):
+            service.search_indexer_releases(artist="", album="", q="Band Album Live", year=None, request_type="search")
+        match.assert_not_called()
+
     def test_report_title_preserves_parenthesized_album_name_and_uses_album_year(self):
         album = {
             "id": 22,

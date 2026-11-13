@@ -4,7 +4,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from deemix_downloader.indexer_search import AmbiguousAlbumError, resolve_album
+from deemix_downloader.indexer_search import AmbiguousAlbumError, matches_search_text, resolve_album
 
 
 class IndexerSearchTests(unittest.TestCase):
@@ -20,6 +20,20 @@ class IndexerSearchTests(unittest.TestCase):
     def test_raw_search_decodes_plus_and_unicode(self):
         result = resolve_album([self.album], "the artist", "Bjo\u0308rk   Friends Live")
         self.assertIs(result, self.album)
+
+    def test_lidarr_cleaned_queries_match_but_raw_punctuation_is_preserved(self):
+        self.assertTrue(matches_search_text("The Struts", "Struts"))
+        self.assertTrue(matches_search_text("Björk & Friends", "Bjork Friends"))
+        self.assertTrue(matches_search_text("Björk & Friends", "Björk & Friends"))
+        self.assertTrue(matches_search_text("Various Artists", "VA"))
+        self.assertFalse(matches_search_text("Struts", "The Struts"))
+
+    def test_cleaned_album_matches_are_rejected_when_ambiguous(self):
+        album = {**self.album, "title": "Café!", "disambiguation": ""}
+        self.assertIs(resolve_album([album], "Artist", "Cafe"), album)
+        other = {**album, "id": 11, "title": "Cafe"}
+        with self.assertRaises(AmbiguousAlbumError):
+            resolve_album([album, other], "Artist", "Cafe")
 
     def test_disambiguation_is_required(self):
         self.assertIsNone(resolve_album([self.album], "The Artist", "Björk Friends"))

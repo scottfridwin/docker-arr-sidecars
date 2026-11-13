@@ -23,7 +23,6 @@ import sys
 import tempfile
 import threading
 import time
-import unicodedata
 from collections.abc import Callable
 from datetime import date
 from pathlib import Path
@@ -56,7 +55,7 @@ from .download import (
     tag_mp3_mutagen,
     verify_flac,
 )
-from .indexer_search import AmbiguousAlbumError, resolve_album
+from .indexer_search import AmbiguousAlbumError, matches_search_text, resolve_album
 from .lidarr_api import (
     add_download_client,
     get_album_data,
@@ -391,10 +390,6 @@ def search_album(album_data: dict, failed_albums: set[str] | None = None) -> Mat
     return find_best_match(candidates, album_title, failed_albums if failed_albums is not None else set())
 
 
-def _indexer_key(value: str) -> str:
-    return " ".join(unicodedata.normalize("NFKC", normalize_string(value)).replace("+", " ").casefold().split())
-
-
 def _indexer_api_get(path: str) -> Any:
     with _LIDARR_API_LOCK:
         arr_api_request("GET", path)
@@ -413,19 +408,39 @@ def _indexer_api_get(path: str) -> Any:
 def _find_indexer_artists(name: str) -> list[dict]:
     if not name.strip():
         return []
-    response = _indexer_api_get(f"artist?term={quote_plus(name)}")
+    response = _indexer_api_get("artist")
     if isinstance(response, dict):
         response = [response]
     if not isinstance(response, list):
         raise RuntimeError("Lidarr artist search returned an unexpected response")
-    wanted = _indexer_key(name)
     return [
         artist
         for artist in response
         if isinstance(artist, dict)
         and isinstance(artist.get("artistName"), str)
-        and _indexer_key(artist["artistName"]) == wanted
+        and matches_search_text(artist["artistName"], name)
     ]
+
+
+def _warn_missing_artist_link(artist: dict) -> None:
+    name = artist.get("artistName") or "Unknown artist"
+    mbid = artist.get("foreignArtistId")
+    if not mbid:
+        log.warning(f"Cannot check Deezer artist link for {name}: Lidarr has no MusicBrainz artist ID")
+        return
+    try:
+        with musicbrainz_api.request_budget(3):
+            data = musicbrainz_api.fetch_musicbrainz_artist(mbid)
+    except (musicbrainz_api.MusicBrainzUnavailable, ValueError) as exc:
+        log.warning(f"Cannot check Deezer artist link for {name} ({mbid}): {exc}")
+        return
+    if not isinstance(data, dict) or not isinstance(data.get("relations"), list):
+        log.warning(f"Cannot check Deezer artist link for {name} ({mbid}): MusicBrainz metadata unavailable")
+    elif not musicbrainz_api.deezer_artist_links(data):
+        log.warning(
+            f"No Deezer artist link for {name} on https://musicbrainz.org/artist/{mbid}; "
+            "release-level Deezer links can still be searched"
+        )
 
 
 def _indexer_artist_albums(artist: dict) -> list[dict]:
@@ -577,6 +592,12 @@ def _indexer_match_album(album: dict, year: int | None, artist_albums: list[dict
     title = remove_punctuation(normalize_string(full_album.get("title", "")))
     release_date = full_album.get("releaseDate") or ""
     candidates = _build_candidates(full_album, release_date[:4], all_deezer_links=True)
+    if candidates and not any(candidate.deezer_album_id for candidate in candidates):
+        log.info(
+            f"No Deezer album links in available MusicBrainz release metadata for "
+            f"{(full_album.get('artist') or {}).get('artistName', 'Unknown artist')} - {full_album.get('title', '')} "
+            f"(release group {full_album.get('foreignAlbumId', 'unknown')})"
+        )
     results = []
     for match in find_all_matches(candidates, title):
         payload = _indexer_release_payload(full_album, match)
@@ -599,6 +620,7 @@ def _indexer_artist_releases(artists: list[dict], year: int | None) -> list[dict
         raise AmbiguousAlbumError("Artist search matches multiple Lidarr artists")
     if not artists:
         return []
+    _warn_missing_artist_link(artists[0])
     results = []
     albums = _indexer_artist_albums(artists[0])
     for candidate in albums:
@@ -627,6 +649,7 @@ def _search_indexer_releases(*, artist: str, album: str, q: str, year: int | Non
                 candidates = _indexer_artist_albums(artists[0])
                 selected = resolve_album(candidates, artist_query, words[-1])
                 if selected is not None:
+                    _warn_missing_artist_link(artists[0])
                     return _indexer_match_album(selected, None, candidates)
                 year = int(words[-1])
                 return _indexer_artist_releases(artists, year)
@@ -638,7 +661,7 @@ def _search_indexer_releases(*, artist: str, album: str, q: str, year: int | Non
     else:
         raise ValueError(f"unsupported {request_type} query")
 
-    matches: dict[str, list[dict]] = {}
+    matches: dict[str, tuple[dict, dict, int | None, list[dict]]] = {}
     for artist_query, album_query, query_year in searches:
         artists = _find_indexer_artists(artist_query)
         if len(artists) > 1:
@@ -649,12 +672,14 @@ def _search_indexer_releases(*, artist: str, album: str, q: str, year: int | Non
         selected = resolve_album(candidates, artist_query, album_query, year=query_year)
         if selected is None:
             continue
-        payloads = _indexer_match_album(selected, query_year, candidates)
-        if payloads:
-            matches[str(selected["id"])] = payloads
+        matches[str(selected["id"])] = (artists[0], selected, query_year, candidates)
     if len(matches) > 1:
         raise AmbiguousAlbumError("Text search matches multiple Lidarr albums")
-    return [payload for payloads in matches.values() for payload in payloads]
+    if not matches:
+        return []
+    matched_artist, selected, query_year, candidates = next(iter(matches.values()))
+    _warn_missing_artist_link(matched_artist)
+    return _indexer_match_album(selected, query_year, candidates)
 
 
 def download_indexer_release(

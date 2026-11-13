@@ -135,6 +135,7 @@ class IndexerBridgeTests(unittest.TestCase):
         capabilities = ET.fromstring(self.bridge._capabilities())  # noqa: S314 - bridge-generated XML.
         music = capabilities.find("./searching/musicSearch")
         self.assertEqual(music.attrib, {"available": "yes", "supportedParams": "q,artist,album"})
+        self.assertEqual(capabilities.find("./searching/search").attrib["searchEngine"], "raw")
         self.assertEqual(capabilities.find("./categories/category").attrib["id"], "3000")
 
         self.bridge._search_results({"t": ["music"], "artist": ["Test Artist"], "album": ["Test Album"]})

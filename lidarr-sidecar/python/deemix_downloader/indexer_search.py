@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import re
 import unicodedata
 from collections.abc import Iterable
 from typing import Any
@@ -22,6 +23,20 @@ def _search_key(value: str) -> str:
 def _album_search_key(value: str) -> str:
     key = _search_key(value)
     return key.removeprefix("the ")
+
+
+def matches_search_text(name: str, query: str) -> bool:
+    """Match raw text or Lidarr's older cleaned Newznab query conservatively."""
+    name_key = _search_key(name)
+    query_key = _search_key(query)
+    if name_key == query_key:
+        return True
+    title = "VA" if name == "Various Artists" else name
+    title = re.sub(r"^the\s", "", title, flags=re.IGNORECASE)
+    title = re.sub(r"[`\u00b4\u2018\u2019]", "'", title)
+    title = re.sub(r"[^\w']+", " ", title)
+    title = "".join(c for c in unicodedata.normalize("NFD", title) if unicodedata.category(c) != "Mn")
+    return _search_key(title) == query_key
 
 
 def resolve_album(
@@ -48,7 +63,11 @@ def resolve_album(
         if not all(isinstance(value, str) for value in (artist_name, title, disambiguation)):
             continue
         title_with_disambiguation = f"{title} {disambiguation}" if disambiguation.strip() else title
-        if _search_key(artist_name) != artist_key or _album_search_key(title_with_disambiguation) != album_key:
+        if not matches_search_text(artist_name, artist):
+            continue
+        if _album_search_key(title_with_disambiguation) != album_key and not matches_search_text(
+            title_with_disambiguation, album
+        ):
             continue
         if year is not None:
             release_date = candidate.get("releaseDate")
