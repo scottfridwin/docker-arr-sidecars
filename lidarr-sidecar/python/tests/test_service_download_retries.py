@@ -170,6 +170,7 @@ class ServiceDownloadRetryTests(unittest.TestCase):
                 patch.object(service, "download_with_deemix", side_effect=fake_download),
                 patch.object(service, "verify_flac", return_value=True),
                 patch.object(service, "_tag_and_enrich"),
+                patch.object(service, "can_import_without_replacement", return_value=(True, "")),
                 patch.object(service, "manual_import_release", return_value=(False, ["rejected"])) as manual,
                 patch.object(service, "scan_import_and_verify") as scan,
                 patch.object(service, "notify_lidarr_import") as notify,
@@ -193,6 +194,21 @@ class ServiceDownloadRetryTests(unittest.TestCase):
             self.assertEqual(manual.call_args.kwargs["release_id"], "3")
             scan.assert_not_called()
             notify.assert_not_called()
+
+    def test_strict_import_refuses_existing_files_before_download(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config = Config(shared_lidarr_path=Path(temp_dir))
+            result = MatchResult(deezer_album_id="42", lidarr_release_id="3")
+            with (
+                patch.object(service, "cfg", config),
+                patch.object(service, "can_import_without_replacement", return_value=(False, "existing files")),
+                patch.object(service, "download_with_deemix") as download,
+            ):
+                succeeded = service._download_album(
+                    result, "Artist", "1", "artist-mbid", "Album", "group-mbid", "2", "token", strict_manual_import=True
+                )
+            self.assertFalse(succeeded)
+            download.assert_not_called()
 
 
 if __name__ == "__main__":

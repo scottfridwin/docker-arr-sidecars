@@ -58,6 +58,7 @@ from .download import (
 from .indexer_search import AmbiguousAlbumError, resolve_album
 from .lidarr_api import (
     add_download_client,
+    can_import_without_replacement,
     get_album_data,
     get_album_ids_by_artist,
     get_album_ids_by_release_group,
@@ -908,6 +909,13 @@ def _download_album(
         log.error(f"Shared Lidarr path not found: {cfg.shared_lidarr_path}")
         return False
 
+    if strict_manual_import:
+        with _LIDARR_API_LOCK:
+            allowed, reason = can_import_without_replacement(album_id)
+        if not allowed:
+            log.error(f'Cannot download "{deezer_title}" for strict import: {reason}')
+            return False
+
     log.info(f"Downloading: [{deezer_album_id}] {deezer_title} ({release_year})")
 
     attempt_limit = max(1, cfg.download_attempt_threshold)
@@ -1008,6 +1016,7 @@ def _download_album(
                     artist_id=artist_id,
                     album_id=album_id,
                     release_id=release_lidarr_id,
+                    strict=strict_manual_import,
                 )
             if not import_ok:
                 log.error(

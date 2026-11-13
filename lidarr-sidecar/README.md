@@ -85,6 +85,8 @@ On 2026-11-13, an isolated Lidarr 3.1.6.5079 manual search for Olivia Rodrigo's 
 
 A later user-triggered isolated grab downloaded Olivia Rodrigo's `SOUR` and Lidarr imported 11 tracks. Logs exposed that Lidarr kept the item in `importPending` because the bridge's reported history destination did not exist. The stale queue entry was removed manually after confirming the tracks remained in the isolated library; automatic cleanup is covered by tests, but was not live-verified with another download.
 
+In a network-isolated Lidarr 3.1.6 clone, deferred auto-configuration created and then updated a dedicated NZBGet client and bound Newznab indexer successfully. A synthetic search and grab stayed in the queue while forced import was held; after importing 14 generated silent tracks into the selected release, the matching Lidarr queue item was removed. Separate strict-import checks registered all 30 and 15 selected tracks and refused to replace already imported files. These checks used no Deezer credentials or real downloads.
+
 Some matching editions are radio specials; review the selected edition or configure Lidarr's preferences before grabbing.
 
 ### Setup and migration
@@ -106,7 +108,7 @@ On first startup, the quota imports the existing `daily_download_state` count wi
 
 Queued and quota-waiting jobs may be removed; removal is refused once downloading or importing starts because the bridge cannot safely cancel the operation. Interrupted or uncertain downloads and unsuccessful imports are shown in the queue as “needs manual recovery”; they are neither automatically retried nor removable through the bridge. A reservation may remain held when the download outcome is uncertain. There is currently no supported reconciliation workflow for these jobs or reservations; do not edit or delete the quota database to clear them. This is a release blocker. Lidarr-native “retry” of a known failed NZBGet history entry starts a new quota attempt.
 
-Forced manual import currently allows Lidarr to replace existing track files, and its success check only compares the album's track-file count. Replacement can remove existing files before an import is fully verified, and equal-count replacements can be reported as failures. Do not use the indexer to replace existing media until this is addressed. Automatic post-import queue cleanup and deferred auto-configuration still require end-to-end verification with a running Lidarr instance.
+The indexer's strict importer refuses albums with existing registered track files before downloading and checks again immediately before import. It disables Lidarr's album-wide replacement, requires every audio file to map exactly once to the selected release's tracks, and verifies that every selected track has a registered file after the command completes. Upgrades and completing a partially populated album are not supported by this path. Lidarr can still replace individual track files if another importer adds them between the check and its command; avoid concurrent imports for the same album. Lidarr's import is not transactional, so an interrupted or partially successful import still requires manual review. The legacy downloader's manual import behavior is unchanged.
 
 ### New Indexer settings
 

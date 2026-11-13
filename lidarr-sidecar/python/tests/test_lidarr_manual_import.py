@@ -13,8 +13,10 @@ from deemix_downloader import lidarr_api
 
 
 class ManualImportReleaseTests(unittest.TestCase):
-    def _run(self, responses):
+    def _run(self, responses, *, strict=False, existing_files=None):
         """Drive manual_import_release with a scripted sequence of API responses."""
+        if strict:
+            responses = [existing_files if existing_files is not None else [], *responses]
         state = {"i": 0}
 
         def fake_get_state(key):
@@ -34,6 +36,7 @@ class ManualImportReleaseTests(unittest.TestCase):
                 artist_id=628,
                 album_id=22909,
                 release_id=127617,
+                strict=strict,
             )
         return result, mock_request
 
@@ -180,6 +183,96 @@ class ManualImportReleaseTests(unittest.TestCase):
         self.assertFalse(imported)
         self.assertEqual(len(rejections), 1)
         self.assertIn("no new track files", rejections[0])
+
+    @staticmethod
+    def _strict_data():
+        preview = [
+            {"id": 1, "path": "/sidecar-import/Madonna - Album [mbid]/01.flac"},
+            {"id": 2, "path": "/sidecar-import/Madonna - Album [mbid]/02.flac"},
+        ]
+        results = [
+            {
+                **item,
+                "artist": {"id": 628},
+                "album": {"id": 22909},
+                "albumReleaseId": 127617,
+                "tracks": [{"id": 111 * index}],
+                "rejections": [],
+            }
+            for index, item in enumerate(preview, 1)
+        ]
+        tracks = [{"id": track_id, "artistId": 628, "albumId": 22909, "trackFileId": 0} for track_id in (111, 222)]
+        return preview, results, tracks
+
+    def test_strict_import_disables_replacement_and_verifies_each_selected_track(self):
+        preview, results, tracks = self._strict_data()
+        imported_tracks = [{**track, "trackFileId": index} for index, track in enumerate(tracks, 1)]
+        responses = [
+            preview,
+            results,
+            tracks,
+            [],
+            {"id": 42},
+            {"status": "completed"},
+            imported_tracks,
+            [{"id": 1}, {"id": 2}],
+        ]
+
+        (imported, errors), request = self._run(responses, strict=True)
+
+        self.assertTrue(imported)
+        self.assertEqual(errors, [])
+        self.assertIn("replaceExistingFiles=false", request.call_args_list[1].args[1])
+        updates = json.loads(request.call_args_list[2].args[2])
+        self.assertTrue(all(not update["replaceExistingFiles"] for update in updates))
+        command = next(call for call in request.call_args_list if call.args[:2] == ("POST", "command"))
+        self.assertFalse(json.loads(command.args[2])["replaceExistingFiles"])
+
+    def test_strict_import_refuses_existing_album_files(self):
+        (imported, errors), request = self._run([], strict=True, existing_files=[{"id": 91}])
+        self.assertFalse(imported)
+        self.assertIn("already has track files", errors[0])
+        self.assertFalse(any(call.args[:2] == ("POST", "command") for call in request.call_args_list))
+
+    def test_strict_import_rechecks_for_files_before_submitting_command(self):
+        preview, results, tracks = self._strict_data()
+        (imported, errors), request = self._run([preview, results, tracks, [{"id": 91}]], strict=True)
+        self.assertFalse(imported)
+        self.assertIn("already has track files", errors[0])
+        self.assertFalse(any(call.args[:2] == ("POST", "command") for call in request.call_args_list))
+
+    def test_strict_import_refuses_partial_or_duplicate_track_mapping(self):
+        preview, results, tracks = self._strict_data()
+        for mapped in ([results[0]], [results[0], {**results[1], "tracks": [{"id": 111}]}]):
+            with self.subTest(mapped=mapped):
+                (imported, _), request = self._run([preview, mapped, tracks], strict=True)
+                self.assertFalse(imported)
+                self.assertFalse(any(call.args[:2] == ("POST", "command") for call in request.call_args_list))
+
+    def test_strict_import_refuses_changed_release_identity_without_rejections(self):
+        preview, results, _ = self._strict_data()
+        results[1]["albumReleaseId"] = 999
+        (imported, errors), request = self._run([preview, results], strict=True)
+        self.assertFalse(imported)
+        self.assertIn("forced artist, album, release", errors[0])
+        self.assertFalse(any(call.args[:2] == ("POST", "command") for call in request.call_args_list))
+
+    def test_strict_import_refuses_files_outside_staging_folder(self):
+        preview, results, _ = self._strict_data()
+        preview[0]["path"] = "/music/existing.flac"
+        results[0]["path"] = preview[0]["path"]
+        (imported, errors), request = self._run([preview, results], strict=True)
+        self.assertFalse(imported)
+        self.assertIn("previewed audio", errors[0])
+        self.assertFalse(any(call.args[:2] == ("POST", "command") for call in request.call_args_list))
+
+    def test_strict_import_does_not_report_partial_command_as_success(self):
+        preview, results, tracks = self._strict_data()
+        partially_imported = [{**tracks[0], "trackFileId": 1}, tracks[1]]
+        responses = [preview, results, tracks, [], {"id": 42}, {"status": "completed"}, partially_imported, [{"id": 1}]]
+        (imported, errors), _ = self._run(responses, strict=True)
+        self.assertFalse(imported)
+        self.assertIn("not all selected release tracks", errors[0])
 
 
 class RemoveLidarrQueueItemsTests(unittest.TestCase):
