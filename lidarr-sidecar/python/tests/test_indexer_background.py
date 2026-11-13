@@ -64,20 +64,21 @@ class BackgroundSearchTests(unittest.TestCase):
                 worker.join(2)
 
     def test_upgrading_search_cache_keeps_pending_work_and_discards_old_results(self):
-        with tempfile.TemporaryDirectory() as directory:
-            first = BackgroundSearch(directory, Mock(), wait_seconds=0)
-            with self.assertRaises(SearchWarming):
-                first.search(q="pending")
-            with closing(sqlite3.connect(first.path)) as db, db:
-                db.execute(
-                    "INSERT INTO searches VALUES (?, 'completed', '[]', NULL, 0)",
-                    ('{"q":"stale"}',),
-                )
-                db.execute("PRAGMA user_version=0")
-            BackgroundSearch(directory, Mock(), wait_seconds=0)
-            with closing(sqlite3.connect(first.path)) as db:
-                rows = db.execute("SELECT query, status FROM searches").fetchall()
-            self.assertEqual(rows, [('{"q":"pending"}', "pending")])
+        for version in (0, 1):
+            with self.subTest(version=version), tempfile.TemporaryDirectory() as directory:
+                first = BackgroundSearch(directory, Mock(), wait_seconds=0)
+                with self.assertRaises(SearchWarming):
+                    first.search(q="pending")
+                with closing(sqlite3.connect(first.path)) as db, db:
+                    db.execute(
+                        "INSERT INTO searches VALUES (?, 'completed', '[]', NULL, 0)",
+                        ('{"q":"stale"}',),
+                    )
+                    db.execute(f"PRAGMA user_version={version}")
+                BackgroundSearch(directory, Mock(), wait_seconds=0)
+                with closing(sqlite3.connect(first.path)) as db:
+                    rows = db.execute("SELECT query, status FROM searches").fetchall()
+                self.assertEqual(rows, [('{"q":"pending"}', "pending")])
 
     def test_errors_are_reported_instead_of_empty_results(self):
         for error in (AmbiguousAlbumError("ambiguous"), RuntimeError("unavailable")):

@@ -156,6 +156,13 @@ validation; deployment setup is documented in README.md.
    search-only retry. A cached manual album search through Lidarr returned one
    result for The Life of a Showgirl. Neither search submitted a download.
 
+   Lidarr later mapped five artist-search results to the wrong albums and
+   silently suppressed them as duplicates. Parser-compatible report titles and
+   a Lidarr parse-API identity check now omit ambiguous results with a warning.
+   An isolated interactive artist search returned 16 distinct album targets;
+   Lidarr accepted the five previously misidentified albums and rejected the
+   other 11 as already queued. No new grab or download was submitted.
+
    A later user-triggered isolated grab successfully downloaded Olivia
    Rodrigo's SOUR and Lidarr imported 11 tracks. The queue item remained in
    `importPending` because its synthetic NZBGet history destination was missing.

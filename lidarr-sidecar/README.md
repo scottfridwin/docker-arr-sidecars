@@ -53,6 +53,8 @@ The opt-in Indexer service implements the Newznab search protocol and the NZBGet
 
 Searches resolve artist/album text against Lidarr's local library, then reuse the existing MusicBrainz-to-Deezer matching gates and ranking. Text-only searches first check for an exact local artist name, then try artist/album word boundaries. Album matching accepts Lidarr's omission of a leading "The"; ambiguous matches are rejected. Artist-only searches return matched albums for that local artist. Searches do not consult the download quota, failure markers, or downloaded markers. No bitrate or quality is advertised because the final format is not known until the downloader selects it.
 
+Newznab report titles omit album-title brackets and include the Lidarr album's year when available, so Lidarr can distinguish titles such as an original album and a parenthesized re-recording. Before offering a result, including a cached result, the sidecar checks Lidarr's parse API for the intended artist and album IDs and rejects conflicting album titles; omissions are logged as warnings. This conservative check may omit a valid match when Lidarr cannot unambiguously parse it. Lidarr's final grab decisions are not returned to the indexer, so the sidecar cannot log every reason Lidarr declines a report.
+
 Lidarr's Newznab indexer configuration must have RSS disabled, while interactive and automatic search are enabled. Album-specific searches are supported; a generic RSS poll has no album identity and returns no releases.
 
 ### Verified behavior and limitations
@@ -71,9 +73,13 @@ MusicBrainz requests are serialized within the sidecar process and honor numeric
 
 On 2026-11-13, an isolated Taylor Swift artist search initially returned the warming response, then completed in about 93 seconds despite repeated MusicBrainz 503s. A search-only retry returned 16 results. A subsequent manual search through Lidarr for `The Life of a Showgirl` returned one result using the cached metadata. Neither check grabbed or downloaded anything.
 
+After correcting report titles, an isolated interactive artist search returned 16 results with 16 distinct intended album IDs. Lidarr accepted the five previously misidentified albums and rejected the other 11 because matching releases were already queued. This was search-only: no new grabs or downloads were submitted.
+
 On 2026-11-13, an isolated Lidarr 3.1.6.5079 manual search for Olivia Rodrigo's `SOUR` returned one result from the configured Newznab indexer in under one second using cached metadata. The Lidarr queue remained empty and the test import directory had no files. This verified search delivery only; it did not grab or download anything, and no Deezer token was used.
 
 A later user-triggered isolated grab downloaded Olivia Rodrigo's `SOUR` and Lidarr imported 11 tracks. Logs exposed that Lidarr kept the item in `importPending` because the bridge's reported history destination did not exist. The stale queue entry was removed manually after confirming the tracks remained in the isolated library; automatic cleanup is covered by tests, but was not live-verified with another download.
+
+Queued jobs behind a quota-waiting job can appear as downloading in Lidarr even though they have not started. The existing matcher may also select special editions, including radio-release editions; review the selected edition before grabbing.
 
 ### Setup and migration
 

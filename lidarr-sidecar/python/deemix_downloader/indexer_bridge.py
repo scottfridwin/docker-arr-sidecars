@@ -413,7 +413,7 @@ class IndexerBridge:
             query = f"apikey={self.api_key}&t=get&id={token}"
             link = f"{self.public_url}/api?{query}"
             item = ET.SubElement(channel, "item")
-            ET.SubElement(item, "title").text = f"{result['artist_name']} - {result['album_title']}"
+            ET.SubElement(item, "title").text = result["report_title"]
             guid = ET.SubElement(item, "guid", {"isPermaLink": "false"})
             guid.text = token
             ET.SubElement(item, "link").text = link

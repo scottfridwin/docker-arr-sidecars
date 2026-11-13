@@ -473,7 +473,71 @@ def _indexer_release_payload(album_data: dict, match: MatchResult) -> dict | Non
     }
 
 
-def _indexer_match_album(album: dict, year: int | None) -> dict | None:
+def _indexer_report_title(album: dict, artist_albums: list[dict]) -> str | None:
+    artist = album.get("artist") or {}
+    artist_name = artist.get("artistName") or ""
+    album_title = album.get("title") or ""
+    title = " ".join(re.sub(r"[\[\]()]", " ", album_title).split())
+    release_date = album.get("releaseDate") or ""
+    release_year = release_date[:4] if isinstance(release_date, str) else ""
+    if not (len(release_year) == 4 and release_year.isascii() and release_year.isdecimal()):
+        release_year = ""
+    report_title = f"{artist_name} - {title} ({release_year})" if release_year else f"{artist_name} - {title} [Lidarr]"
+    parsed = _indexer_api_get(f"parse?title={quote_plus(report_title)}")
+    if not isinstance(parsed, dict):
+        raise RuntimeError("Lidarr parse API returned an unexpected response")
+    parsed_info = parsed.get("parsedAlbumInfo") or {}
+    parsed_artist = parsed.get("artist") or {}
+    parsed_albums = parsed.get("albums") or []
+    if (
+        not isinstance(parsed_info, dict)
+        or not isinstance(parsed_artist, dict)
+        or not isinstance(parsed_albums, list)
+        or not isinstance(parsed_info.get("albumTitle"), str)
+        or str(parsed_artist.get("id")) != str(artist.get("id"))
+        or len(parsed_albums) != 1
+        or not isinstance(parsed_albums[0], dict)
+        or str(parsed_albums[0].get("id")) != str(album.get("id"))
+    ):
+        log.warning(f"Not offering {artist_name} - {album_title}: Lidarr cannot map report title to the intended album")
+        return None
+
+    parsed_title = parsed_info["albumTitle"]
+    if any(
+        candidate.get("title") == parsed_title and str(candidate.get("id")) != str(album.get("id"))
+        for candidate in artist_albums
+    ):
+        log.warning(f"Not offering {artist_name} - {album_title}: report title conflicts with another Lidarr album")
+        return None
+    return report_title
+
+
+def _validate_indexer_results(results: list[dict]) -> list[dict]:
+    albums_by_artist: dict[str, list[dict]] = {}
+    validated = []
+    for result in results:
+        artist_id = result["artist_id"]
+        if artist_id not in albums_by_artist:
+            albums_by_artist[artist_id] = _indexer_artist_albums({"id": artist_id, "artistName": result["artist_name"]})
+        albums = albums_by_artist[artist_id]
+        album = next((candidate for candidate in albums if str(candidate.get("id")) == result["album_id"]), None)
+        if (
+            album is None
+            or album.get("title") != result["album_title"]
+            or (album.get("artist") or {}).get("artistName") != result["artist_name"]
+        ):
+            log.warning(
+                f"Not offering {result['artist_name']} - {result['album_title']}: "
+                "Lidarr library changed since the search"
+            )
+            continue
+        report_title = _indexer_report_title(album, albums)
+        if report_title is not None:
+            validated.append({**result, "report_title": report_title})
+    return validated
+
+
+def _indexer_match_album(album: dict, year: int | None, artist_albums: list[dict]) -> dict | None:
     album_id = album.get("id")
     if not album_id:
         return None
@@ -486,7 +550,13 @@ def _indexer_match_album(album: dict, year: int | None) -> dict | None:
         if not isinstance(release_date, str) or release_date[:4] != str(year):
             return None
     match = search_album(full_album, set())
-    return _indexer_release_payload(full_album, match)
+    payload = _indexer_release_payload(full_album, match)
+    if payload:
+        report_title = _indexer_report_title(full_album, artist_albums)
+        if report_title is None:
+            return None
+        payload["report_title"] = report_title
+    return payload
 
 
 def search_indexer_releases(*, artist: str, album: str, q: str, year: int | None, request_type: str) -> list[dict]:
@@ -501,8 +571,9 @@ def _indexer_artist_releases(artists: list[dict], year: int | None) -> list[dict
     if not artists:
         return []
     results = []
-    for candidate in _indexer_artist_albums(artists[0]):
-        payload = _indexer_match_album(candidate, year)
+    albums = _indexer_artist_albums(artists[0])
+    for candidate in albums:
+        payload = _indexer_match_album(candidate, year, albums)
         if payload:
             results.append(payload)
     return results[:100]
@@ -543,7 +614,7 @@ def _search_indexer_releases(*, artist: str, album: str, q: str, year: int | Non
         selected = resolve_album(candidates, artist_query, album_query, year=query_year)
         if selected is None:
             continue
-        payload = _indexer_match_album(selected, query_year)
+        payload = _indexer_match_album(selected, query_year, candidates)
         if payload:
             matches[payload["album_id"]] = payload
     if len(matches) > 1:
@@ -1542,7 +1613,11 @@ def indexer_main() -> None:
     from .indexer_background import BackgroundSearch
 
     searches = BackgroundSearch(cfg.work_path, search_indexer_releases)
-    bridge = build_bridge_from_environment(searches.search, download)
+
+    def search(**query: Any) -> list[dict]:
+        return _validate_indexer_results(searches.search(**query))
+
+    bridge = build_bridge_from_environment(search, download)
     worker = searches.start()
     try:
         bridge.serve(bridge.bind_host, bridge.bind_port)

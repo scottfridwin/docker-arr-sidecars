@@ -90,6 +90,7 @@ class IndexerBridgeTests(unittest.TestCase):
             "artist_foreign_id": "artist-mbid",
             "album_id": "22",
             "album_title": "Test Album",
+            "report_title": "Test Artist - Test Album (2001)",
             "album_foreign_id": "group-mbid",
             "release_id": "33",
             "release_foreign_id": "release-mbid",
@@ -128,7 +129,7 @@ class IndexerBridgeTests(unittest.TestCase):
         second_item = second.find("./channel/item")
         self.assertIsNotNone(first_item)
         self.assertEqual(first_item.findtext("guid"), second_item.findtext("guid"))
-        self.assertEqual(first_item.findtext("title"), "Test Artist - Test Album")
+        self.assertEqual(first_item.findtext("title"), "Test Artist - Test Album (2001)")
         self.assertEqual(first_item.find("enclosure").attrib["type"], "application/x-nzb")
 
         token = first_item.findtext("guid")
