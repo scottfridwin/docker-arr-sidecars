@@ -484,41 +484,38 @@ def search_indexer_releases(*, artist: str, album: str, q: str, year: int | None
         return _search_indexer_releases(artist=artist, album=album, q=q, year=year, request_type=request_type)
 
 
+def _indexer_artist_releases(artists: list[dict], year: int | None) -> list[dict]:
+    if len(artists) > 1:
+        raise AmbiguousAlbumError("Artist search matches multiple Lidarr artists")
+    if not artists:
+        return []
+    results = []
+    for candidate in _indexer_artist_albums(artists[0]):
+        payload = _indexer_match_album(candidate, year)
+        if payload:
+            results.append(payload)
+    return results[:100]
+
+
 def _search_indexer_releases(*, artist: str, album: str, q: str, year: int | None, request_type: str) -> list[dict]:
     searches: list[tuple[str, str, int | None]] = []
     if artist:
         if album:
             searches.append((artist, album, year))
         else:
-            artists = _find_indexer_artists(artist)
-            if len(artists) > 1:
-                raise AmbiguousAlbumError("Artist search matches multiple Lidarr artists")
-            if not artists:
-                return []
-            albums = _indexer_artist_albums(artists[0])
-            results = []
-            for candidate in albums:
-                payload = _indexer_match_album(candidate, year)
-                if payload:
-                    results.append(payload)
-            return results[:100]
+            return _indexer_artist_releases(_find_indexer_artists(artist), year)
     elif q:
         words = q.split()
+        artists = _find_indexer_artists(q)
+        if artists:
+            return _indexer_artist_releases(artists, year)
         if year is None and words and len(words[-1]) == 4 and words[-1].isascii() and words[-1].isdecimal():
             year = int(words.pop())
+            artists = _find_indexer_artists(" ".join(words))
+            if artists:
+                return _indexer_artist_releases(artists, year)
         if len(words) == 1:
-            artists = _find_indexer_artists(words[0])
-            if len(artists) > 1:
-                raise AmbiguousAlbumError("Artist search matches multiple Lidarr artists")
-            if not artists:
-                return []
-            albums = _indexer_artist_albums(artists[0])
-            results = []
-            for candidate in albums:
-                payload = _indexer_match_album(candidate, year)
-                if payload:
-                    results.append(payload)
-            return results[:100]
+            return []
         for split in range(1, len(words)):
             searches.append((" ".join(words[:split]), " ".join(words[split:]), year))
     else:

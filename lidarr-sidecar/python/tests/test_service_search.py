@@ -64,6 +64,69 @@ class ServiceSearchTests(unittest.TestCase):
         build.assert_called_once_with({"title": "Album", "releaseDate": None}, "")
         match.assert_called_once_with([], "Album", failed)
 
+    def test_text_artist_search_returns_matching_albums(self):
+        artist = {"id": 11, "artistName": "Taylor Swift"}
+        albums = [{"id": 22}, {"id": 23}]
+        release = self.indexer_release()
+        with (
+            patch.object(service, "_find_indexer_artists", return_value=[artist]) as find_artist,
+            patch.object(service, "_indexer_artist_albums", return_value=albums) as find_albums,
+            patch.object(service, "_indexer_match_album", side_effect=[release, None]) as match,
+        ):
+            actual = service.search_indexer_releases(
+                artist="", album="", q="Taylor Swift", year=None, request_type="search"
+            )
+        self.assertEqual(actual, [release])
+        find_artist.assert_called_once_with("Taylor Swift")
+        find_albums.assert_called_once_with(artist)
+        self.assertEqual(
+            match.call_args_list, [unittest.mock.call(albums[0], None), unittest.mock.call(albums[1], None)]
+        )
+
+    def test_text_artist_search_year_and_artist_name_ending_in_year(self):
+        artist = {"id": 11}
+        for query, matching_name, expected_year in (
+            ("Taylor Swift 2025", "Taylor Swift", 2025),
+            ("Band 2025", "Band 2025", None),
+        ):
+            with (
+                self.subTest(query=query),
+                patch.object(
+                    service,
+                    "_find_indexer_artists",
+                    side_effect=lambda name, wanted=matching_name: [artist] if name == wanted else [],
+                ),
+                patch.object(service, "_indexer_artist_albums", return_value=[{"id": 22}]),
+                patch.object(service, "_indexer_match_album", return_value=self.indexer_release()) as match,
+            ):
+                service.search_indexer_releases(artist="", album="", q=query, year=None, request_type="search")
+                match.assert_called_once_with({"id": 22}, expected_year)
+
+    def test_text_album_search_still_tries_artist_album_boundaries(self):
+        artist = {"id": 11}
+        album = {"id": 22}
+        release = self.indexer_release()
+        with (
+            patch.object(
+                service, "_find_indexer_artists", side_effect=lambda name: [artist] if name == "Taylor Swift" else []
+            ),
+            patch.object(service, "_indexer_artist_albums", return_value=[album]),
+            patch.object(service, "resolve_album", return_value=album) as resolve,
+            patch.object(service, "_indexer_match_album", return_value=release),
+        ):
+            actual = service.search_indexer_releases(
+                artist="", album="", q="Taylor Swift The Life of a Showgirl 2025", year=None, request_type="search"
+            )
+        self.assertEqual(actual, [release])
+        resolve.assert_called_once_with([album], "Taylor Swift", "The Life of a Showgirl", year=2025)
+
+    def test_text_artist_search_rejects_duplicate_artist_names(self):
+        with (
+            patch.object(service, "_find_indexer_artists", return_value=[{"id": 1}, {"id": 2}]),
+            self.assertRaises(service.AmbiguousAlbumError),
+        ):
+            service.search_indexer_releases(artist="", album="", q="Taylor Swift", year=None, request_type="search")
+
     def test_indexer_import_clears_the_correlated_lidarr_queue_item(self):
         on_download_complete = Mock()
         with (

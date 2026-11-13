@@ -51,7 +51,7 @@ When explicitly enabled, the legacy DeemixDownloader service turns Lidarr wanted
 
 The opt-in Indexer service implements the Newznab search protocol and the NZBGet JSON-RPC download-client protocol supported by Lidarr 3.1.6. It does not connect to a Usenet server and does not provide real NZB content: the NZB is a validated, opaque handoff for a release already matched by the sidecar.
 
-Searches resolve exact artist/album text against Lidarr's local library, then reuse the existing MusicBrainz-to-Deezer matching gates and ranking. Text-only searches try exact artist/album word boundaries; ambiguous matches are rejected. Artist-only searches return matched albums for that local artist. Searches do not consult the download quota, failure markers, or downloaded markers. No bitrate or quality is advertised because the final format is not known until the downloader selects it.
+Searches resolve exact artist/album text against Lidarr's local library, then reuse the existing MusicBrainz-to-Deezer matching gates and ranking. Text-only searches first check for an exact local artist name, then try exact artist/album word boundaries; ambiguous matches are rejected. Artist-only searches return matched albums for that local artist. Searches do not consult the download quota, failure markers, or downloaded markers. No bitrate or quality is advertised because the final format is not known until the downloader selects it.
 
 Lidarr's Newznab indexer configuration must have RSS disabled, while interactive and automatic search are enabled. Album-specific searches are supported; a generic RSS poll has no album identity and returns no releases.
 
@@ -64,6 +64,8 @@ Lidarr supplies a `drone` download ID with NZBGet `append`; the bridge persists 
 After a successful forced import, the bridge removes the matching Lidarr queue item(s) by download ID without blocklisting them. Its NZBGet `HistoryDelete` handler only updates bridge state; it does not delete imported media. A unique, empty history destination is also kept available so Lidarr never scans the shared staging root.
 
 MusicBrainz requests are serialized within the sidecar process, honor numeric or HTTP-date `Retry-After` values, and share a 60-second budget per Newznab search. If MusicBrainz remains unavailable past that budget, the bridge returns a service-unavailable response instead of waiting until Lidarr disconnects or treating the failure as an empty search. This rate limit is process-local; separate sidecar processes do not coordinate with one another.
+
+On 2026-11-13, an isolated text-only search resolved Taylor Swift and evaluated all 16 local albums with matching stubbed. A live artist search and a live album search both returned 503 after repeated MusicBrainz 503 responses exhausted the search budget; live Taylor Swift results remain unverified.
 
 On 2026-11-13, an isolated Lidarr 3.1.6.5079 manual search for Olivia Rodrigo's `SOUR` returned one result from the configured Newznab indexer in under one second using cached metadata. The Lidarr queue remained empty and the test import directory had no files. This verified search delivery only; it did not grab or download anything, and no Deezer token was used.
 
