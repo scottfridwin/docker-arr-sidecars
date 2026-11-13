@@ -219,8 +219,9 @@ class ServiceSearchTests(unittest.TestCase):
         with patch.object(service, "_indexer_api_get", return_value=response) as parse:
             title = service._indexer_report_title(album, [album, {"id": 23, "title": "Red"}], self.indexer_release())
         self.assertIn("Taylor Swift - Red Taylor’s version (2021) - ", title)
-        self.assertIn("Deezer ID: 42", title)
-        self.assertIn("MusicBrainz ID: release-mbid", title)
+        self.assertIn("Deezer 42", title)
+        self.assertIn("Lidarr release 12", title)
+        self.assertNotIn("release-mbid", title)
         parse.assert_called_once_with(f"parse?title={quote_plus(title)}")
 
     def test_report_title_rejects_wrong_mapping_and_criteria_conflicts(self):
@@ -319,6 +320,7 @@ class ServiceSearchTests(unittest.TestCase):
         self.assertEqual([(r["release_id"], r["deezer_album_id"]) for r in results], [("12", "42"), ("13", "43")])
         self.assertIn("Test Album Deluxe", results[1]["report_title"])
         self.assertNotEqual(results[0]["report_title"], results[1]["report_title"])
+        self.assertIn("Test Artist - Test Album (2001) - 10 tracks", results[0]["report_title"])
 
     def test_cached_results_are_rechecked_against_current_lidarr_library(self):
         release = self.indexer_release()

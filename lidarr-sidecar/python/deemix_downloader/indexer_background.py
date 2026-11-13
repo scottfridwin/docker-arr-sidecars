@@ -39,10 +39,10 @@ class BackgroundSearch:
                 "query TEXT PRIMARY KEY, status TEXT NOT NULL, result TEXT, error TEXT, updated REAL NOT NULL)"
             )
             version = db.execute("PRAGMA user_version").fetchone()[0]
-            if version in (0, 1, 2):
+            if version in (0, 1, 2, 3, 4):
                 db.execute("DELETE FROM searches WHERE status IN ('completed', 'failed', 'ambiguous')")
-                db.execute("PRAGMA user_version=3")
-            elif version != 3:
+                db.execute("PRAGMA user_version=5")
+            elif version != 5:
                 raise RuntimeError(f"Unsupported indexer search database version: {version}")
             db.execute("UPDATE searches SET status='pending' WHERE status='running'")
 

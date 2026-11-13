@@ -11,6 +11,78 @@ from deemix_downloader.config import Config
 
 
 class MatchingTests(unittest.TestCase):
+    def test_indexer_prefers_regular_edition_over_radio_special_without_hiding_it(self):
+        releases = [
+            matching.ReleaseCandidate(
+                title="Album (Big Machine Radio release special)",
+                release_id="2",
+                deezer_album_id="20",
+                release_status="Official",
+                track_count=20,
+                country_priority=0,
+            ),
+            matching.ReleaseCandidate(
+                title="Album",
+                release_id="1",
+                deezer_album_id="10",
+                release_status="Official",
+                track_count=10,
+                country_priority=1,
+            ),
+        ]
+        albums = {
+            "10": {"id": "10", "title": "Album", "nb_tracks": 10},
+            "20": {"id": "20", "title": "Album (Big Machine Radio release special)", "nb_tracks": 20},
+        }
+        with (
+            patch.object(matching, "get_deezer_album_info", side_effect=albums.get),
+            patch.object(matching.cfg, "require_upc_match", False),
+            patch.object(matching.cfg, "deprioritize_commentary", True),
+        ):
+            matches = matching.find_all_matches(releases, "Album")
+        self.assertEqual([match.lidarr_release_id for match in matches], ["1", "2"])
+        with (
+            patch.object(matching, "get_deezer_album_info", side_effect=albums.get),
+            patch.object(matching.cfg, "require_upc_match", False),
+            patch.object(matching.cfg, "deprioritize_commentary", False),
+        ):
+            matches = matching.find_all_matches(releases, "Album")
+        self.assertEqual([match.lidarr_release_id for match in matches], ["2", "1"])
+
+    def test_track_count_mismatch_is_reported_before_title_mismatch(self):
+        candidate = matching.ReleaseCandidate(
+            title="1989 D.L.X.", track_count=55, deezer_album_id="20", release_status="Official"
+        )
+        album = {"id": "20", "title": "1989 (Deluxe Edition)", "nb_tracks": 19}
+        with (
+            patch.object(matching, "get_deezer_album_info", return_value=album),
+            patch.object(matching.cfg, "require_upc_match", False),
+        ):
+            result = matching.find_best_match([candidate], "1989", set())
+        self.assertFalse(result.matched)
+        self.assertIn("track mismatch=1", result.reason)
+
+    def test_dotted_deluxe_abbreviation_matches_without_bypassing_other_gates(self):
+        candidate = matching.ReleaseCandidate(
+            title="1989 D.L.X.",
+            track_count=19,
+            deezer_album_id="20",
+            release_status="Official",
+            musicbrainz_barcode="123",
+        )
+        album = {"id": "20", "title": "1989 (Deluxe Edition)", "nb_tracks": 19, "upc": "123"}
+        with (
+            patch.object(matching, "get_deezer_album_info", return_value=album),
+            patch.object(matching.cfg, "require_upc_match", True),
+        ):
+            self.assertTrue(matching.find_best_match([candidate], "1989", set()).matched)
+            album["nb_tracks"] = 55
+            self.assertFalse(matching.find_best_match([candidate], "1989", set()).matched)
+            album["nb_tracks"] = 19
+            album["upc"] = "999"
+            self.assertFalse(matching.find_best_match([candidate], "1989", set()).matched)
+        self.assertFalse(matching._title_is_reasonable("1989 D.L.X.", "Completely Different Album"))
+
     def test_find_all_matches_keeps_distinct_editions_and_applies_safety_gates(self):
         releases = [
             matching.ReleaseCandidate(

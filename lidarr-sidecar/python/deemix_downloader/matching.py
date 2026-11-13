@@ -17,6 +17,7 @@ Sanity checks:
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterator
 from dataclasses import dataclass
 
@@ -24,6 +25,9 @@ from .config import cfg
 from .deezer_api import get_deezer_album_info
 from .logging import log
 from .string_utils import levenshtein_distance, normalize_string
+
+_RADIO_RELEASE_SPECIAL = re.compile(r"\bradio release special\b", re.IGNORECASE)
+_DELUXE_ABBREVIATION = re.compile(r"(?<!\w)d\.\s*l\.\s*x\.?(?!\w)", re.IGNORECASE)
 
 
 @dataclass
@@ -89,12 +93,12 @@ def _title_is_reasonable(
     if not deezer_title:
         return True
 
-    norm_deezer = normalize_string(deezer_title).lower()
+    norm_deezer = normalize_string(_DELUXE_ABBREVIATION.sub("deluxe", deezer_title)).lower()
     if not norm_deezer:
         return True
 
     for title in titles_to_compare:
-        norm_lidarr = normalize_string(title).lower()
+        norm_lidarr = normalize_string(_DELUXE_ABBREVIATION.sub("deluxe", title)).lower()
         if not norm_lidarr:
             continue
 
@@ -232,7 +236,17 @@ def find_all_matches(releases: list[ReleaseCandidate], lidarr_album_title: str) 
         non_instrumental = [candidate for candidate in linked if not candidate.instrumental]
         if non_instrumental:
             linked = non_instrumental
-    linked.sort(key=lambda candidate: (candidate.release_status != "Official", _rank_release(candidate)))
+    linked.sort(
+        key=lambda candidate: (
+            candidate.release_status != "Official",
+            cfg.deprioritize_commentary
+            and (
+                candidate.contains_commentary
+                or bool(_RADIO_RELEASE_SPECIAL.search(f"{candidate.title} {candidate.disambiguation}"))
+            ),
+            _rank_release(candidate),
+        )
+    )
     counts = dict.fromkeys(
         (
             "previously_failed",
@@ -319,6 +333,16 @@ def _match_candidates(
             reject_counts["lyric_type"] += 1
             continue
 
+        # When both counts are known, reject links to a different-sized edition.
+        if not _track_count_matches(candidate.track_count, deezer_track_count):
+            log.warning(
+                f'Rejecting Deezer link for "{deezer_title}" ({deezer_id}): '
+                f"track-count mismatch (MusicBrainz release={candidate.track_count}, "
+                f"Deezer={deezer_track_count}) - cannot safely force this release"
+            )
+            reject_counts["track_count_mismatch"] += 1
+            continue
+
         # Sanity check: title reasonableness
         search_title = candidate.title or lidarr_album_title
         if not _title_is_reasonable(
@@ -331,18 +355,6 @@ def _match_candidates(
                 f'expected "{search_title}" - possible bad MusicBrainz link'
             )
             reject_counts["title_mismatch"] += 1
-            continue
-
-        # Trust MusicBrainz: the linked Deezer album must have the SAME track
-        # count as the release. A mismatch is a bad MusicBrainz<->Deezer link and
-        # is rejected loudly rather than downloading an edition we can't import.
-        if not _track_count_matches(candidate.track_count, deezer_track_count):
-            log.warning(
-                f'Rejecting Deezer link for "{deezer_title}" ({deezer_id}): '
-                f"track-count mismatch (MusicBrainz release={candidate.track_count}, "
-                f"Deezer={deezer_track_count}) - bad MusicBrainz-Deezer link"
-            )
-            reject_counts["track_count_mismatch"] += 1
             continue
 
         # All checks pass

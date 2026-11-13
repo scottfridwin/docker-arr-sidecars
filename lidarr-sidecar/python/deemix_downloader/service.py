@@ -489,14 +489,16 @@ def _indexer_report_title(album: dict, artist_albums: list[dict], release: dict)
     base = f"{artist_name} - {title} ({release_year})" if release_year else f"{artist_name} - {title} [Lidarr]"
     edition = " ".join(re.sub(r"[\[\]()]", " ", release["deezer_title"]).split())
     release_title = " ".join(re.sub(r"[\[\]()]", " ", release["release_title"]).split())
-    details = [edition]
-    if release_title.casefold() != edition.casefold():
+    details = []
+    if edition and edition.casefold() != title.casefold():
+        details.append(edition)
+    if release_title and release_title.casefold() not in (edition.casefold(), title.casefold()):
         details.append(f"MusicBrainz: {release_title}")
     if release["track_count"]:
         details.append(f"{release['track_count']} tracks")
-    if release["year"]:
-        details.append(f"Deezer year: {release['year']}")
-    details.extend((f"Deezer ID: {release['deezer_album_id']}", f"MusicBrainz ID: {release['release_foreign_id']}"))
+    if release["year"] and release["year"] != release_year:
+        details.append(f"Deezer year {release['year']}")
+    details.extend((f"Deezer {release['deezer_album_id']}", f"Lidarr release {release['release_id']}"))
     report_title = f"{base} - {' | '.join(details)}"
     parsed = _indexer_api_get(f"parse?title={quote_plus(report_title)}")
     if not isinstance(parsed, dict):
