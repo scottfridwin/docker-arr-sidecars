@@ -356,6 +356,14 @@ def _build_candidates(album_data: dict, album_release_year: str) -> list[Release
 # ─── Search and download ─────────────────────────────────────────────────
 
 
+def search_album(album_data: dict, failed_albums: set[str] | None = None) -> MatchResult:
+    """Find a Deezer match without changing download or import state."""
+    album_title = remove_punctuation(normalize_string(album_data.get("title", "")))
+    release_date = album_data.get("releaseDate", "") or ""
+    candidates = _build_candidates(album_data, release_date[:4])
+    return find_best_match(candidates, album_title, failed_albums if failed_albums is not None else set())
+
+
 def search_and_download(
     album_id: str,
     failed_albums: set[str],
@@ -376,7 +384,6 @@ def search_and_download(
     album_title = remove_punctuation(normalize_string(album_title_raw))  # For matching comparison
     album_foreign_id = album_data.get("foreignAlbumId", "")
     album_release_date = album_data.get("releaseDate", "") or ""
-    album_release_year = album_release_date[:4] if album_release_date else ""
 
     # Check if not yet released
     if album_release_date:
@@ -397,11 +404,7 @@ def search_and_download(
 
     log.info(f'Searching for album "{album_title}" by "{artist_name}"')
 
-    # Build release candidates
-    candidates = _build_candidates(album_data, album_release_year)
-
-    # Find match
-    result = find_best_match(candidates, album_title, failed_albums)
+    result = search_album(album_data, failed_albums)
 
     # Write result file
     _write_result_file(album_id, artist_name, album_title, album_foreign_id, result)
