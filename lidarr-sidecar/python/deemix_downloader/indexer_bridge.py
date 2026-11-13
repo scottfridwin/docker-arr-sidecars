@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import hashlib
 import hmac
 import json
 import os
@@ -98,13 +99,25 @@ class BridgeStore:
             connection.close()
 
     def register_release(self, payload: dict[str, Any]) -> dict[str, Any]:
-        target = ":".join(str(payload[key]) for key in ("artist_id", "album_id", "release_id"))
-        if not all(payload.get(key) for key in ("artist_id", "album_id", "release_id")):
-            raise ValueError("a release requires Lidarr artist, album and release IDs")
+        if not all(payload.get(key) for key in ("artist_id", "album_id", "release_id", "deezer_album_id")):
+            raise ValueError("a release requires Lidarr artist, album, release and Deezer album IDs")
+        legacy_target = ":".join(str(payload[key]) for key in ("artist_id", "album_id", "release_id"))
+        snapshot = {key: value for key, value in payload.items() if key != "report_title"}
+        digest = hashlib.sha256(
+            json.dumps(snapshot, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
+        ).hexdigest()
+        target = f"{legacy_target}:{digest}"
         with self._lock, self._connection() as connection:
             existing = connection.execute("SELECT token, payload FROM releases WHERE target=?", (target,)).fetchone()
             if existing:
                 return {"token": existing["token"], **json.loads(existing["payload"])}
+            legacy = connection.execute(
+                "SELECT token, payload FROM releases WHERE target=?", (legacy_target,)
+            ).fetchone()
+            if legacy:
+                previous = json.loads(legacy["payload"])
+                if {key: value for key, value in previous.items() if key != "report_title"} == snapshot:
+                    return {"token": legacy["token"], **previous}
             token = os.urandom(24).hex()
             connection.execute(
                 "INSERT INTO releases(token, target, payload) VALUES (?, ?, ?)",
@@ -384,6 +397,8 @@ class IndexerBridge:
         album = query.get("album", [""])[0]
         q = query.get("q", [""])[0]
         year_value = query.get("year", [""])[0]
+        offset_value = query.get("offset", ["0"])[0]
+        limit_value = query.get("limit", ["100"])[0]
         if year_value and (not year_value.isascii() or not year_value.isdecimal() or len(year_value) != 4):
             raise BridgeRequestError("year must be a four-digit year")
         year = int(year_value) if year_value else None
@@ -395,7 +410,13 @@ class IndexerBridge:
             return []
         if request_type == "search" and not (q or artist or album):
             return []
-        return self.search_callback(artist=artist, album=album, q=q, year=year, request_type=request_type)
+        if any(not value.isascii() or not value.isdecimal() or len(value) > 9 for value in (offset_value, limit_value)):
+            raise BridgeRequestError("offset and limit must be non-negative integers")
+        offset, limit = int(offset_value), int(limit_value)
+        if not 1 <= limit <= 100:
+            raise BridgeRequestError("limit must be between 1 and 100")
+        results = self.search_callback(artist=artist, album=album, q=q, year=year, request_type=request_type)
+        return results[offset : offset + limit]
 
     def _rss(self, results: list[dict[str, Any]]) -> bytes:
         rss = ET.Element("rss", {"version": "2.0", "xmlns:newznab": _NEWZNAB_NAMESPACE})

@@ -2,6 +2,7 @@ import sys
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
+from urllib.parse import quote_plus
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -19,6 +20,7 @@ class ServiceSearchTests(unittest.TestCase):
             "track_count": 1,
             "release_id": "12",
             "release_foreign_id": "release-mbid",
+            "release_title": "Test Album",
             "artist_name": "Test Artist",
             "artist_id": "11",
             "artist_foreign_id": "artist-mbid",
@@ -105,6 +107,22 @@ class ServiceSearchTests(unittest.TestCase):
         browse.assert_not_called()
         fetch.assert_not_called()
 
+    def test_build_candidates_can_include_multiple_deezer_links_per_release(self):
+        album = {"releases": [{"id": 1, "foreignReleaseId": "release", "title": "Album"}]}
+        metadata = {
+            "status": "Official",
+            "relations": [
+                {"ended": False, "url": {"resource": "https://deezer.com/album/42"}},
+                {"ended": False, "url": {"resource": "https://deezer.com/album/43"}},
+                {"ended": False, "url": {"resource": "https://deezer.com/album/42"}},
+            ],
+        }
+        with patch.object(service.musicbrainz_api, "cached_musicbrainz_release", return_value=metadata):
+            legacy = service._build_candidates(album, "2001")
+            indexer = service._build_candidates(album, "2001", all_deezer_links=True)
+        self.assertEqual([c.deezer_album_id for c in legacy], ["42"])
+        self.assertEqual([c.deezer_album_id for c in indexer], ["42", "43"])
+
     def test_text_artist_search_returns_matching_albums(self):
         artist = {"id": 11, "artistName": "Taylor Swift"}
         albums = [{"id": 22}, {"id": 23}]
@@ -112,7 +130,7 @@ class ServiceSearchTests(unittest.TestCase):
         with (
             patch.object(service, "_find_indexer_artists", return_value=[artist]) as find_artist,
             patch.object(service, "_indexer_artist_albums", return_value=albums) as find_albums,
-            patch.object(service, "_indexer_match_album", side_effect=[release, None]) as match,
+            patch.object(service, "_indexer_match_album", side_effect=[[release], []]) as match,
         ):
             actual = service.search_indexer_releases(
                 artist="", album="", q="Taylor Swift", year=None, request_type="search"
@@ -139,10 +157,27 @@ class ServiceSearchTests(unittest.TestCase):
                     side_effect=lambda name, wanted=matching_name: [artist] if name == wanted else [],
                 ),
                 patch.object(service, "_indexer_artist_albums", return_value=[{"id": 22}]),
-                patch.object(service, "_indexer_match_album", return_value=self.indexer_release()) as match,
+                patch.object(service, "_indexer_match_album", return_value=[self.indexer_release()]) as match,
             ):
                 service.search_indexer_releases(artist="", album="", q=query, year=None, request_type="search")
                 match.assert_called_once_with({"id": 22}, expected_year, [{"id": 22}])
+
+    def test_numeric_album_title_takes_precedence_over_artist_year(self):
+        artist = {"id": 11, "artistName": "Taylor Swift"}
+        album = {"id": 22, "title": "1989", "artist": artist, "releaseDate": "2014-10-27"}
+        release = self.indexer_release()
+        with (
+            patch.object(
+                service, "_find_indexer_artists", side_effect=lambda name: [artist] if name == "Taylor Swift" else []
+            ),
+            patch.object(service, "_indexer_artist_albums", return_value=[album]),
+            patch.object(service, "_indexer_match_album", return_value=[release]) as match,
+        ):
+            actual = service.search_indexer_releases(
+                artist="", album="", q="Taylor Swift 1989", year=None, request_type="search"
+            )
+        self.assertEqual(actual, [release])
+        match.assert_called_once_with(album, None, [album])
 
     def test_text_album_search_still_tries_artist_album_boundaries(self):
         artist = {"id": 11}
@@ -154,7 +189,7 @@ class ServiceSearchTests(unittest.TestCase):
             ),
             patch.object(service, "_indexer_artist_albums", return_value=[album]),
             patch.object(service, "resolve_album", return_value=album) as resolve,
-            patch.object(service, "_indexer_match_album", return_value=release),
+            patch.object(service, "_indexer_match_album", return_value=[release]),
         ):
             actual = service.search_indexer_releases(
                 artist="", album="", q="Taylor Swift The Life of a Showgirl 2025", year=None, request_type="search"
@@ -177,29 +212,55 @@ class ServiceSearchTests(unittest.TestCase):
             "artist": {"id": 11, "artistName": "Taylor Swift"},
         }
         response = {
-            "parsedAlbumInfo": {"albumTitle": "Red Taylor’s version"},
+            "parsedAlbumInfo": {"albumTitle": "Red Taylor’s version", "quality": {"quality": {"id": 0}}},
             "artist": {"id": 11},
             "albums": [{"id": 22}],
         }
         with patch.object(service, "_indexer_api_get", return_value=response) as parse:
-            title = service._indexer_report_title(album, [album, {"id": 23, "title": "Red"}])
-        self.assertEqual(title, "Taylor Swift - Red Taylor’s version (2021)")
-        parse.assert_called_once_with("parse?title=Taylor+Swift+-+Red+Taylor%E2%80%99s+version+%282021%29")
+            title = service._indexer_report_title(album, [album, {"id": 23, "title": "Red"}], self.indexer_release())
+        self.assertIn("Taylor Swift - Red Taylor’s version (2021) - ", title)
+        self.assertIn("Deezer ID: 42", title)
+        self.assertIn("MusicBrainz ID: release-mbid", title)
+        parse.assert_called_once_with(f"parse?title={quote_plus(title)}")
 
     def test_report_title_rejects_wrong_mapping_and_criteria_conflicts(self):
         album = {"id": 22, "title": "Target", "artist": {"id": 11, "artistName": "Artist"}}
-        response = {"parsedAlbumInfo": {"albumTitle": "Target"}, "artist": {"id": 11}, "albums": [{"id": 23}]}
+        response = {
+            "parsedAlbumInfo": {"albumTitle": "Target", "quality": {"quality": {"id": 0}}},
+            "artist": {"id": 11},
+            "albums": [{"id": 23}],
+        }
         with patch.object(service, "_indexer_api_get", return_value=response):
-            self.assertIsNone(service._indexer_report_title(album, [album]))
+            self.assertIsNone(service._indexer_report_title(album, [album], self.indexer_release()))
         response["albums"] = [{"id": 22}]
         with patch.object(service, "_indexer_api_get", return_value=response):
-            self.assertIsNone(service._indexer_report_title(album, [album, {"id": 23, "title": "Target"}]))
+            self.assertIsNone(
+                service._indexer_report_title(album, [album, {"id": 23, "title": "Target"}], self.indexer_release())
+            )
 
     def test_report_title_without_release_year_is_still_checked(self):
         album = {"id": 22, "title": "Target", "artist": {"id": 11, "artistName": "Artist"}}
-        response = {"parsedAlbumInfo": {"albumTitle": "Target"}, "artist": {"id": 11}, "albums": [{"id": 22}]}
+        response = {
+            "parsedAlbumInfo": {"albumTitle": "Target", "quality": {"quality": {"id": 0}}},
+            "artist": {"id": 11},
+            "albums": [{"id": 22}],
+        }
         with patch.object(service, "_indexer_api_get", return_value=response):
-            self.assertEqual(service._indexer_report_title(album, [album]), "Artist - Target [Lidarr]")
+            self.assertTrue(
+                service._indexer_report_title(album, [album], self.indexer_release()).startswith(
+                    "Artist - Target [Lidarr] - "
+                )
+            )
+
+    def test_report_title_rejects_unverified_quality(self):
+        album = {"id": 22, "title": "Target", "artist": {"id": 11, "artistName": "Artist"}}
+        response = {
+            "parsedAlbumInfo": {"albumTitle": "Target", "quality": {"quality": {"id": 1}}},
+            "artist": {"id": 11},
+            "albums": [{"id": 22}],
+        }
+        with patch.object(service, "_indexer_api_get", return_value=response):
+            self.assertIsNone(service._indexer_report_title(album, [album], self.indexer_release()))
 
     def test_indexer_match_excludes_release_when_lidarr_cannot_map_title(self):
         album = {
@@ -211,15 +272,62 @@ class ServiceSearchTests(unittest.TestCase):
         match = MatchResult(matched=True, lidarr_release_id="12", deezer_album_id="42", deezer_track_count=1)
         with (
             patch.object(service, "get_album_data", return_value=album),
-            patch.object(service, "search_album", return_value=match),
+            patch.object(service, "_build_candidates", return_value=[]),
+            patch.object(service, "find_all_matches", return_value=[match]),
             patch.object(service, "_indexer_api_get", return_value={}),
         ):
-            self.assertIsNone(service._indexer_match_album(album, None, [album]))
+            self.assertEqual(service._indexer_match_album(album, None, [album]), [])
+
+    def test_indexer_album_search_returns_every_validated_edition(self):
+        album = {
+            "id": 22,
+            "title": "Test Album",
+            "releaseDate": "2001-01-01",
+            "artist": {"id": 11, "artistName": "Test Artist"},
+            "releases": [{"id": 12, "title": "Test Album"}, {"id": 13, "title": "Test Album Deluxe"}],
+        }
+        matches = [
+            MatchResult(
+                matched=True,
+                lidarr_release_id="12",
+                lidarr_release_foreign_id="mb1",
+                deezer_album_id="42",
+                deezer_title="Test Album",
+                deezer_track_count=10,
+            ),
+            MatchResult(
+                matched=True,
+                lidarr_release_id="13",
+                lidarr_release_foreign_id="mb2",
+                deezer_album_id="43",
+                deezer_title="Test Album Deluxe",
+                deezer_track_count=12,
+            ),
+        ]
+        parsed = {
+            "parsedAlbumInfo": {"albumTitle": "Test Album", "quality": {"quality": {"id": 0}}},
+            "artist": {"id": 11},
+            "albums": [{"id": 22}],
+        }
+        with (
+            patch.object(service, "get_album_data", return_value=album),
+            patch.object(service, "_build_candidates", return_value=[]),
+            patch.object(service, "find_all_matches", return_value=matches),
+            patch.object(service, "_indexer_api_get", return_value=parsed),
+        ):
+            results = service._indexer_match_album(album, None, [album])
+        self.assertEqual([(r["release_id"], r["deezer_album_id"]) for r in results], [("12", "42"), ("13", "43")])
+        self.assertIn("Test Album Deluxe", results[1]["report_title"])
+        self.assertNotEqual(results[0]["report_title"], results[1]["report_title"])
 
     def test_cached_results_are_rechecked_against_current_lidarr_library(self):
         release = self.indexer_release()
         album = {"id": 22, "title": "Test Album", "artist": {"id": 11, "artistName": "Test Artist"}}
-        response = {"parsedAlbumInfo": {"albumTitle": "Test Album"}, "artist": {"id": 11}, "albums": [{"id": 22}]}
+        response = {
+            "parsedAlbumInfo": {"albumTitle": "Test Album", "quality": {"quality": {"id": 0}}},
+            "artist": {"id": 11},
+            "albums": [{"id": 22}],
+        }
         with (
             patch.object(service, "_indexer_artist_albums", return_value=[album, {"id": 23, "title": "Test Album"}]),
             patch.object(service, "_indexer_api_get", return_value=response),

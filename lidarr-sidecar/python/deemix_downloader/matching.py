@@ -17,6 +17,7 @@ Sanity checks:
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from dataclasses import dataclass
 
 from .config import cfg
@@ -208,8 +209,59 @@ def find_best_match(
         "track_count_mismatch": 0,
     }
 
-    # Try each candidate in rank order
-    for candidate in official:
+    match = next(_match_candidates(official, lidarr_album_title, failed_albums, reject_counts), None)
+    if match is not None:
+        return match
+
+    summary_parts = [
+        f"redirect gate rejected={reject_counts['redirect_rejected']}",
+        f"upc mismatch={reject_counts['upc_mismatch']}",
+        f"deezer fetch failed={reject_counts['deezer_fetch_failed']}",
+        f"lyric type={reject_counts['lyric_type']}",
+        f"title mismatch={reject_counts['title_mismatch']}",
+        f"track mismatch={reject_counts['track_count_mismatch']}",
+        f"previously failed={reject_counts['previously_failed']}",
+    ]
+    return MatchResult(reason="All Deezer links failed sanity checks: " + ", ".join(summary_parts))
+
+
+def find_all_matches(releases: list[ReleaseCandidate], lidarr_album_title: str) -> list[MatchResult]:
+    """Return each distinct validated release/Deezer pair for Lidarr to choose from."""
+    linked = [candidate for candidate in releases if candidate.deezer_album_id]
+    if cfg.ignore_instrumental:
+        non_instrumental = [candidate for candidate in linked if not candidate.instrumental]
+        if non_instrumental:
+            linked = non_instrumental
+    linked.sort(key=lambda candidate: (candidate.release_status != "Official", _rank_release(candidate)))
+    counts = dict.fromkeys(
+        (
+            "previously_failed",
+            "deezer_fetch_failed",
+            "redirect_rejected",
+            "upc_mismatch",
+            "lyric_type",
+            "title_mismatch",
+            "track_count_mismatch",
+        ),
+        0,
+    )
+    matches = []
+    seen: set[tuple[str, str]] = set()
+    for match in _match_candidates(linked, lidarr_album_title, set(), counts):
+        identity = (match.lidarr_release_id, match.deezer_album_id)
+        if identity not in seen:
+            matches.append(match)
+            seen.add(identity)
+    return matches
+
+
+def _match_candidates(
+    candidates: list[ReleaseCandidate],
+    lidarr_album_title: str,
+    failed_albums: set[str],
+    reject_counts: dict[str, int],
+) -> Iterator[MatchResult]:
+    for candidate in candidates:
         deezer_id = candidate.deezer_album_id
 
         # Skip previously failed
@@ -311,15 +363,4 @@ def find_best_match(
             ),
         )
 
-        return match_result
-
-    summary_parts = [
-        f"redirect gate rejected={reject_counts['redirect_rejected']}",
-        f"upc mismatch={reject_counts['upc_mismatch']}",
-        f"deezer fetch failed={reject_counts['deezer_fetch_failed']}",
-        f"lyric type={reject_counts['lyric_type']}",
-        f"title mismatch={reject_counts['title_mismatch']}",
-        f"track mismatch={reject_counts['track_count_mismatch']}",
-        f"previously failed={reject_counts['previously_failed']}",
-    ]
-    return MatchResult(reason="All Deezer links failed sanity checks: " + ", ".join(summary_parts))
+        yield match_result

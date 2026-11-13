@@ -21,7 +21,7 @@ from unittest.mock import Mock, patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from deemix_downloader.indexer_background import SearchWarming
-from deemix_downloader.indexer_bridge import BridgeStore, IndexerBridge
+from deemix_downloader.indexer_bridge import BridgeRequestError, BridgeStore, IndexerBridge
 
 
 class IndexerBridgeTests(unittest.TestCase):
@@ -150,6 +150,39 @@ class IndexerBridgeTests(unittest.TestCase):
             ("11", "22", "33"),
         )
         self.assertEqual(self.bridge.store.client_ids(item["id"]), ("lidarr-grab-id",))
+
+    def test_multiple_editions_keep_distinct_immutable_handoff_identities(self):
+        first = self.release()
+        second = {**first, "deezer_album_id": "45", "deezer_title": "Test Album Deluxe"}
+        first_stored = self.bridge.store.register_release(first)
+        second_stored = self.bridge.store.register_release(second)
+        self.assertNotEqual(first_stored["token"], second_stored["token"])
+        self.assertEqual(self.bridge.store.register_release(first)["token"], first_stored["token"])
+        self._submit(second_stored["token"])
+        job = self.bridge.store.next_job()
+        selected = self.bridge.store.get_release_for_job(job["id"])
+        self.assertEqual((selected["release_id"], selected["deezer_album_id"]), ("33", "45"))
+        self.assertEqual(self.bridge.store.get_release(first_stored["token"])["deezer_album_id"], "44")
+
+    def test_legacy_release_identity_is_reused_without_changing_existing_jobs(self):
+        release = self.release()
+        with closing(sqlite3.connect(self.bridge.store.path)) as db, db:
+            db.execute("INSERT INTO releases VALUES (?, ?, ?)", ("old-token", "11:22:33", json.dumps(release)))
+        self.assertEqual(self.bridge.store.register_release(release)["token"], "old-token")
+        changed = self.bridge.store.register_release({**release, "deezer_album_id": "45"})
+        self.assertNotEqual(changed["token"], "old-token")
+        self.assertEqual(self.bridge.store.get_release("old-token")["deezer_album_id"], "44")
+
+    def test_indexer_search_paginates_all_results(self):
+        self.bridge.search_callback = Mock(return_value=[{"edition": number} for number in range(105)])
+        query = {"t": ["search"], "q": ["Test Artist"]}
+        self.assertEqual(len(self.bridge._search_results({**query, "limit": ["100"], "offset": ["0"]})), 100)
+        self.assertEqual(
+            self.bridge._search_results({**query, "limit": ["100"], "offset": ["100"]}),
+            [{"edition": number} for number in range(100, 105)],
+        )
+        with self.assertRaises(BridgeRequestError):
+            self.bridge._search_results({**query, "limit": ["101"]})
 
     def test_lidarr_history_delete_during_import_is_not_overwritten(self):
         def remove_after_import(_release, completed):

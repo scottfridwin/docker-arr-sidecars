@@ -11,6 +11,51 @@ from deemix_downloader.config import Config
 
 
 class MatchingTests(unittest.TestCase):
+    def test_find_all_matches_keeps_distinct_editions_and_applies_safety_gates(self):
+        releases = [
+            matching.ReleaseCandidate(
+                title="Album",
+                release_id="1",
+                foreign_id="mb1",
+                deezer_album_id="10",
+                release_status="Official",
+                track_count=10,
+                musicbrainz_barcode="123",
+            ),
+            matching.ReleaseCandidate(
+                title="Album",
+                release_id="2",
+                foreign_id="mb2",
+                deezer_album_id="20",
+                release_status="Promotion",
+                track_count=12,
+                musicbrainz_barcode="456",
+                contains_commentary=True,
+            ),
+            matching.ReleaseCandidate(
+                title="Album",
+                release_id="3",
+                foreign_id="mb3",
+                deezer_album_id="30",
+                release_status="Official",
+                track_count=10,
+                musicbrainz_barcode="wrong",
+            ),
+        ]
+        albums = {
+            "10": {"id": "10", "title": "Album", "nb_tracks": 10, "upc": "123"},
+            "20": {"id": "20", "title": "Album Deluxe", "nb_tracks": 12, "upc": "456"},
+            "30": {"id": "30", "title": "Album", "nb_tracks": 10, "upc": "789"},
+        }
+        with (
+            patch.object(matching, "get_deezer_album_info", side_effect=albums.get),
+            patch.object(matching.cfg, "require_upc_match", True),
+            patch.object(matching.cfg, "require_non_redirect_deezer", True),
+            patch.object(matching.cfg, "lyric_type", "prefer-explicit"),
+        ):
+            matches = matching.find_all_matches([*releases, releases[0]], "Album")
+        self.assertEqual([(m.lidarr_release_id, m.deezer_album_id) for m in matches], [("1", "10"), ("2", "20")])
+
     def test_fetch_musicbrainz_release_requests_release_group_data(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             cfg = Config()

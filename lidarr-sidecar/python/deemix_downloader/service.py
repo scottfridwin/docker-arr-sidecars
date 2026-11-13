@@ -67,7 +67,7 @@ from .lidarr_api import (
     scan_import_and_verify,
 )
 from .logging import log
-from .matching import MatchResult, ReleaseCandidate, find_best_match
+from .matching import MatchResult, ReleaseCandidate, find_all_matches, find_best_match
 from .musicbrainz_api import fetch_musicbrainz_release, fetch_musicbrainz_release_group
 from .string_utils import calculate_priority, normalize_string, remove_punctuation
 
@@ -264,7 +264,9 @@ def _get_failed_albums() -> set[str]:
 # ─── Build release candidates from Lidarr album data ────────────────────
 
 
-def _build_candidates(album_data: dict, album_release_year: str) -> list[ReleaseCandidate]:
+def _build_candidates(
+    album_data: dict, album_release_year: str, *, all_deezer_links: bool = False
+) -> list[ReleaseCandidate]:
     """
     Build ReleaseCandidate objects from Lidarr album releases.
     Fetches MusicBrainz data to extract Deezer links.
@@ -305,15 +307,16 @@ def _build_candidates(album_data: dict, album_release_year: str) -> list[Release
         musicbrainz_barcode = str(mb_data.get("barcode", "") or "")
 
         # Extract Deezer album ID from MB relations
-        deezer_album_id = ""
+        deezer_album_ids: list[str] = []
         for rel in mb_data.get("relations", []):
             if rel.get("ended", True):
                 continue
             url = rel.get("url", {}).get("resource", "")
             match = re.search(r"deezer\.com/album/(\d+)", url)
-            if match:
-                deezer_album_id = match.group(1)
-                break
+            if match and match.group(1) not in deezer_album_ids:
+                deezer_album_ids.append(match.group(1))
+                if not all_deezer_links:
+                    break
 
         # Determine year
         release_date = release_json.get("releaseDate", "")
@@ -325,7 +328,7 @@ def _build_candidates(album_data: dict, album_release_year: str) -> list[Release
 
         alternate_titles: list[str] = []
         release_group = mb_data.get("release-group", {})
-        if deezer_album_id and isinstance(release_group, dict):
+        if deezer_album_ids and isinstance(release_group, dict):
             release_group_id = release_group.get("id", "")
             if release_group_id:
                 log.debug(f"Fetching MusicBrainz aliases for release-group {release_group_id}")
@@ -352,24 +355,25 @@ def _build_candidates(album_data: dict, album_release_year: str) -> list[Release
             _INSTRUMENTAL_RE and (_INSTRUMENTAL_RE.search(title) or _INSTRUMENTAL_RE.search(disambiguation))
         )
 
-        candidates.append(
-            ReleaseCandidate(
-                title=title,
-                disambiguation=disambiguation,
-                release_id=release_id,
-                foreign_id=foreign_release_id,
-                track_count=track_count,
-                deezer_album_id=deezer_album_id,
-                release_status=release_status,
-                year=year,
-                format_priority=format_priority,
-                country_priority=country_priority,
-                contains_commentary=contains_commentary,
-                instrumental=instrumental,
-                alternate_titles=alternate_titles,
-                musicbrainz_barcode=musicbrainz_barcode,
+        for deezer_album_id in deezer_album_ids or [""]:
+            candidates.append(
+                ReleaseCandidate(
+                    title=title,
+                    disambiguation=disambiguation,
+                    release_id=release_id,
+                    foreign_id=foreign_release_id,
+                    track_count=track_count,
+                    deezer_album_id=deezer_album_id,
+                    release_status=release_status,
+                    year=year,
+                    format_priority=format_priority,
+                    country_priority=country_priority,
+                    contains_commentary=contains_commentary,
+                    instrumental=instrumental,
+                    alternate_titles=alternate_titles,
+                    musicbrainz_barcode=musicbrainz_barcode,
+                )
             )
-        )
 
     return candidates
 
@@ -473,7 +477,7 @@ def _indexer_release_payload(album_data: dict, match: MatchResult) -> dict | Non
     }
 
 
-def _indexer_report_title(album: dict, artist_albums: list[dict]) -> str | None:
+def _indexer_report_title(album: dict, artist_albums: list[dict], release: dict) -> str | None:
     artist = album.get("artist") or {}
     artist_name = artist.get("artistName") or ""
     album_title = album.get("title") or ""
@@ -482,7 +486,18 @@ def _indexer_report_title(album: dict, artist_albums: list[dict]) -> str | None:
     release_year = release_date[:4] if isinstance(release_date, str) else ""
     if not (len(release_year) == 4 and release_year.isascii() and release_year.isdecimal()):
         release_year = ""
-    report_title = f"{artist_name} - {title} ({release_year})" if release_year else f"{artist_name} - {title} [Lidarr]"
+    base = f"{artist_name} - {title} ({release_year})" if release_year else f"{artist_name} - {title} [Lidarr]"
+    edition = " ".join(re.sub(r"[\[\]()]", " ", release["deezer_title"]).split())
+    release_title = " ".join(re.sub(r"[\[\]()]", " ", release["release_title"]).split())
+    details = [edition]
+    if release_title.casefold() != edition.casefold():
+        details.append(f"MusicBrainz: {release_title}")
+    if release["track_count"]:
+        details.append(f"{release['track_count']} tracks")
+    if release["year"]:
+        details.append(f"Deezer year: {release['year']}")
+    details.extend((f"Deezer ID: {release['deezer_album_id']}", f"MusicBrainz ID: {release['release_foreign_id']}"))
+    report_title = f"{base} - {' | '.join(details)}"
     parsed = _indexer_api_get(f"parse?title={quote_plus(report_title)}")
     if not isinstance(parsed, dict):
         raise RuntimeError("Lidarr parse API returned an unexpected response")
@@ -500,6 +515,12 @@ def _indexer_report_title(album: dict, artist_albums: list[dict]) -> str | None:
         or str(parsed_albums[0].get("id")) != str(album.get("id"))
     ):
         log.warning(f"Not offering {artist_name} - {album_title}: Lidarr cannot map report title to the intended album")
+        return None
+
+    quality = parsed_info.get("quality")
+    quality_info = quality.get("quality") if isinstance(quality, dict) else None
+    if not isinstance(quality_info, dict) or quality_info.get("id") != 0:
+        log.warning(f"Not offering {artist_name} - {album_title}: report title advertises an unverified quality")
         return None
 
     parsed_title = parsed_info["albumTitle"]
@@ -531,32 +552,36 @@ def _validate_indexer_results(results: list[dict]) -> list[dict]:
                 "Lidarr library changed since the search"
             )
             continue
-        report_title = _indexer_report_title(album, albums)
+        report_title = _indexer_report_title(album, albums, result)
         if report_title is not None:
             validated.append({**result, "report_title": report_title})
     return validated
 
 
-def _indexer_match_album(album: dict, year: int | None, artist_albums: list[dict]) -> dict | None:
+def _indexer_match_album(album: dict, year: int | None, artist_albums: list[dict]) -> list[dict]:
     album_id = album.get("id")
     if not album_id:
-        return None
+        return []
     with _LIDARR_API_LOCK:
         full_album = get_album_data(str(album_id))
     if not full_album:
-        return None
+        return []
     if year is not None:
         release_date = full_album.get("releaseDate") or ""
         if not isinstance(release_date, str) or release_date[:4] != str(year):
-            return None
-    match = search_album(full_album, set())
-    payload = _indexer_release_payload(full_album, match)
-    if payload:
-        report_title = _indexer_report_title(full_album, artist_albums)
-        if report_title is None:
-            return None
-        payload["report_title"] = report_title
-    return payload
+            return []
+    title = remove_punctuation(normalize_string(full_album.get("title", "")))
+    release_date = full_album.get("releaseDate") or ""
+    candidates = _build_candidates(full_album, release_date[:4], all_deezer_links=True)
+    results = []
+    for match in find_all_matches(candidates, title):
+        payload = _indexer_release_payload(full_album, match)
+        if payload:
+            report_title = _indexer_report_title(full_album, artist_albums, payload)
+            if report_title is not None:
+                payload["report_title"] = report_title
+                results.append(payload)
+    return results
 
 
 def search_indexer_releases(*, artist: str, album: str, q: str, year: int | None, request_type: str) -> list[dict]:
@@ -573,10 +598,8 @@ def _indexer_artist_releases(artists: list[dict], year: int | None) -> list[dict
     results = []
     albums = _indexer_artist_albums(artists[0])
     for candidate in albums:
-        payload = _indexer_match_album(candidate, year, albums)
-        if payload:
-            results.append(payload)
-    return results[:100]
+        results.extend(_indexer_match_album(candidate, year, albums))
+    return results
 
 
 def _search_indexer_releases(*, artist: str, album: str, q: str, year: int | None, request_type: str) -> list[dict]:
@@ -592,10 +615,18 @@ def _search_indexer_releases(*, artist: str, album: str, q: str, year: int | Non
         if artists:
             return _indexer_artist_releases(artists, year)
         if year is None and words and len(words[-1]) == 4 and words[-1].isascii() and words[-1].isdecimal():
-            year = int(words.pop())
-            artists = _find_indexer_artists(" ".join(words))
+            artist_query = " ".join(words[:-1])
+            artists = _find_indexer_artists(artist_query)
             if artists:
+                if len(artists) > 1:
+                    raise AmbiguousAlbumError("Artist search matches multiple Lidarr artists")
+                candidates = _indexer_artist_albums(artists[0])
+                selected = resolve_album(candidates, artist_query, words[-1])
+                if selected is not None:
+                    return _indexer_match_album(selected, None, candidates)
+                year = int(words[-1])
                 return _indexer_artist_releases(artists, year)
+            year = int(words.pop())
         if len(words) == 1:
             return []
         for split in range(1, len(words)):
@@ -603,7 +634,7 @@ def _search_indexer_releases(*, artist: str, album: str, q: str, year: int | Non
     else:
         raise ValueError(f"unsupported {request_type} query")
 
-    matches: dict[str, dict] = {}
+    matches: dict[str, list[dict]] = {}
     for artist_query, album_query, query_year in searches:
         artists = _find_indexer_artists(artist_query)
         if len(artists) > 1:
@@ -614,12 +645,12 @@ def _search_indexer_releases(*, artist: str, album: str, q: str, year: int | Non
         selected = resolve_album(candidates, artist_query, album_query, year=query_year)
         if selected is None:
             continue
-        payload = _indexer_match_album(selected, query_year, candidates)
-        if payload:
-            matches[payload["album_id"]] = payload
+        payloads = _indexer_match_album(selected, query_year, candidates)
+        if payloads:
+            matches[str(selected["id"])] = payloads
     if len(matches) > 1:
         raise AmbiguousAlbumError("Text search matches multiple Lidarr albums")
-    return list(matches.values())
+    return [payload for payloads in matches.values() for payload in payloads]
 
 
 def download_indexer_release(

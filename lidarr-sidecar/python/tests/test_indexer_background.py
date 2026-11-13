@@ -64,7 +64,7 @@ class BackgroundSearchTests(unittest.TestCase):
                 worker.join(2)
 
     def test_upgrading_search_cache_keeps_pending_work_and_discards_old_results(self):
-        for version in (0, 1):
+        for version in (0, 1, 2):
             with self.subTest(version=version), tempfile.TemporaryDirectory() as directory:
                 first = BackgroundSearch(directory, Mock(), wait_seconds=0)
                 with self.assertRaises(SearchWarming):
