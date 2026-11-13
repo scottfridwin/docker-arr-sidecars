@@ -101,6 +101,61 @@ class ManualImportReleaseTests(unittest.TestCase):
         self.assertEqual(rejections, ["/sidecar-import/a/01.flac: Not a sample"])
         self.assertFalse(any(c.args[:2] == ("POST", "command") for c in mock_request.call_args_list))
 
+    def test_forced_album_score_rejection_uses_exact_manual_import_ids(self):
+        preview = [{"id": 1, "path": "/sidecar-import/a/01.flac"}]
+        reprocessed = [
+            {
+                "id": 1,
+                "path": "/sidecar-import/a/01.flac",
+                "artist": {"id": 628},
+                "album": {"id": 22909},
+                "albumReleaseId": 127617,
+                "rejections": [{"reason": "Album match is not close enough: 75.1 % vs 80 % [country, tracks]"}],
+                "tracks": [{"id": 111, "albumId": 22909}],
+            }
+        ]
+        responses = [
+            preview,
+            reprocessed,
+            [],  # GET trackfile (before) -> 0 files
+            {"id": 42, "status": "queued"},  # POST command
+            {"status": "completed"},  # GET command/42
+            [{"id": 1}],  # GET trackfile (after) -> imported file
+        ]
+
+        (imported, errors), mock_request = self._run(responses)
+
+        self.assertTrue(imported)
+        self.assertEqual(errors, [])
+        command_call = next(c for c in mock_request.call_args_list if c.args[:2] == ("POST", "command"))
+        payload = json.loads(command_call.args[2])
+        self.assertEqual(payload["files"][0]["artistId"], 628)
+        self.assertEqual(payload["files"][0]["albumId"], 22909)
+        self.assertEqual(payload["files"][0]["albumReleaseId"], 127617)
+
+    def test_forced_album_score_rejection_requires_matching_ids_and_tracks(self):
+        preview = [{"id": 1, "path": "/sidecar-import/a/01.flac"}]
+        reprocessed = [
+            {
+                "id": 1,
+                "path": "/sidecar-import/a/01.flac",
+                "artist": {"id": 628},
+                "album": {"id": 22909},
+                "albumReleaseId": 127617,
+                "rejections": [
+                    {"reason": "Album match is not close enough: 75.1 % vs 80 % [country, tracks]"},
+                    {"reason": "Has missing tracks"},
+                ],
+                "tracks": [{"id": 111, "albumId": 22909}],
+            }
+        ]
+
+        (imported, errors), mock_request = self._run([preview, reprocessed])
+
+        self.assertFalse(imported)
+        self.assertEqual(len(errors), 2)
+        self.assertFalse(any(c.args[:2] == ("POST", "command") for c in mock_request.call_args_list))
+
     def test_command_completed_without_new_files_is_failure(self):
         preview = [{"id": 1, "path": "/sidecar-import/a/01.flac"}]
         reprocessed = [

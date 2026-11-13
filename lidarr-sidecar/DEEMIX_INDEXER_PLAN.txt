@@ -6,7 +6,8 @@ Replace the Deemix wanted-list polling workflow with a service that exposes
 search results to Lidarr through an indexer and downloads only releases Lidarr
 chooses to grab. Searches remain available without a daily search limit, even
 when the download quota is exhausted. Keep the existing ManualImport service
-independent. No implementation is included in this plan.
+independent. This plan records the implementation decisions and live
+validation; deployment setup is documented in README.md.
 
 1. Prove the Lidarr protocol and end-to-end handoff before committing to an
    adapter design.
@@ -26,10 +27,17 @@ independent. No implementation is included in this plan.
    shows that Newznab music searches use artist/album text rather than
    MusicBrainz IDs, and Lidarr validates an NZB before submitting it to a Usenet
    client. A SABnzbd-compatible bridge is a candidate for queue/history
-   visibility; a blackhole offers weaker tracking. These observations are not
-   an end-to-end proof and may differ in the deployed Lidarr version.
-   A local Lidarr 3.1.6.5079 instance exposes Newznab and SABnzbd schemas,
-   but an actual search and grab have not yet been verified.
+   visibility; a blackhole offers weaker tracking.
+
+   Live validation against an isolated Lidarr 3.1.6.5079 confirmed Newznab
+   interactive search, grab, and NZBGet-compatible `append`, `listgroups`, and
+   `history`. Automatic `AlbumSearch` requires the command body field
+   `albumIds: [<id>]`; using singular `albumId` causes a Lidarr null-reference
+   failure. The initial queue test exposed a correlation bug: the bridge did
+   not echo the `drone` client ID supplied to `append`, so Lidarr's queue could
+   not associate the job. The bridge now persists and echoes each client ID;
+   retesting showed the quota-waiting item in both `listgroups` and Lidarr's
+   `/api/v1/queue`, with matching download IDs.
 
    Source inspection also shows that Lidarr fetches and validates NZB bytes
    before submitting them to the client, so the bridge must recover the release
@@ -92,6 +100,16 @@ independent. No implementation is included in this plan.
    album and release IDs; fail rather than silently fall back to a scan when
    those IDs are unavailable or the forced import is rejected.
 
+   The bridge was exercised with a quota of one: an automatic Revolver search
+   still returned and grabbed a result after a fake Let It Be download completed.
+   Revolver remained persisted as `waiting_quota` and appeared in NZBGet
+   `listgroups` with the quota-waiting title. A separate fake failure was
+   retried through NZBGet `HistoryRedownload`; the job advanced to attempt 2 and
+   completed. A generated 12-track Let It Be album passed the strict
+   `ManualImport` command with artist ID 1, album ID 2, and release ID 32. Lidarr
+   registered all tracks against that release; its client history used an empty
+   final directory, and the album had exactly 12 track files after import.
+
 6. Integrate and migrate.
 
    Update the persistent-service entry point, container configuration, network
@@ -103,24 +121,32 @@ independent. No implementation is included in this plan.
    rollback. Decide explicitly whether priority-file processing and its quota
    exemption are retired or supported without undermining the limit.
 
-7. Validate.
+7. Validation performed.
 
-   Add unit and contract tests with captured Lidarr requests for capability
-   discovery, ID and text search, matching gates, stable release identity,
-   authentication, and malformed or unsupported requests. Test concurrent
-   reservations, duplicate grabs, unlimited and exhausted quotas, midnight,
-   failure, restart, corrupt state, and migration. Exercise downloads, quality
-   fallback, post-processing, imports and failures with fakes. Run existing
-   shared and Lidarr unit suites, Ruff, and the Lidarr Docker test target.
-   Finally, run a real Lidarr integration test covering interactive and
-   automatic search, grab, queue visibility, completed import, retry, and
-   searching while the quota is exhausted.
+   Shared and Lidarr suites passed (63 and 58 tests), repo-wide Ruff lint and
+   formatting checks passed, and the Lidarr Docker `test` target built
+   successfully. Tests cover Newznab capabilities and stable identities,
+   authentication, quota waiting/retry/recovery, staged registration, and
+   strict forced import.
+
+   The isolated live checks used fake metadata and generated silent audio only.
+   They verified interactive search/grab/import, automatic search while quota
+   was exhausted, NZBGet queue/history reporting, and a failed-job retry. The
+   forced import registered all 12 Let It Be tracks under the selected
+   artist/album/release IDs. The client history used an empty final directory,
+   and no duplicate track files were created. No real Deezer credentials or
+   audio were used.
+
+   The queue-correlation fix and existing-job database migration were covered
+   by regression tests. The real Deezer download path and other Lidarr versions
+   have not been tested; see README.md for setup and operational details.
 
 Review decisions
 
-- Confirm whether quota-exhausted grabs should wait or be rejected, subject to
-  the verified Lidarr client protocol.
-- Confirm whether the legacy priority file and quota exemption should survive
-  the move away from standalone polling.
-- Verify that the client workflow can coexist with the required forced manual
-  import without a duplicate automatic import.
+- Quota-exhausted grabs wait in the NZBGet-compatible queue; searches remain
+  unmetered. The old priority file and quota exemption are retired from the
+  indexer flow and left untouched.
+- The dedicated client is bound to the indexer. Its completed history points at
+  an empty per-job path after forced import, preventing a second scan of the
+  shared staging directory. The live fake-data flow registered exactly the
+  selected album's 12 tracks.

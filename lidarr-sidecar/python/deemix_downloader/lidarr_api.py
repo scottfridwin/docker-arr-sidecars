@@ -134,6 +134,52 @@ def _extract_track_ids(item: dict[str, Any]) -> list[int]:
     return track_ids
 
 
+def _has_only_forced_album_score_rejections(
+    items: list[Any],
+    artist_id: int | str,
+    album_id: int | str,
+    release_id: int | str,
+) -> bool:
+    """Allow Lidarr's album-score rejection only when its forced IDs and track mappings remain exact."""
+    expected_artist_id, expected_album_id, expected_release_id = (
+        int(artist_id),
+        int(album_id),
+        int(release_id),
+    )
+    importable_items = [item for item in items if isinstance(item, dict) and not item.get("additionalFile")]
+    if not importable_items:
+        return False
+
+    for item in importable_items:
+        artist = item.get("artist")
+        album = item.get("album")
+        if (
+            not isinstance(artist, dict)
+            or artist.get("id") != expected_artist_id
+            or not isinstance(album, dict)
+            or album.get("id") != expected_album_id
+            or item.get("albumReleaseId") != expected_release_id
+        ):
+            return False
+
+        tracks = item.get("tracks")
+        track_ids = _extract_track_ids(item)
+        if not isinstance(tracks, list) or not track_ids:
+            return False
+        if any(
+            isinstance(track, dict) and track.get("albumId") is not None and track.get("albumId") != expected_album_id
+            for track in tracks
+        ):
+            return False
+
+        for rejection in item.get("rejections", []) or []:
+            reason = rejection.get("reason", "") if isinstance(rejection, dict) else str(rejection)
+            if not reason.startswith("Album match is not close enough:"):
+                return False
+
+    return True
+
+
 def _album_trackfile_count(album_id: int | str) -> int:
     """Return how many track files Lidarr currently has registered for an album."""
     arr_api_request("GET", f"trackfile?albumId={album_id}")
@@ -225,8 +271,13 @@ def manual_import_release(
         return False, ["Unexpected manual import response from Lidarr"]
 
     rejections = _collect_rejections(results)
-    if rejections:
+    if rejections and not _has_only_forced_album_score_rejections(results, artist_id, album_id, release_id):
         return False, rejections
+    if rejections:
+        log.warning(
+            "Lidarr rejected its album-score preflight, but the forced artist, album, release, and track IDs "
+            "are intact; proceeding with the strict ManualImport command"
+        )
 
     return submit_manual_import(results, artist_id, album_id, release_id)
 

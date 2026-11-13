@@ -6,6 +6,7 @@ import sys
 import tempfile
 import unittest
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import closing
 from datetime import date
 from pathlib import Path
 from unittest.mock import patch
@@ -181,7 +182,7 @@ class DailyDownloadQuotaTests(unittest.TestCase):
     def test_corrupt_database_and_semantically_invalid_state_fail_closed(self):
         quota = self.quota()
         database = self.path / "daily_download_quota.sqlite3"
-        with sqlite3.connect(database) as connection:
+        with closing(sqlite3.connect(database)) as connection, connection:
             connection.execute("INSERT INTO jobs VALUES ('bad', 'completed', 'not-a-date')")
         with self.assertRaises(QuotaStateError):
             quota.reserve("another")
@@ -210,7 +211,7 @@ class DailyDownloadQuotaTests(unittest.TestCase):
 
     def test_schema_tampering_fails_closed(self):
         quota = self.quota()
-        with sqlite3.connect(self.path / "daily_download_quota.sqlite3") as connection:
+        with closing(sqlite3.connect(self.path / "daily_download_quota.sqlite3")) as connection, connection:
             connection.execute("DROP TABLE jobs")
             connection.execute("CREATE TABLE jobs (id TEXT, status TEXT NOT NULL, day TEXT)")
         with self.assertRaises(QuotaStateError):
