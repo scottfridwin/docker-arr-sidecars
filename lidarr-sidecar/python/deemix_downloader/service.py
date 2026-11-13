@@ -14,6 +14,7 @@ Orchestrates:
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import json
 import os
 import re
@@ -21,7 +22,9 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
+from collections import OrderedDict
 from collections.abc import Callable
 from datetime import date
 from pathlib import Path
@@ -94,6 +97,10 @@ _INSTRUMENTAL_RE = (
     if cfg.instrumental_keywords
     else None
 )
+_INDEXER_VALIDATION_CACHE_TTL = 300
+_INDEXER_VALIDATION_CACHE_SIZE = 16
+_INDEXER_VALIDATION_CACHE: OrderedDict[str, tuple[float, int, list[dict]]] = OrderedDict()
+_INDEXER_VALIDATION_LOCK = threading.Lock()
 # ─── Daily download limit ──────────────────────────────────────────────
 
 
@@ -583,30 +590,50 @@ def _indexer_report_title(album: dict, artist_albums: list[dict], release: dict)
 
 
 def _validate_indexer_results(results: list[dict], offset: int = 0, limit: int | None = None) -> list[dict]:
-    albums_by_artist: dict[str, list[dict]] = {}
-    validated = []
-    for result in results:
-        artist_id = result["artist_id"]
-        if artist_id not in albums_by_artist:
-            albums_by_artist[artist_id] = _indexer_artist_albums({"id": artist_id, "artistName": result["artist_name"]})
-        albums = albums_by_artist[artist_id]
-        album = next((candidate for candidate in albums if str(candidate.get("id")) == result["album_id"]), None)
-        if (
-            album is None
-            or album.get("title") != result["album_title"]
-            or (album.get("artist") or {}).get("artistName") != result["artist_name"]
-        ):
-            log.warning(
-                f"Not offering {result['artist_name']} - {result['album_title']}: "
-                "Lidarr library changed since the search"
-            )
-            continue
-        report_title = _indexer_report_title(album, albums, result)
-        if report_title is not None:
-            validated.append({**result, "report_title": report_title})
-            if limit is not None and len(validated) >= offset + limit:
-                break
-    return validated[offset : offset + limit if limit is not None else None]
+    key = hashlib.sha256(json.dumps(results, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    required = offset + limit if limit is not None else len(results)
+    with _INDEXER_VALIDATION_LOCK:
+        now = time.monotonic()
+        cached = _INDEXER_VALIDATION_CACHE.get(key)
+        if cached is None or cached[0] <= now:
+            validated: list[dict] = []
+            source_index = 0
+        else:
+            _, source_index, previous_results = cached
+            validated = list(previous_results)
+            _INDEXER_VALIDATION_CACHE.move_to_end(key)
+
+        albums_by_artist: dict[str, list[dict]] = {}
+        while source_index < len(results) and len(validated) < required:
+            result = results[source_index]
+            source_index += 1
+            artist_id = result["artist_id"]
+            if artist_id not in albums_by_artist:
+                albums_by_artist[artist_id] = _indexer_artist_albums(
+                    {"id": artist_id, "artistName": result["artist_name"]}
+                )
+            albums = albums_by_artist[artist_id]
+            album = next((candidate for candidate in albums if str(candidate.get("id")) == result["album_id"]), None)
+            if (
+                album is None
+                or album.get("title") != result["album_title"]
+                or (album.get("artist") or {}).get("artistName") != result["artist_name"]
+            ):
+                log.warning(
+                    f"Not offering {result['artist_name']} - {result['album_title']}: "
+                    "Lidarr library changed since the search"
+                )
+                continue
+            report_title = _indexer_report_title(album, albums, result)
+            if report_title is not None:
+                validated.append({**result, "report_title": report_title})
+
+        expires = cached[0] if cached is not None and cached[0] > now else now + _INDEXER_VALIDATION_CACHE_TTL
+        _INDEXER_VALIDATION_CACHE[key] = (expires, source_index, validated)
+        _INDEXER_VALIDATION_CACHE.move_to_end(key)
+        while len(_INDEXER_VALIDATION_CACHE) > _INDEXER_VALIDATION_CACHE_SIZE:
+            _INDEXER_VALIDATION_CACHE.popitem(last=False)
+        return validated[offset:required]
 
 
 def _indexer_match_album(album: dict, year: int | None, artist_albums: list[dict]) -> list[dict]:
@@ -900,11 +927,12 @@ def _download_track_identity(file_path: Path) -> tuple[str, int, int] | tuple[st
     return "filename", file_path.name.casefold()
 
 
-def _merge_download_attempt(attempt_dir: Path) -> int:
-    cfg.staging_dir.mkdir(parents=True, exist_ok=True)
+def _merge_download_attempt(attempt_dir: Path, staging_dir: Path | None = None) -> int:
+    staging_dir = staging_dir or cfg.staging_dir
+    staging_dir.mkdir(parents=True, exist_ok=True)
     known_tracks = {
         _download_track_identity(file_path)
-        for file_path in cfg.staging_dir.rglob("*")
+        for file_path in staging_dir.rglob("*")
         if file_path.is_file() and file_path.suffix.lower() in AUDIO_EXTENSIONS
     }
 
@@ -921,10 +949,10 @@ def _merge_download_attempt(attempt_dir: Path) -> int:
             log.debug(f"Skipping duplicate track from retry: {file_path.name}")
             continue
 
-        destination = cfg.staging_dir / file_path.name
+        destination = staging_dir / file_path.name
         suffix = 2
         while destination.exists():
-            destination = cfg.staging_dir / f"{file_path.stem}_{suffix}{file_path.suffix}"
+            destination = staging_dir / f"{file_path.stem}_{suffix}{file_path.suffix}"
             suffix += 1
         shutil.move(str(file_path), str(destination))
         known_tracks.add(identity)
@@ -979,11 +1007,17 @@ def _download_album(
             log.error(f"Cannot download: previous staged audio remains in {import_path}; remove it before retrying")
             return False
 
+    staging_dir = cfg.staging_dir
+    if strict_manual_import and staging_owner_id:
+        if not re.fullmatch(r"[0-9a-f]{32}", staging_owner_id):
+            raise ValueError("Invalid indexer staging owner ID")
+        staging_dir = cfg.staging_dir / "jobs" / staging_owner_id
+
     log.info(f"Downloading: [{deezer_album_id}] {deezer_title} ({release_year})")
 
     attempt_limit = max(1, cfg.download_attempt_threshold)
     qualities = ["flac", "mp3"] if cfg.download_quality_fallback else ["flac"]
-    clean_staging()
+    clean_staging(staging_dir)
     complete = False
 
     for quality_index, quality in enumerate(qualities):
@@ -1012,7 +1046,7 @@ def _download_album(
                         f"Deemix reported failure on attempt #{attempt}/{attempt_limit} ({quality}); "
                         "keeping any completed tracks"
                     )
-                collected_count = _merge_download_attempt(Path(temp_dir))
+                collected_count = _merge_download_attempt(Path(temp_dir), staging_dir)
 
             log.debug(f"Collected {collected_count}/{deezer_track_count} distinct tracks ({quality})")
             if collected_count == deezer_track_count:
@@ -1036,21 +1070,21 @@ def _download_album(
         if not strict_manual_import:
             cfg.failed_dir.mkdir(parents=True, exist_ok=True)
             (cfg.failed_dir / deezer_album_id).touch()
-        clean_staging()
+        clean_staging(staging_dir)
         return False
 
     if on_download_complete is not None:
         on_download_complete()
 
     # Post-processing
-    consolidate_files(cfg.staging_dir)
+    consolidate_files(staging_dir)
     downloaded_timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
     release_foreign_id = result.lidarr_release_foreign_id
     release_lidarr_id = result.lidarr_release_id
 
     _tag_and_enrich(
-        cfg.staging_dir,
+        staging_dir,
         artist_name,
         artist_foreign_id,
         album_title,
@@ -1062,8 +1096,6 @@ def _download_album(
 
     owner_marker = None
     if strict_manual_import and staging_owner_id:
-        if not re.fullmatch(r"[0-9a-f]{32}", staging_owner_id):
-            raise ValueError("Invalid indexer staging owner ID")
         dest = get_import_path(artist_name, album_title, release_year, album_foreign_id)
         if dest.parent.resolve() != cfg.shared_lidarr_path.resolve() or dest.is_symlink():
             raise RuntimeError(f"Unsafe indexer import path: {dest}")
@@ -1075,7 +1107,7 @@ def _download_album(
             pass
 
     # Move and import
-    dest = move_to_import(artist_name, album_title, release_year, album_foreign_id)
+    dest = move_to_import(artist_name, album_title, release_year, album_foreign_id, staging_dir=staging_dir)
     import_ok = True
     if strict_manual_import or cfg.import_strategy == "manual":
         if not (artist_id and album_id and release_lidarr_id):
@@ -1133,7 +1165,7 @@ def _download_album(
         _remove_from_priority_file(entry_to_remove)
 
     log.info(f'Successfully downloaded "{deezer_title}"')
-    clean_staging()
+    clean_staging(staging_dir)
     return True
 
 

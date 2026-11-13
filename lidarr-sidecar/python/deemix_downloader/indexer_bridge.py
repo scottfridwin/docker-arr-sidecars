@@ -12,6 +12,7 @@ import hmac
 import json
 import os
 import re
+import shutil
 import sqlite3
 import threading
 import time
@@ -654,6 +655,16 @@ class IndexerBridge:
         if not any(folder.iterdir()):
             folder.rmdir()
 
+    def _remove_recovery_staging(self, job_id: str) -> None:
+        if not re.fullmatch(r"[0-9a-f]{32}", job_id):
+            raise RuntimeError(f"Unsafe recovery staging ID: {job_id}")
+        staging_root = self.store.path.parent / "staging" / "jobs"
+        staging = staging_root / job_id
+        if staging_root.is_symlink() or staging.is_symlink() or staging.parent.resolve() != staging_root.resolve():
+            raise RuntimeError(f"Unsafe recovery staging path: {staging}")
+        if staging.is_dir():
+            shutil.rmtree(staging)
+
     def _remove_job(self, nzb_id: int) -> bool:
         with self._removal_lock, self.store.locked():
             job = self.store.get_job_by_nzb_id(nzb_id)
@@ -668,6 +679,7 @@ class IndexerBridge:
                 else:
                     log.warning(f"Removing recovery job {job['id']}; review staged or partially imported files")
                 self._remove_recovery_audio(job["id"])
+                self._remove_recovery_staging(job["id"])
                 return self.store.remove_job(nzb_id, allow_recovery=True)
             return self.store.remove_job(nzb_id)
 

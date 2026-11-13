@@ -12,6 +12,24 @@ from deemix_downloader.matching import MatchResult, ReleaseCandidate
 
 
 class ServiceSearchTests(unittest.TestCase):
+    def test_result_validation_reuses_prior_pages(self):
+        releases = [{**self.indexer_release(), "album_id": str(i), "album_title": f"Album {i}"} for i in range(250)]
+        albums = [{"id": i, "title": f"Album {i}", "artist": {"artistName": "Test Artist"}} for i in range(250)]
+
+        def report_title(_album, _albums, release):
+            return release["album_title"]
+
+        with (
+            patch.object(service, "_indexer_artist_albums", return_value=albums),
+            patch.object(service, "_indexer_report_title", side_effect=report_title) as parse,
+        ):
+            first = service._validate_indexer_results(releases, 0, 100)
+            self.assertEqual(len(first), 100)
+            self.assertEqual(parse.call_count, 100)
+            second = service._validate_indexer_results(releases, 100, 100)
+            self.assertEqual(len(second), 100)
+            self.assertEqual(parse.call_count, 200)
+
     def test_result_validation_stops_at_page_end_after_invalid_candidates(self):
         releases = [{**self.indexer_release(), "album_id": str(i), "album_title": f"Album {i}"} for i in range(1000)]
         albums = [{"id": i, "title": f"Album {i}", "artist": {"artistName": "Test Artist"}} for i in range(1000)]
@@ -26,6 +44,27 @@ class ServiceSearchTests(unittest.TestCase):
             page = service._validate_indexer_results(releases, 1, 2)
         self.assertEqual([item["album_id"] for item in page], ["3", "4"])
         self.assertEqual(parse.call_count, 5)
+
+    def test_result_validation_does_not_cache_partial_results_after_error(self):
+        releases = [{**self.indexer_release(), "album_id": str(i), "album_title": f"Album {i}"} for i in range(2)]
+        albums = [{"id": i, "title": f"Album {i}", "artist": {"artistName": "Test Artist"}} for i in range(2)]
+        failed_once = False
+
+        def title(_album, _albums, release):
+            nonlocal failed_once
+            if release["album_id"] == "1" and not failed_once:
+                failed_once = True
+                raise RuntimeError("parse unavailable")
+            return release["album_title"]
+
+        with (
+            patch.object(service, "_indexer_artist_albums", return_value=albums),
+            patch.object(service, "_indexer_report_title", side_effect=title),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "parse unavailable"):
+                service._validate_indexer_results(releases, 0, 2)
+            page = service._validate_indexer_results(releases, 0, 2)
+        self.assertEqual([item["album_id"] for item in page], ["0", "1"])
 
     def test_legacy_and_indexer_services_cannot_run_together(self):
         with (

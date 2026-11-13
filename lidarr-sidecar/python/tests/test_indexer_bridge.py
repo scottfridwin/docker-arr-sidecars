@@ -335,6 +335,20 @@ class IndexerBridgeTests(unittest.TestCase):
         self.assertTrue((folder / "link.mp3").is_symlink())
         self.assertEqual(self.bridge.quota.snapshot().completed, 1)
 
+    def test_removing_recovery_also_removes_its_job_staging(self):
+        release = self.bridge.store.register_release(self.release())
+        self._submit(release["token"])
+        job = self.bridge.store.next_job()
+        self.bridge.store.set_job(job["id"], "needs_recovery")
+        staging = self.work_path / "staging" / "jobs" / job["id"]
+        staging.mkdir(parents=True)
+        audio = staging / "track.flac"
+        audio.touch()
+
+        self.assertTrue(self.bridge._remove_job(job["nzb_id"]))
+        self.assertFalse(audio.exists())
+        self.assertFalse(staging.exists())
+
     def test_recovery_audio_is_kept_if_another_job_uses_same_folder(self):
         first = self.bridge.store.register_release(self.release())
         second = self.bridge.store.register_release({**self.release(), "deezer_album_id": "45"})

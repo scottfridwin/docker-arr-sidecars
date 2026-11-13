@@ -60,6 +60,19 @@ class MatchingTests(unittest.TestCase):
             ):
                 matching.find_all_matches(candidates, "Album")
 
+    def test_deezer_service_busy_is_transient(self):
+        config = Config(deezer_api_retries=1)
+        response = Mock(status_code=200)
+        response.json.return_value = {"error": {"code": 700, "message": "Service Busy"}}
+        with (
+            patch.object(deezer_api, "cfg", config),
+            patch.object(deezer_api, "_get_session") as session,
+            deezer_api.raise_transient_errors(),
+            self.assertRaises(deezer_api.DeezerUnavailable),
+        ):
+            session.return_value.get.return_value = response
+            deezer_api.call_deezer_api("https://api.deezer.com/album/10")
+
     def test_indexer_does_not_offer_unknown_track_count(self):
         candidate = matching.ReleaseCandidate(title="Album", release_id="1", deezer_album_id="10")
         for count in (0, None, "1"):
@@ -80,6 +93,7 @@ class MatchingTests(unittest.TestCase):
                 release_status="Official",
                 track_count=20,
                 country_priority=0,
+                contains_commentary=True,
             ),
             matching.ReleaseCandidate(
                 title="Album",
@@ -121,6 +135,23 @@ class MatchingTests(unittest.TestCase):
             result = matching.find_best_match([candidate], "1989", set())
         self.assertFalse(result.matched)
         self.assertIn("track mismatch=1", result.reason)
+
+    def test_invalid_deezer_track_count_falls_back_to_next_release(self):
+        candidates = [
+            matching.ReleaseCandidate(title="Album", release_id="1", deezer_album_id="10", track_count=1),
+            matching.ReleaseCandidate(title="Album", release_id="2", deezer_album_id="20", track_count=1),
+        ]
+        albums = {
+            "10": {"id": "10", "title": "Album", "nb_tracks": 0},
+            "20": {"id": "20", "title": "Album", "nb_tracks": 1},
+        }
+        with (
+            patch.object(matching, "get_deezer_album_info", side_effect=albums.get),
+            patch.object(matching.cfg, "require_upc_match", False),
+        ):
+            result = matching.find_best_match(candidates, "Album", set())
+        self.assertTrue(result.matched)
+        self.assertEqual(result.lidarr_release_id, "2")
 
     def test_dotted_deluxe_abbreviation_matches_without_bypassing_other_gates(self):
         candidate = matching.ReleaseCandidate(

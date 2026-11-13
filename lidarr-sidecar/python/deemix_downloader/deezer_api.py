@@ -61,7 +61,7 @@ def call_deezer_api(url: str) -> dict | list | None:
                     err = data["error"]
                     if err:
                         log.warning(f"Deezer API error for {url}: {err}")
-                        if not isinstance(err, dict) or err.get("code") != 4:
+                        if not isinstance(err, dict) or err.get("code") not in (4, 700):
                             return None
                         transient = True
                     else:

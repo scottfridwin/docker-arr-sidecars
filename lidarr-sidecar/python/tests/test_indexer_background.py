@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from deemix_downloader.deezer_api import DeezerUnavailable
 from deemix_downloader.indexer_background import BackgroundSearch, SearchWarming
 from deemix_downloader.indexer_search import AmbiguousAlbumError
+from deemix_downloader.musicbrainz_api import MusicBrainzUnavailable
 
 
 class BackgroundSearchTests(unittest.TestCase):
@@ -114,6 +115,18 @@ class BackgroundSearchTests(unittest.TestCase):
     def test_transient_deezer_failure_is_retried_without_caching_partial_results(self):
         with tempfile.TemporaryDirectory() as directory:
             callback = Mock(side_effect=[DeezerUnavailable("temporary"), [{"album_id": "1"}]])
+            background = BackgroundSearch(directory, callback, wait_seconds=2, retry_seconds=0.01)
+            worker = background.start()
+            try:
+                self.assertEqual(background.search(q="artist"), [{"album_id": "1"}])
+                self.assertEqual(callback.call_count, 2)
+            finally:
+                background.stop()
+                worker.join(2)
+
+    def test_transient_musicbrainz_failure_is_retried_without_caching_partial_results(self):
+        with tempfile.TemporaryDirectory() as directory:
+            callback = Mock(side_effect=[MusicBrainzUnavailable("temporary"), [{"album_id": "1"}]])
             background = BackgroundSearch(directory, callback, wait_seconds=2, retry_seconds=0.01)
             worker = background.start()
             try:

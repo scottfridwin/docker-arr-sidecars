@@ -383,6 +383,70 @@ class ServiceDownloadRetryTests(unittest.TestCase):
             self.assertFalse(config.failed_dir.exists())
             self.assertEqual(list(config.shared_lidarr_path.rglob(".deemix-owner-*")), [])
 
+    def test_job_staging_survives_later_download_cleanup(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            config = Config(
+                work_path=root / "work",
+                data_path=root / "data",
+                shared_lidarr_path=root / "shared",
+                download_attempt_threshold=1,
+                download_quality_fallback=False,
+            )
+            config.work_path.mkdir()
+            config.shared_lidarr_path.mkdir()
+            result = MatchResult(
+                deezer_album_id="42",
+                deezer_title="Album",
+                deezer_track_count=1,
+                lidarr_release_id="3",
+                lidarr_release_foreign_id="release-mbid",
+            )
+
+            def fake_download(_album_id, _arl_token, _quality, _deemix_dir, *, output_dir):
+                (output_dir / "track.flac").touch()
+                return True
+
+            with (
+                patch.object(service, "cfg", config),
+                patch.object(download, "cfg", config),
+                patch.object(service, "download_with_deemix", side_effect=fake_download),
+                patch.object(service, "verify_flac", return_value=True),
+                patch.object(service, "_tag_and_enrich"),
+                patch.object(service, "manual_import_release", return_value=(True, [])),
+            ):
+                with self.assertRaisesRegex(RuntimeError, "quota completion failed"):
+                    service._download_album(
+                        result,
+                        "Artist",
+                        "1",
+                        "artist-mbid",
+                        "Album",
+                        "group-mbid",
+                        "2",
+                        "token",
+                        strict_manual_import=True,
+                        staging_owner_id="a" * 32,
+                        on_download_complete=Mock(side_effect=RuntimeError("quota completion failed")),
+                    )
+                recovery_audio = config.staging_dir / "jobs" / ("a" * 32) / "track.flac"
+                self.assertTrue(recovery_audio.exists())
+                self.assertTrue(
+                    service._download_album(
+                        result,
+                        "Artist",
+                        "1",
+                        "artist-mbid",
+                        "Album",
+                        "group-mbid",
+                        "2",
+                        "token",
+                        strict_manual_import=True,
+                        staging_owner_id="b" * 32,
+                    )
+                )
+                self.assertTrue(recovery_audio.exists())
+
     def test_strict_manual_import_never_falls_back_to_scan(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

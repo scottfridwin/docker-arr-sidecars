@@ -17,6 +17,7 @@ from typing import Any
 from .deezer_api import DeezerUnavailable
 from .indexer_search import AmbiguousAlbumError
 from .logging import log
+from .musicbrainz_api import MusicBrainzUnavailable
 from .sqlite_maintenance import compact_if_needed
 
 
@@ -141,7 +142,7 @@ class BackgroundSearch:
             try:
                 results = self.callback(**json.loads(key))
                 status, result, error = "completed", json.dumps(results), None
-            except DeezerUnavailable as exc:
+            except (DeezerUnavailable, MusicBrainzUnavailable) as exc:
                 log.warning(f"Background indexer search will retry: {exc}")
                 status, result, error = "pending", None, str(exc)
             except AmbiguousAlbumError as exc:

@@ -29,11 +29,12 @@ def setup_working_dirs() -> None:
     cfg.notfound_dir.mkdir(parents=True, exist_ok=True)
 
 
-def clean_staging() -> None:
+def clean_staging(staging_dir: Path | None = None) -> None:
     """Remove all files from staging directory."""
-    if cfg.staging_dir.exists():
-        shutil.rmtree(cfg.staging_dir)
-    cfg.staging_dir.mkdir(parents=True, exist_ok=True)
+    staging_dir = staging_dir or cfg.staging_dir
+    if staging_dir.exists():
+        shutil.rmtree(staging_dir)
+    staging_dir.mkdir(parents=True, exist_ok=True)
 
 
 def prune_cache() -> None:
@@ -476,6 +477,8 @@ def move_to_import(
     album_title: str,
     release_year: str,
     album_foreign_id: str = "",
+    *,
+    staging_dir: Path | None = None,
 ) -> Path:
     """Move staged files to the shared import path. Returns the destination folder.
 
@@ -486,7 +489,7 @@ def move_to_import(
     dest = get_import_path(artist_name, album_title, release_year, album_foreign_id)
     dest.mkdir(parents=True, exist_ok=True)
 
-    for f in cfg.staging_dir.iterdir():
+    for f in (staging_dir or cfg.staging_dir).iterdir():
         if f.is_file() and f.suffix.lower() in AUDIO_EXTENSIONS:
             shutil.move(str(f), str(dest / f.name))
 

@@ -147,14 +147,12 @@ def _normalize_upc(value: str) -> str:
 def _rank_release(candidate: ReleaseCandidate) -> tuple:
     """
     Sort key for ranking releases. Lower is better.
-    1. Not commentary
-    2. Not instrumental
-    3. Country priority
-    4. Format priority
-    5. Higher track count
+    1. Not instrumental
+    2. Country priority
+    3. Format priority
+    4. Higher track count
     """
     return (
-        int(candidate.contains_commentary),
         int(candidate.instrumental),
         candidate.country_priority,
         candidate.format_priority,
@@ -314,6 +312,10 @@ def _match_candidates(
 
         deezer_title = album_data.get("title", "")
         deezer_track_count = album_data.get("nb_tracks", 0)
+        if type(deezer_track_count) is not int or deezer_track_count <= 0:
+            log.warning(f"Skipping Deezer album {deezer_id}: missing or invalid track count")
+            reject_counts["track_count_mismatch"] += 1
+            continue
         deezer_explicit = album_data.get("explicit_lyrics", False)
         deezer_release_date = album_data.get("release_date", "")
         deezer_year = deezer_release_date[:4] if deezer_release_date else ""
