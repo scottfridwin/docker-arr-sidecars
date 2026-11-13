@@ -28,6 +28,15 @@ independent. No implementation is included in this plan.
    client. A SABnzbd-compatible bridge is a candidate for queue/history
    visibility; a blackhole offers weaker tracking. These observations are not
    an end-to-end proof and may differ in the deployed Lidarr version.
+   A local Lidarr 3.1.6.5079 instance exposes Newznab and SABnzbd schemas,
+   but an actual search and grab have not yet been verified.
+
+   Source inspection also shows that Lidarr fetches and validates NZB bytes
+   before submitting them to the client, so the bridge must recover the release
+   identity from the submitted document. Bind the indexer to this client so
+   synthetic NZBs cannot be sent to a normal Usenet client. Completed SABnzbd
+   jobs can trigger automatic import; verify an ordering that prevents this
+   from racing the required forced manual import.
 
 2. Separate searching from downloading.
 
