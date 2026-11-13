@@ -1,0 +1,107 @@
+Deemix integration with Lidarr search
+
+Goal and scope
+
+Replace the Deemix wanted-list polling workflow with a service that exposes
+search results to Lidarr through an indexer and downloads only releases Lidarr
+chooses to grab. Searches remain available without a daily search limit, even
+when the download quota is exhausted. Keep the existing ManualImport service
+independent. No implementation is included in this plan.
+
+1. Prove the Lidarr protocol and end-to-end handoff before committing to an
+   adapter design.
+
+   Verify against the supported Lidarr version which Newznab/Torznab capabilities,
+   music search parameters, identifiers, release fields, quality naming, and
+   download links Lidarr actually accepts. Capture real interactive and automatic
+   search requests, including ID-based and text-only searches. Determine how
+   Lidarr selects a download client, submits a grab, tracks it, and imports its
+   completed files. An indexer alone is not a download client: validate a
+   compatible client protocol or a blackhole-based bridge with a real Lidarr
+   instance, including queue, failures, retries, and completed-download handling.
+   Choose one proven handoff and document its constraints before building on it;
+   do not assume a synthetic NZB or URL is sufficient.
+
+2. Separate searching from downloading.
+
+   Extract the candidate-building and matching flow in
+   python/deemix_downloader/service.py and matching.py into reusable search
+   operations. Resolve Lidarr album/release identities from the actual search
+   parameters, using MusicBrainz release relations and Deezer validation as
+   today. Preserve ranking, explicit/clean, redirect, UPC, title, track-count,
+   country and format preferences. Define unambiguous behavior for missing IDs,
+   ambiguous text searches, no match, unavailable upstreams, and unsupported
+   requests; avoid returning a misleading match. Keep searches read-only with
+   respect to downloads, quota, and downloaded/failed markers.
+
+3. Implement the indexer and the proven grab bridge.
+
+   Provide capability discovery and search responses in the verified protocol.
+   Give each result a stable identity and enough accurate metadata for Lidarr
+   to match the album and evaluate its quality; never advertise an unverified
+   bitrate or format. Associate a selected release with its Lidarr album,
+   MusicBrainz release and Deezer album through an opaque, validated identifier.
+   Expose a reachable configurable URL and authenticate requests; do not expose
+   the ARL token or allow arbitrary paths, URLs, or shell arguments. Ensure the
+   bridge supports manual and automatic grabs, duplicate submissions, restart
+   recovery, meaningful error states, and appropriate network timeouts. Avoid
+   downloading merely because Lidarr fetches or previews a search result.
+
+4. Enforce the daily download limit at the download boundary.
+
+   Retain AUDIO_DAILY_DOWNLOAD_LIMIT=0 as unlimited. Define an album as the
+   accounting unit, use the existing local-calendar-day boundary, and count a
+   successfully completed album download once, even if Lidarr import later
+   fails. Reserve quota atomically before an actual download starts so parallel
+   jobs cannot exceed the limit; release reservations on download failure and
+   reconcile interrupted jobs after restart without double-counting. Persist
+   quota and job state under the configured work path, including a safe
+   migration of the existing daily_download_state file. Fail safely on corrupt
+   or unavailable state rather than silently resetting a configured limit.
+   When full, searches still return results; grabs are queued until the next day
+   with an observable status, or explicitly rejected if the verified client
+   protocol cannot represent a waiting job. Document the chosen behavior.
+
+5. Reuse download and import behavior.
+
+   Move the selected-release execution into a job worker using existing deemix
+   retries and quality fallback, tagging, ReplayGain/Beets, staging, and import
+   verification. Preserve release IDs through the handoff so scan and manual
+   import strategies can identify the intended album. Ensure the chosen client
+   integration does not trigger duplicate imports or downloads, and supports
+   Lidarr-visible completion and failures. Reconcile results/missing history
+   and retry markers with interactive searches so a past automatic failure
+   does not silently suppress a user's legitimate search or retry.
+
+6. Integrate and migrate.
+
+   Update the persistent-service entry point, container configuration, network
+   exposure, health checks, and optional Lidarr setup to register the verified
+   indexer/client safely and idempotently. Stop the old wanted-list poller by
+   default so both paths cannot grab the same album. Document the migration,
+   retained settings, obsolete polling and priority settings, shared-path
+   requirements, authentication, quota reset/time zone, failure recovery, and
+   rollback. Decide explicitly whether priority-file processing and its quota
+   exemption are retired or supported without undermining the limit.
+
+7. Validate.
+
+   Add unit and contract tests with captured Lidarr requests for capability
+   discovery, ID and text search, matching gates, stable release identity,
+   authentication, and malformed or unsupported requests. Test concurrent
+   reservations, duplicate grabs, unlimited and exhausted quotas, midnight,
+   failure, restart, corrupt state, and migration. Exercise downloads, quality
+   fallback, post-processing, imports and failures with fakes. Run existing
+   shared and Lidarr unit suites, Ruff, and the Lidarr Docker test target.
+   Finally, run a real Lidarr integration test covering interactive and
+   automatic search, grab, queue visibility, completed import, retry, and
+   searching while the quota is exhausted.
+
+Review decisions
+
+- Confirm whether quota-exhausted grabs should wait or be rejected, subject to
+  the verified Lidarr client protocol.
+- Confirm whether the legacy priority file and quota exemption should survive
+  the move away from standalone polling.
+- Confirm whether backward-compatible scan/manual import modes are required
+  if they conflict with the verified completed-download workflow.
