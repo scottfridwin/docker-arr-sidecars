@@ -339,6 +339,7 @@ class IndexerBridge:
             )
             return
 
+        release["lidarr_download_ids"] = list(self.store.client_ids(job_id))
         self.store.set_job(job_id, "downloading")
         download_completed = False
         completion_started = False
@@ -361,10 +362,17 @@ class IndexerBridge:
             raise RuntimeError("download worker reported import success without recording download completion")
         if not download_completed:
             self.quota.fail(quota_id)
+        current = self.store.get_job(job_id)
+        if current and current["status"] == "removed":
+            return
         if imported:
+            self._history_dest_dir(job_id).mkdir(parents=True, exist_ok=True)
             self.store.set_job(job_id, "completed")
         else:
             self.store.set_job(job_id, "failed", "Download or strict manual import failed")
+
+    def _history_dest_dir(self, job_id: str) -> Path:
+        return Path(self.import_path) / ".deemix-bridge" / job_id
 
     def _authenticated(self, query: dict[str, list[str]]) -> bool:
         supplied = query.get("apikey", [""])[0]
@@ -557,6 +565,8 @@ class IndexerBridge:
             for row in rows:
                 payload = json.loads(row["payload"])
                 succeeded = row["status"] == "completed"
+                dest_dir = self._history_dest_dir(row["id"])
+                dest_dir.mkdir(parents=True, exist_ok=True)
                 for client_id in self.store.client_ids(row["id"]):
                     history.append(
                         {
@@ -564,7 +574,7 @@ class IndexerBridge:
                             "Name": payload["artist_name"] + " - " + payload["album_title"],
                             "Category": "Music",
                             "Parameters": [{"Name": "drone", "Value": client_id}],
-                            "DestDir": str(Path(self.import_path) / ".deemix-bridge" / row["id"]),
+                            "DestDir": str(dest_dir),
                             "FinalDir": "",
                             "FileSizeHi": 0,
                             "FileSizeLo": 1,

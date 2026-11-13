@@ -182,6 +182,39 @@ class ManualImportReleaseTests(unittest.TestCase):
         self.assertIn("no new track files", rejections[0])
 
 
+class RemoveLidarrQueueItemsTests(unittest.TestCase):
+    def test_removes_matching_download_ids_across_queue_pages(self):
+        responses = [
+            {"records": [{"id": 1, "downloadId": "other"}], "totalRecords": 2, "pageSize": 1},
+            {"records": [{"id": 2, "downloadId": "target"}], "totalRecords": 2, "pageSize": 1},
+            None,
+        ]
+        state = {"response": None}
+        calls = []
+
+        def fake_request(method, path, _payload=None):
+            calls.append((method, path))
+            state["response"] = responses.pop(0)
+
+        with (
+            patch.object(lidarr_api, "arr_api_request", side_effect=fake_request),
+            patch.object(
+                lidarr_api, "get_state", side_effect=lambda key: state["response"] if key == "arrApiResponse" else None
+            ),
+        ):
+            removed = lidarr_api.remove_lidarr_queue_items(["target"])
+
+        self.assertEqual(removed, 1)
+        self.assertEqual(
+            calls,
+            [
+                ("GET", "queue?page=1&pageSize=1000&includeUnknownArtistItems=true"),
+                ("GET", "queue?page=2&pageSize=1000&includeUnknownArtistItems=true"),
+                ("DELETE", "queue/2?removeFromClient=true&blocklist=false"),
+            ],
+        )
+
+
 class ScanImportVerifyTests(unittest.TestCase):
     def _run(self, responses):
         state = {"i": 0}

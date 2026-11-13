@@ -349,6 +349,61 @@ def submit_manual_import(
     return True, []
 
 
+def remove_lidarr_queue_items(download_ids: list[str] | tuple[str, ...]) -> int:
+    """Remove successfully imported NZBGet items from Lidarr's tracked queue."""
+    target_ids = {str(download_id) for download_id in download_ids if download_id}
+    if not target_ids:
+        log.warning("Cannot clear imported Deemix queue items without Lidarr download IDs")
+        return 0
+
+    queue_ids: set[int] = set()
+    page = 1
+    requested_page_size = 1000
+    while True:
+        arr_api_request(
+            "GET",
+            f"queue?page={page}&pageSize={requested_page_size}&includeUnknownArtistItems=true",
+        )
+        response = get_state("arrApiResponse")
+        try:
+            response = json.loads(response) if isinstance(response, str) else response
+        except json.JSONDecodeError as exc:
+            raise RuntimeError("Lidarr returned invalid queue JSON while clearing an imported item") from exc
+        if not isinstance(response, dict) or not isinstance(response.get("records"), list):
+            raise RuntimeError("Lidarr returned an invalid queue response while clearing an imported item")
+
+        records = response["records"]
+        for item in records:
+            if not isinstance(item, dict) or str(item.get("downloadId") or "") not in target_ids:
+                continue
+            try:
+                queue_id = int(item["id"])
+            except (KeyError, TypeError, ValueError) as exc:
+                raise RuntimeError("Lidarr returned a queue item without a valid ID") from exc
+            if queue_id <= 0:
+                raise RuntimeError("Lidarr returned a queue item without a valid ID")
+            queue_ids.add(queue_id)
+
+        try:
+            total_records = int(response.get("totalRecords", len(records)))
+            page_size = int(response.get("pageSize", requested_page_size))
+        except (TypeError, ValueError) as exc:
+            raise RuntimeError("Lidarr returned invalid queue pagination metadata") from exc
+        if not records or page_size <= 0 or len(records) < page_size or page * page_size >= total_records:
+            break
+        page += 1
+
+    if not queue_ids:
+        log.warning("No Lidarr queue item matched the imported Deemix download IDs")
+        return 0
+
+    for queue_id in sorted(queue_ids):
+        arr_api_request("DELETE", f"queue/{queue_id}?removeFromClient=true&blocklist=false")
+
+    log.info(f"Removed {len(queue_ids)} imported Deemix item(s) from Lidarr's queue")
+    return len(queue_ids)
+
+
 def get_wanted_albums(list_type: str, page: int = 1, page_size: int = 1000, include_artist: bool = False) -> dict:
     """
     Fetch a page of wanted albums from Lidarr.

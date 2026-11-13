@@ -46,7 +46,7 @@ class IndexerBridgeTests(unittest.TestCase):
             client_username="sidecar",
             client_password="p" * 16,
             work_path=self.work_path,
-            import_path="/test/import",
+            import_path=self.work_path / "import",
             download_limit=limit,
             search=fake_search,
             download=download or fake_download,
@@ -133,6 +133,21 @@ class IndexerBridgeTests(unittest.TestCase):
         )
         self.assertEqual(self.bridge.store.client_ids(item["id"]), ("lidarr-grab-id",))
 
+    def test_lidarr_history_delete_during_import_is_not_overwritten(self):
+        def remove_after_import(_release, completed):
+            completed()
+            job = self.bridge.store.jobs(("downloaded",))[0]
+            self.bridge.store.remove_job(job["nzb_id"])
+            return True
+
+        self.bridge = self.make_bridge(download=remove_after_import)
+        release = self.bridge.store.register_release(self.release())
+        self._submit(release["token"])
+        self.bridge._run_job(self.bridge.store.next_job())
+
+        job = self.bridge.store.jobs(("removed",))[0]
+        self.assertEqual(job["status"], "removed")
+
     def test_duplicate_grabs_keep_each_lidarr_download_id_correlated(self):
         release = self.bridge.store.register_release(self.release())
         first_id = self._submit(release["token"], "lidarr-grab-one")
@@ -147,12 +162,33 @@ class IndexerBridgeTests(unittest.TestCase):
         )
 
         self.bridge._run_job(self.bridge.store.next_job())
+        self.assertEqual(
+            self.downloads[0]["lidarr_download_ids"],
+            ["lidarr-grab-one", "lidarr-grab-two"],
+        )
         history, error = self.bridge._jsonrpc({"jsonrpc": "2.0", "id": 3, "method": "history", "params": []})
         self.assertIsNone(error)
         self.assertEqual(
             {item["Parameters"][0]["Value"] for item in history},
             {"lidarr-grab-one", "lidarr-grab-two"},
         )
+
+    def test_completed_history_reports_an_existing_empty_destination(self):
+        release = self.bridge.store.register_release(self.release())
+        self._submit(release["token"])
+        self.bridge._run_job(self.bridge.store.next_job())
+
+        history, error = self.bridge._jsonrpc({"jsonrpc": "2.0", "id": 3, "method": "history", "params": []})
+        self.assertIsNone(error)
+        destination = Path(history[0]["DestDir"])
+        self.assertTrue(destination.is_dir())
+        self.assertEqual(list(destination.iterdir()), [])
+
+        destination.rmdir()
+        history, error = self.bridge._jsonrpc({"jsonrpc": "2.0", "id": 4, "method": "history", "params": []})
+        self.assertIsNone(error)
+        self.assertTrue(Path(history[0]["DestDir"]).is_dir())
+        self.assertEqual(list(Path(history[0]["DestDir"]).iterdir()), [])
 
     def test_append_requires_a_lidarr_download_id(self):
         release = self.bridge.store.register_release(self.release())

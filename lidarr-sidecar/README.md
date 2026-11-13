@@ -59,11 +59,15 @@ Lidarr's Newznab indexer configuration must have RSS disabled, while interactive
 
 The integration was exercised against isolated Lidarr 3.1.6.5079 instances using fake Deezer metadata and, for the import test, generated silent MP3s; no real Deezer credentials or audio were used. Interactive search and grab, automatic `AlbumSearch`, NZBGet `append`/`listgroups`/`history`, a forced import of all 12 Let It Be tracks with the selected artist/album/release IDs, and a failed-job `HistoryRedownload` retry were verified. Lidarr's automatic search command requires `albumIds: [<id>]`; sending a singular `albumId` fails.
 
-Lidarr supplies a `drone` download ID with NZBGet `append`; the bridge persists and echoes it in `listgroups` and `history` so Lidarr can correlate the client item. Live validation confirmed a quota-waiting item appears in both the NZBGet-compatible queue and Lidarr's `/api/v1/queue`, with the same download ID and a “waiting for daily download quota” title. The real Deezer download path and other Lidarr versions have not been tested.
+Lidarr supplies a `drone` download ID with NZBGet `append`; the bridge persists and echoes it in `listgroups` and `history` so Lidarr can correlate the client item. Live validation confirmed a quota-waiting item appears in both the NZBGet-compatible queue and Lidarr's `/api/v1/queue`, with the same download ID and a “waiting for daily download quota” title. Other Lidarr versions have not been tested.
+
+After a successful forced import, the bridge removes the matching Lidarr queue item(s) by download ID without blocklisting them. Its NZBGet `HistoryDelete` handler only updates bridge state; it does not delete imported media. A unique, empty history destination is also kept available so Lidarr never scans the shared staging root.
 
 MusicBrainz requests are serialized within the sidecar process, honor numeric or HTTP-date `Retry-After` values, and share a 60-second budget per Newznab search. If MusicBrainz remains unavailable past that budget, the bridge returns a service-unavailable response instead of waiting until Lidarr disconnects or treating the failure as an empty search. This rate limit is process-local; separate sidecar processes do not coordinate with one another.
 
 On 2026-11-13, an isolated Lidarr 3.1.6.5079 manual search for Olivia Rodrigo's `SOUR` returned one result from the configured Newznab indexer in under one second using cached metadata. The Lidarr queue remained empty and the test import directory had no files. This verified search delivery only; it did not grab or download anything, and no Deezer token was used.
+
+A later user-triggered isolated grab downloaded Olivia Rodrigo's `SOUR` and Lidarr imported 11 tracks. Logs exposed that Lidarr kept the item in `importPending` because the bridge's reported history destination did not exist. The stale queue entry was removed manually after confirming the tracks remained in the isolated library; automatic cleanup is covered by tests, but was not live-verified with another download.
 
 ### Setup and migration
 

@@ -123,7 +123,7 @@ validation; deployment setup is documented in README.md.
 
 7. Validation performed.
 
-   Shared and Lidarr suites passed (63 and 64 tests), repo-wide Ruff lint and
+   Shared and Lidarr suites passed (63 and 69 tests), repo-wide Ruff lint and
    formatting checks passed, and the Lidarr Docker `test` target built
    successfully. Tests cover Newznab capabilities and stable identities,
    authentication, quota waiting/retry/recovery, staged registration, and
@@ -148,6 +148,15 @@ validation; deployment setup is documented in README.md.
    within the sidecar process, honor `Retry-After`, and use a 60-second
    Newznab-search budget; budget expiry returns service unavailable rather than
    an empty result. No Deezer token or download was used for this check.
+
+   A later user-triggered isolated grab successfully downloaded Olivia
+   Rodrigo's SOUR and Lidarr imported 11 tracks. The queue item remained in
+   `importPending` because its synthetic NZBGet history destination was missing.
+   The bridge now creates that empty destination and removes matching Lidarr
+   queue items after successful forced import, without blocklisting. The stale
+   item from this run was removed manually after confirming the tracks remained
+   in the test library; automatic cleanup was not live-verified with another
+   download.
 
 Review decisions
 

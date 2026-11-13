@@ -63,6 +63,7 @@ from .lidarr_api import (
     get_wanted_albums,
     manual_import_release,
     notify_lidarr_import,
+    remove_lidarr_queue_items,
     scan_import_and_verify,
 )
 from .logging import log
@@ -557,7 +558,7 @@ def download_indexer_release(
         lidarr_release_foreign_id=release["release_foreign_id"],
         matched=True,
     )
-    return _download_album(
+    imported = _download_album(
         result,
         artist_name=release["artist_name"],
         artist_id=release["artist_id"],
@@ -570,6 +571,11 @@ def download_indexer_release(
         ignore_failure_marker=True,
         on_download_complete=on_download_complete,
     )
+    if imported:
+        download_ids = release.get("lidarr_download_ids") or []
+        with _LIDARR_API_LOCK:
+            remove_lidarr_queue_items(download_ids)
+    return imported
 
 
 def search_and_download(
