@@ -121,6 +121,20 @@ class DailyDownloadQuotaTests(unittest.TestCase):
         quota.fail("interrupted")
         self.assertEqual(quota.reserve("new"), ReservationResult.RESERVED)
 
+    def test_settling_uncertain_reservation_charges_once_without_changing_terminal_records(self):
+        quota = self.quota(0)
+        quota.reserve("uncertain")
+        quota.reserve("failed")
+        quota.fail("failed")
+        self.assertIsNone(quota.settle_uncertain("missing"))
+        self.assertEqual(quota.settle_uncertain("failed"), ReservationResult.FAILED)
+        self.assertEqual(quota.settle_uncertain("uncertain"), ReservationResult.RESERVED)
+        self.day = date(2026, 11, 13)
+        self.assertEqual(quota.settle_uncertain("uncertain"), ReservationResult.COMPLETED)
+        self.assertEqual(quota.snapshot().completed, 0)
+        self.day = DAY
+        self.assertEqual(quota.snapshot().completed, 1)
+
     def test_processes_compete_for_capacity_during_initialization(self):
         ctx = multiprocessing.get_context("spawn")
         start = ctx.Event()

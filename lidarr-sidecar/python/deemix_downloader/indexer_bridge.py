@@ -231,14 +231,19 @@ class BridgeStore:
                 statuses,
             ).fetchall()
 
-    def remove_job(self, nzb_id: int) -> bool:
+    def remove_job(self, nzb_id: int, *, allow_recovery: bool = False) -> bool:
         with self._lock, self._connection() as connection:
             cursor = connection.execute(
                 "UPDATE jobs SET status='removed', updated=? "
-                "WHERE nzb_id=? AND status NOT IN ('downloading', 'downloaded', 'needs_recovery')",
-                (datetime.now(UTC).isoformat(), nzb_id),
+                "WHERE nzb_id=? AND status NOT IN ('downloading', 'downloaded') "
+                "AND (status != 'needs_recovery' OR ?)",
+                (datetime.now(UTC).isoformat(), nzb_id, allow_recovery),
             )
             return cursor.rowcount == 1
+
+    def get_job_by_nzb_id(self, nzb_id: int) -> sqlite3.Row | None:
+        with self._lock, self._connection() as connection:
+            return connection.execute("SELECT * FROM jobs WHERE nzb_id=?", (nzb_id,)).fetchone()
 
     def retry_job(self, nzb_id: int) -> bool:
         with self._lock, self._connection() as connection:
@@ -321,6 +326,7 @@ class IndexerBridge:
         self.on_import_complete = on_import_complete
         self.worker_interval = worker_interval
         self._worker_stop = threading.Event()
+        self._removal_lock = threading.Lock()
         self.store.recover(self.quota)
 
     def start_worker(self) -> threading.Thread:
@@ -413,6 +419,22 @@ class IndexerBridge:
 
     def _history_dest_dir(self, job_id: str) -> Path:
         return Path(self.import_path) / ".deemix-bridge" / job_id
+
+    def _remove_job(self, nzb_id: int) -> bool:
+        with self._removal_lock:
+            job = self.store.get_job_by_nzb_id(nzb_id)
+            if job and job["status"] == "needs_recovery":
+                quota_id = f"{job['id']}:{job['attempt']}"
+                quota_status = self.quota.settle_uncertain(quota_id)
+                if quota_status == ReservationResult.RESERVED:
+                    log.warning(
+                        f"Charged uncertain download {job['id']} to today's quota before removing it; "
+                        "review any staged or partially imported files before retrying"
+                    )
+                else:
+                    log.warning(f"Removing recovery job {job['id']}; review staged or partially imported files")
+                return self.store.remove_job(nzb_id, allow_recovery=True)
+            return self.store.remove_job(nzb_id)
 
     def _authenticated(self, query: dict[str, list[str]]) -> bool:
         supplied = query.get("apikey", [""])[0]
@@ -645,9 +667,9 @@ class IndexerBridge:
             except (TypeError, ValueError):
                 return False, None
             if command == "GroupFinalDelete":
-                return self.store.remove_job(nzb_id), None
+                return self._remove_job(nzb_id), None
             if command == "HistoryDelete":
-                return self.store.remove_job(nzb_id), None
+                return self._remove_job(nzb_id), None
             if command == "HistoryRedownload":
                 return self.store.retry_job(nzb_id), None
             return False, None

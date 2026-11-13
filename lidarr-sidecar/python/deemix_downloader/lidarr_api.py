@@ -140,6 +140,8 @@ def _has_only_forced_album_score_rejections(
     artist_id: int | str,
     album_id: int | str,
     release_id: int | str,
+    *,
+    allow_release_not_requested: bool = False,
 ) -> bool:
     """Allow Lidarr's album-score rejection only when its forced IDs and track mappings remain exact."""
     expected_artist_id, expected_album_id, expected_release_id = (
@@ -175,7 +177,9 @@ def _has_only_forced_album_score_rejections(
 
         for rejection in item.get("rejections", []) or []:
             reason = rejection.get("reason", "") if isinstance(rejection, dict) else str(rejection)
-            if not reason.startswith("Album match is not close enough:"):
+            if not reason.startswith("Album match is not close enough:") and not (
+                allow_release_not_requested and reason == "Album release not requested"
+            ):
                 return False
 
     return True
@@ -223,18 +227,8 @@ def manual_import_release(
     actual import must be queued as a ManualImport *command*, so after a clean
     reprocess we submit that command and confirm Lidarr registered track files.
     """
-    if strict:
-        allowed, reason = can_import_without_replacement(album_id)
-        if not allowed:
-            return False, [reason]
-
     folder = quote_plus(import_path)
-    replace_existing = not strict
-    replace_flag = str(replace_existing).lower()
-    path = (
-        f"manualimport?folder={folder}&artistId={artist_id}"
-        f"&filterExistingFiles=false&replaceExistingFiles={replace_flag}"
-    )
+    path = f"manualimport?folder={folder}&artistId={artist_id}&filterExistingFiles=false&replaceExistingFiles=true"
     arr_api_request("GET", path)
     response = get_state("arrApiResponse")
 
@@ -263,7 +257,7 @@ def manual_import_release(
                 "indexerFlags": item.get("indexerFlags", 0),
                 "downloadId": item.get("downloadId", ""),
                 "additionalFile": bool(item.get("additionalFile", False)),
-                "replaceExistingFiles": replace_existing,
+                "replaceExistingFiles": True,
                 "disableReleaseSwitching": True,
             }
         )
@@ -284,12 +278,14 @@ def manual_import_release(
         return False, ["Unexpected manual import response from Lidarr"]
 
     rejections = _collect_rejections(results)
-    if rejections and not _has_only_forced_album_score_rejections(results, artist_id, album_id, release_id):
+    if rejections and not _has_only_forced_album_score_rejections(
+        results, artist_id, album_id, release_id, allow_release_not_requested=strict
+    ):
         return False, rejections
     if rejections:
         log.warning(
-            "Lidarr rejected its album-score preflight, but the forced artist, album, release, and track IDs "
-            "are intact; proceeding with the strict ManualImport command"
+            "Lidarr rejected its album-score or release-selection preflight, but the forced artist, album, "
+            "release, and track IDs are intact; proceeding with the ManualImport command"
         )
 
     if strict:
@@ -347,15 +343,6 @@ def _strict_album_file_ids(album_id: int | str) -> tuple[set[int], str]:
             return set(), "Lidarr returned an invalid album track-file list"
         ids.add(item["id"])
     return ids, ""
-
-
-def can_import_without_replacement(album_id: int | str) -> tuple[bool, str]:
-    existing_files, error = _strict_album_file_ids(album_id)
-    if error:
-        return False, error
-    if existing_files:
-        return False, "Album already has track files; automatic replacement is not supported"
-    return True, ""
 
 
 def submit_manual_import(
@@ -427,15 +414,13 @@ def submit_manual_import(
         before_files, error = _strict_album_file_ids(album_id)
         if error:
             return False, [error]
-        if before_files or any(expected_tracks.values()):
-            return False, ["Album already has track files; automatic replacement is not supported"]
     else:
         before_count = _album_trackfile_count(album_id)
 
     command = {
         "name": "ManualImport",
         "importMode": import_mode,
-        "replaceExistingFiles": not strict,
+        "replaceExistingFiles": True,
         "files": files,
     }
     arr_api_request("POST", "command", json.dumps(command))
@@ -457,9 +442,9 @@ def submit_manual_import(
         if error:
             return False, [error]
         if set(imported_tracks) != set(expected_tracks) or any(
-            not file_id or file_id not in after_files for file_id in imported_tracks.values()
+            not file_id or file_id not in after_files or file_id in before_files for file_id in imported_tracks.values()
         ):
-            return False, ["ManualImport completed but not all selected release tracks have registered files"]
+            return False, ["ManualImport completed but not all selected release tracks have new registered files"]
         return True, []
 
     after_count = _album_trackfile_count(album_id)

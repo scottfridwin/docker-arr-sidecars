@@ -46,6 +46,7 @@ from .download import (
     consolidate_files,
     download_with_deemix,
     get_file_disc_track_numbers,
+    get_import_path,
     move_to_import,
     prune_cache,
     remove_existing_import_flac_files,
@@ -58,7 +59,6 @@ from .download import (
 from .indexer_search import AmbiguousAlbumError, resolve_album
 from .lidarr_api import (
     add_download_client,
-    can_import_without_replacement,
     get_album_data,
     get_album_ids_by_artist,
     get_album_ids_by_release_group,
@@ -910,10 +910,11 @@ def _download_album(
         return False
 
     if strict_manual_import:
-        with _LIDARR_API_LOCK:
-            allowed, reason = can_import_without_replacement(album_id)
-        if not allowed:
-            log.error(f'Cannot download "{deezer_title}" for strict import: {reason}')
+        import_path = get_import_path(artist_name, album_title, release_year, album_foreign_id)
+        if import_path.is_dir() and any(
+            path.is_file() and path.suffix.lower() in AUDIO_EXTENSIONS for path in import_path.rglob("*")
+        ):
+            log.error(f"Cannot download: previous staged audio remains in {import_path}; remove it before retrying")
             return False
 
     log.info(f"Downloading: [{deezer_album_id}] {deezer_title} ({release_year})")

@@ -20,8 +20,9 @@ The local date of completion determines the charged day. Pending reservations
 consume capacity on *every* day until resolved, including after midnight and
 restart. ``snapshot`` exposes them for reconciliation; use ``complete`` only
 with evidence of success and ``fail`` only with evidence of failure. Unknown
-outcomes remain reserved, never silently released. A limit of zero is unlimited
-but jobs and completions are still recorded. State is retained indefinitely.
+outcomes remain reserved until an operator discards the job, at which point
+``settle_uncertain`` charges it conservatively. A limit of zero is unlimited but
+jobs and completions are still recorded. State is retained indefinitely.
 
 The legacy ``daily_download_state`` date/count is imported once without changing
 that file. Stop the old service before migration: it does not share our locks.
@@ -290,6 +291,21 @@ class DailyDownloadQuota:
     def complete(self, job_id: str) -> None:
         """Record a known successful download once, irrespective of import."""
         self._finish(job_id, "completed")
+
+    def settle_uncertain(self, job_id: str) -> ReservationResult | None:
+        """Charge an unresolved reservation conservatively before discarding its job."""
+        self._check_id(job_id)
+
+        def settle_transaction(connection):
+            existing = connection.execute("SELECT status FROM jobs WHERE id = ?", (job_id,)).fetchone()
+            if not existing:
+                return None
+            status = ReservationResult(existing[0])
+            if status == ReservationResult.RESERVED:
+                connection.execute("UPDATE jobs SET status = 'completed', day = ? WHERE id = ?", (self._day(), job_id))
+            return status
+
+        return self._run(settle_transaction)
 
     def fail(self, job_id: str) -> None:
         """Release a reservation only for a download known to have failed."""

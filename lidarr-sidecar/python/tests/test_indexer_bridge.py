@@ -251,6 +251,59 @@ class IndexerBridgeTests(unittest.TestCase):
         self.assertIsNone(self.bridge.store.next_job())
         self.assertFalse(self.bridge.store.remove_job(job["nzb_id"]))
 
+    def test_removing_uncertain_job_charges_held_quota_and_allows_a_new_grab(self):
+        release = self.bridge.store.register_release(self.release())
+        self._submit(release["token"])
+        job = self.bridge.store.next_job()
+        self.bridge.quota.reserve(f"{job['id']}:1")
+        self.bridge.store.set_job(job["id"], "needs_recovery", "Unknown outcome")
+        request = {"jsonrpc": "2.0", "method": "editqueue", "params": ["GroupFinalDelete", "", 0, job["nzb_id"]]}
+
+        self.assertEqual(self.bridge._jsonrpc(request), (True, None))
+        self.assertEqual(self.bridge.store.get_job(job["id"])["status"], "removed")
+        self.assertEqual(self.bridge.quota.snapshot().reserved_ids, ())
+        self.assertEqual(self.bridge.quota.snapshot().completed, 1)
+        new_id = self._submit(release["token"], "new-grab")
+        self.assertNotEqual(new_id, job["nzb_id"])
+        self.bridge._run_job(self.bridge.store.next_job())
+        self.assertEqual(self.bridge.store.next_job()["status"], "waiting_quota")
+
+    def test_recovery_removal_is_idempotent_after_quota_was_charged(self):
+        release = self.bridge.store.register_release(self.release())
+        self._submit(release["token"])
+        job = self.bridge.store.next_job()
+        self.bridge.quota.reserve(f"{job['id']}:1")
+        self.bridge.store.set_job(job["id"], "needs_recovery")
+        with (
+            patch.object(self.bridge.store, "remove_job", side_effect=OSError("database unavailable")),
+            self.assertRaisesRegex(OSError, "database unavailable"),
+        ):
+            self.bridge._remove_job(job["nzb_id"])
+        self.assertEqual(self.bridge.quota.snapshot().completed, 1)
+        self.assertEqual(self.bridge.store.get_job(job["id"])["status"], "needs_recovery")
+        self.assertTrue(self.bridge._remove_job(job["nzb_id"]))
+        self.assertEqual(self.bridge.quota.snapshot().completed, 1)
+
+    def test_recovery_removal_does_not_charge_when_no_reservation_exists(self):
+        release = self.bridge.store.register_release(self.release())
+        self._submit(release["token"])
+        job = self.bridge.store.next_job()
+        self.bridge.store.set_job(job["id"], "needs_recovery")
+        self.assertTrue(self.bridge._remove_job(job["nzb_id"]))
+        self.assertEqual(self.bridge.quota.snapshot().completed, 0)
+
+    def test_recovery_removal_fails_closed_when_quota_is_unavailable(self):
+        release = self.bridge.store.register_release(self.release())
+        self._submit(release["token"])
+        job = self.bridge.store.next_job()
+        self.bridge.store.set_job(job["id"], "needs_recovery")
+        with (
+            patch.object(self.bridge.quota, "settle_uncertain", side_effect=RuntimeError("quota unavailable")),
+            self.assertRaisesRegex(RuntimeError, "quota unavailable"),
+        ):
+            self.bridge._remove_job(job["nzb_id"])
+        self.assertEqual(self.bridge.store.get_job(job["id"])["status"], "needs_recovery")
+
     def test_duplicate_grabs_keep_each_lidarr_download_id_correlated(self):
         release = self.bridge.store.register_release(self.release())
         first_id = self._submit(release["token"], "lidarr-grab-one")
