@@ -161,6 +161,16 @@ class MusicBrainzApiTests(unittest.TestCase):
                 musicbrainz_api.fetch_musicbrainz_group_releases("group")
             call.assert_called_once()
 
+    def test_nonpositive_musicbrainz_cache_age_does_not_expire_entries(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cache = Path(tmpdir) / "mb-cache.json"
+            cache.write_text('{"value": 1}')
+            old = time.time() - 365 * 86400
+            os.utime(cache, (old, old))
+            for age in (0, -1):
+                with self.subTest(age=age), patch.object(musicbrainz_api.cfg, "cache_max_age_musicbrainz", age):
+                    self.assertEqual(musicbrainz_api._read_cached_json(cache), {"value": 1})
+
     def test_concurrent_requests_observe_one_shared_rate_limit(self):
         starts = []
         starts_lock = threading.Lock()

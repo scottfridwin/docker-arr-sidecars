@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -24,26 +25,35 @@ from urllib.parse import quote_plus
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
 from shared.python.arrapi import arr_api_request as _shared_arr_api_request
+from shared.python.config import env_bool
 from shared.python.state import get_state
 
 from .config import cfg
 from .logging import log
 
+_API_LOCK = threading.RLock()
+
 
 def arr_api_request(method: str, path: str, payload: str | None = None) -> None:
     """Translate the shared CLI's fatal exit into a recoverable service error."""
     try:
-        _shared_arr_api_request(method, path, payload)
+        _shared_arr_api_request(method, path, payload, check_tasks=not env_bool("SERVICE_INDEXER_ENABLED", False))
     except SystemExit as exc:
         raise RuntimeError(f"Lidarr API request failed: {method} {path}") from exc
+
+
+def request_response(method: str, path: str, payload: str | None = None) -> Any:
+    """Keep the shared response state paired with its request."""
+    with _API_LOCK:
+        arr_api_request(method, path, payload)
+        return get_state("arrApiResponse")
 
 
 def add_download_client() -> None:
     """Add a Usenet Blackhole download client in Lidarr if it doesn't exist."""
     log.trace("Entering add_download_client")
 
-    arr_api_request("GET", "downloadclient")
-    response = get_state("arrApiResponse")
+    response = request_response("GET", "downloadclient")
 
     try:
         clients = json.loads(response) if isinstance(response, str) else response
@@ -79,14 +89,14 @@ def add_download_client() -> None:
         }
     )
 
-    arr_api_request("POST", "downloadclient", payload)
+    request_response("POST", "downloadclient", payload)
     log.debug(f"Successfully added {cfg.download_client_name} download client")
 
 
 def notify_lidarr_import(import_path: str) -> None:
     """Trigger Lidarr's DownloadedAlbumsScan for a specific path."""
     payload = json.dumps({"name": "DownloadedAlbumsScan", "path": import_path})
-    arr_api_request("POST", "command", payload)
+    request_response("POST", "command", payload)
     log.debug(f"Sent import notification to Lidarr for: {import_path}")
 
 
@@ -99,8 +109,7 @@ def scan_import_and_verify(import_path: str, album_id: int | str) -> tuple[bool,
     """
     before_count = _album_trackfile_count(album_id)
     payload = json.dumps({"name": "DownloadedAlbumsScan", "path": import_path})
-    arr_api_request("POST", "command", payload)
-    response = get_state("arrApiResponse")
+    response = request_response("POST", "command", payload)
     command_id = response.get("id") if isinstance(response, dict) else None
     if command_id is None:
         return False, ["Lidarr did not return a command id for DownloadedAlbumsScan"]
@@ -193,8 +202,7 @@ def _has_only_forced_album_score_rejections(
 
 def _album_trackfile_count(album_id: int | str) -> int:
     """Return how many track files Lidarr currently has registered for an album."""
-    arr_api_request("GET", f"trackfile?albumId={album_id}")
-    response = get_state("arrApiResponse")
+    response = request_response("GET", f"trackfile?albumId={album_id}")
     return len(response) if isinstance(response, list) else 0
 
 
@@ -203,8 +211,7 @@ def _await_command(command_id: int, timeout: int) -> tuple[bool, str]:
     terminal = {"completed", "failed", "aborted", "cancelled", "orphaned"}
     deadline = time.monotonic() + timeout
     while True:
-        arr_api_request("GET", f"command/{command_id}")
-        command = get_state("arrApiResponse")
+        command = request_response("GET", f"command/{command_id}")
         status = command.get("status") if isinstance(command, dict) else None
         if status in terminal:
             if status == "completed":
@@ -235,8 +242,7 @@ def manual_import_release(
     """
     folder = quote_plus(import_path)
     path = f"manualimport?folder={folder}&artistId={artist_id}&filterExistingFiles=false&replaceExistingFiles=true"
-    arr_api_request("GET", path)
-    response = get_state("arrApiResponse")
+    response = request_response("GET", path)
 
     try:
         items = json.loads(response) if isinstance(response, str) else response
@@ -273,8 +279,7 @@ def manual_import_release(
 
     # Reprocess under the forced artist/album/release to surface rejections and
     # to obtain the per-file track mapping needed by the ManualImport command.
-    arr_api_request("POST", "manualimport", json.dumps(updates))
-    post_response = get_state("arrApiResponse")
+    post_response = request_response("POST", "manualimport", json.dumps(updates))
     try:
         results = json.loads(post_response) if isinstance(post_response, str) else post_response
     except (json.JSONDecodeError, TypeError):
@@ -317,8 +322,7 @@ def manual_import_release(
 def _strict_release_tracks(
     artist_id: int | str, album_id: int | str, release_id: int | str
 ) -> tuple[dict[int, int], str]:
-    arr_api_request("GET", f"track?albumId={int(album_id)}&albumReleaseId={int(release_id)}")
-    response = get_state("arrApiResponse")
+    response = request_response("GET", f"track?albumId={int(album_id)}&albumReleaseId={int(release_id)}")
     if not isinstance(response, list) or not response:
         return {}, "Lidarr did not return tracks for the selected release"
     tracks: dict[int, int] = {}
@@ -339,8 +343,7 @@ def _strict_release_tracks(
 
 
 def _strict_album_file_ids(album_id: int | str) -> tuple[set[int], str]:
-    arr_api_request("GET", f"trackfile?albumId={int(album_id)}")
-    response = get_state("arrApiResponse")
+    response = request_response("GET", f"trackfile?albumId={int(album_id)}")
     if not isinstance(response, list):
         return set(), "Lidarr returned an invalid album track-file list"
     ids: set[int] = set()
@@ -429,8 +432,7 @@ def submit_manual_import(
         "replaceExistingFiles": True,
         "files": files,
     }
-    arr_api_request("POST", "command", json.dumps(command))
-    command_response = get_state("arrApiResponse")
+    command_response = request_response("POST", "command", json.dumps(command))
     command_id = command_response.get("id") if isinstance(command_response, dict) else None
     if command_id is None:
         return False, ["Lidarr did not return a command id for ManualImport"]
@@ -474,11 +476,10 @@ def remove_lidarr_queue_items(download_ids: list[str] | tuple[str, ...]) -> set[
     page = 1
     requested_page_size = 1000
     while True:
-        arr_api_request(
+        response = request_response(
             "GET",
             f"queue?page={page}&pageSize={requested_page_size}&includeUnknownArtistItems=true",
         )
-        response = get_state("arrApiResponse")
         try:
             response = json.loads(response) if isinstance(response, str) else response
         except json.JSONDecodeError as exc:
@@ -512,7 +513,7 @@ def remove_lidarr_queue_items(download_ids: list[str] | tuple[str, ...]) -> set[
         return set()
 
     for queue_id in sorted(queue_ids):
-        arr_api_request("DELETE", f"queue/{queue_id}?removeFromClient=true&blocklist=false")
+        request_response("DELETE", f"queue/{queue_id}?removeFromClient=true&blocklist=false")
 
     log.info(f"Removed {len(queue_ids)} imported Deemix item(s) from Lidarr's queue")
     return set(queue_ids.values())
@@ -531,8 +532,7 @@ def get_wanted_albums(list_type: str, page: int = 1, page_size: int = 1000, incl
         f"&sortKey=releaseDate&sortDirection=descending"
         f"&includeArtist={'true' if include_artist else 'false'}"
     )
-    arr_api_request("GET", path)
-    response = get_state("arrApiResponse")
+    response = request_response("GET", path)
     try:
         return json.loads(response) if isinstance(response, str) else response
     except (json.JSONDecodeError, TypeError):
@@ -541,8 +541,7 @@ def get_wanted_albums(list_type: str, page: int = 1, page_size: int = 1000, incl
 
 def get_album_data(album_id: int | str) -> dict | None:
     """Fetch album data from Lidarr API."""
-    arr_api_request("GET", f"album/{album_id}")
-    response = get_state("arrApiResponse")
+    response = request_response("GET", f"album/{album_id}")
     try:
         data = json.loads(response) if isinstance(response, str) else response
         if isinstance(data, dict) and "artist" in data and "releases" in data:
@@ -555,8 +554,7 @@ def get_album_data(album_id: int | str) -> dict | None:
 
 def get_album_ids_by_release_group(foreign_album_id: str) -> list[str]:
     """Look up Lidarr album IDs by MusicBrainz release group ID (foreignAlbumId)."""
-    arr_api_request("GET", f"album?foreignAlbumId={foreign_album_id}")
-    response = get_state("arrApiResponse")
+    response = request_response("GET", f"album?foreignAlbumId={foreign_album_id}")
     try:
         albums = json.loads(response) if isinstance(response, str) else response
     except (json.JSONDecodeError, TypeError):

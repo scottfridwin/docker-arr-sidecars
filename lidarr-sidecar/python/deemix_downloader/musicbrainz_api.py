@@ -205,9 +205,9 @@ def call_musicbrainz_api(url: str) -> dict | None:
 def _read_cached_json(cache_file: Path) -> dict | None:
     with CACHE_LOCK:
         try:
-            if (
-                not cache_file.is_file()
-                or time.time() - cache_file.stat().st_mtime > cfg.cache_max_age_musicbrainz * 86400
+            if not cache_file.is_file() or (
+                cfg.cache_max_age_musicbrainz > 0
+                and time.time() - cache_file.stat().st_mtime > cfg.cache_max_age_musicbrainz * 86400
             ):
                 return None
             data = json.loads(cache_file.read_text(encoding="utf-8"))

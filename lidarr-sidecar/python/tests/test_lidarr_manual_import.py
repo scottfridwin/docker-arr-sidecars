@@ -2,7 +2,9 @@
 # SPDX-License-Identifier: GPL-3.0-only
 
 import json
+import os
 import sys
+import threading
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -13,6 +15,55 @@ from deemix_downloader import lidarr_api
 
 
 class ManualImportReleaseTests(unittest.TestCase):
+    def test_indexer_requests_do_not_wait_for_other_lidarr_commands(self):
+        with (
+            patch.dict(os.environ, {"SERVICE_INDEXER_ENABLED": "true"}),
+            patch.object(lidarr_api, "_shared_arr_api_request") as request,
+        ):
+            lidarr_api.arr_api_request("POST", "command", "{}")
+        request.assert_called_once_with("POST", "command", "{}", check_tasks=False)
+
+    def test_search_request_can_run_during_command_poll_sleep(self):
+        sleeping = threading.Event()
+        resume = threading.Event()
+        responses = iter([{"status": "started"}, {"status": "completed"}])
+        state = {}
+
+        def fake_request(_method, path, _payload=None):
+            state["response"] = next(responses) if path.startswith("command/") else {"id": 42}
+
+        def sleep(_seconds):
+            sleeping.set()
+            resume.wait(2)
+
+        with (
+            patch.object(lidarr_api, "arr_api_request", side_effect=fake_request),
+            patch.object(lidarr_api, "get_state", side_effect=lambda _key: state["response"]),
+            patch.object(lidarr_api.time, "sleep", side_effect=sleep),
+        ):
+            result = []
+            searched = threading.Event()
+            search_result = []
+            worker = threading.Thread(target=lambda: result.append(lidarr_api._await_command(1, 5)))
+            worker.start()
+
+            def search():
+                search_result.append(lidarr_api.request_response("GET", "parse?title=test"))
+                searched.set()
+
+            search_worker = threading.Thread(target=search)
+            try:
+                self.assertTrue(sleeping.wait(2))
+                search_worker.start()
+                self.assertTrue(searched.wait(0.5))
+                self.assertEqual(search_result, [{"id": 42}])
+            finally:
+                resume.set()
+                worker.join(2)
+                if search_worker.ident is not None:
+                    search_worker.join(2)
+            self.assertEqual(result, [(True, "completed")])
+
     def _run(self, responses, *, strict=False):
         """Drive manual_import_release with a scripted sequence of API responses."""
         state = {"i": 0}

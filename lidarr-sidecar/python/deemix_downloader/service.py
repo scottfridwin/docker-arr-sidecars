@@ -21,7 +21,6 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import threading
 import time
 from collections.abc import Callable
 from datetime import date
@@ -33,7 +32,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../.
 
 from shared.python.arrapi import verify_arr_api_access
 from shared.python.config import env_bool
-from shared.python.state import get_state, init_state
+from shared.python.state import init_state
 
 from . import musicbrainz_api
 from .config import cfg
@@ -58,7 +57,6 @@ from .download import (
 from .indexer_search import AmbiguousAlbumError, matches_search_text, resolve_album
 from .lidarr_api import (
     add_download_client,
-    arr_api_request,
     get_album_data,
     get_album_ids_by_artist,
     get_album_ids_by_release_group,
@@ -66,6 +64,7 @@ from .lidarr_api import (
     manual_import_release,
     notify_lidarr_import,
     remove_lidarr_queue_items,
+    request_response,
     scan_import_and_verify,
 )
 from .logging import log
@@ -95,9 +94,6 @@ _INSTRUMENTAL_RE = (
     if cfg.instrumental_keywords
     else None
 )
-_LIDARR_API_LOCK = threading.RLock()
-
-
 # ─── Daily download limit ──────────────────────────────────────────────
 
 
@@ -430,12 +426,7 @@ def search_album(album_data: dict, failed_albums: set[str] | None = None) -> Mat
 
 
 def _indexer_api_get(path: str) -> Any:
-    with _LIDARR_API_LOCK:
-        arr_api_request("GET", path)
-        code = get_state("arrApiReponseCode")
-        if code and int(code) >= 400:
-            raise RuntimeError(f"Lidarr API returned HTTP {code}")
-        response = get_state("arrApiResponse")
+    response = request_response("GET", path)
     if isinstance(response, str):
         try:
             return json.loads(response)
@@ -591,7 +582,7 @@ def _indexer_report_title(album: dict, artist_albums: list[dict], release: dict)
     return report_title
 
 
-def _validate_indexer_results(results: list[dict]) -> list[dict]:
+def _validate_indexer_results(results: list[dict], offset: int = 0, limit: int | None = None) -> list[dict]:
     albums_by_artist: dict[str, list[dict]] = {}
     validated = []
     for result in results:
@@ -613,15 +604,16 @@ def _validate_indexer_results(results: list[dict]) -> list[dict]:
         report_title = _indexer_report_title(album, albums, result)
         if report_title is not None:
             validated.append({**result, "report_title": report_title})
-    return validated
+            if limit is not None and len(validated) >= offset + limit:
+                break
+    return validated[offset : offset + limit if limit is not None else None]
 
 
 def _indexer_match_album(album: dict, year: int | None, artist_albums: list[dict]) -> list[dict]:
     album_id = album.get("id")
     if not album_id:
         return []
-    with _LIDARR_API_LOCK:
-        full_album = get_album_data(str(album_id))
+    full_album = get_album_data(str(album_id))
     if not full_album:
         return []
     if year is not None:
@@ -1096,14 +1088,13 @@ def _download_album(
                 notify_lidarr_import(str(dest))
                 import_ok = True
         else:
-            with _LIDARR_API_LOCK:
-                import_ok, rejections = manual_import_release(
-                    import_path=str(dest),
-                    artist_id=artist_id,
-                    album_id=album_id,
-                    release_id=release_lidarr_id,
-                    strict=strict_manual_import,
-                )
+            import_ok, rejections = manual_import_release(
+                import_path=str(dest),
+                artist_id=artist_id,
+                album_id=album_id,
+                release_id=release_lidarr_id,
+                strict=strict_manual_import,
+            )
             if not import_ok:
                 log.error(
                     f'Manual import rejected "{deezer_title}" (forced MusicBrainz '
@@ -1754,11 +1745,10 @@ def indexer_main() -> None:
     searches = BackgroundSearch(cfg.work_path, search_indexer_releases)
 
     def search(**query: Any) -> list[dict]:
-        return _validate_indexer_results(searches.search(**query))
+        return searches.search(**query)
 
     def clean_up_imported_queue(download_ids: list[str]) -> set[str]:
-        with _LIDARR_API_LOCK:
-            return remove_lidarr_queue_items(download_ids)
+        return remove_lidarr_queue_items(download_ids)
 
     def configure_indexer(_port: int) -> None:
         if env_bool("AUTOCONFIG_DEEMIX_INDEXER"):
@@ -1771,7 +1761,9 @@ def indexer_main() -> None:
         searches.prune()
         clean_abandoned_attempts(bridge)
 
-    bridge = build_bridge_from_environment(search, download, clean_up_imported_queue, maintain_indexer)
+    bridge = build_bridge_from_environment(
+        search, download, clean_up_imported_queue, maintain_indexer, _validate_indexer_results
+    )
     worker = searches.start()
     try:
         bridge.serve(bridge.bind_host, bridge.bind_port, on_listening=configure_indexer, monitored_worker=worker)

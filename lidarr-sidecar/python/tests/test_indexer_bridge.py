@@ -235,6 +235,14 @@ class IndexerBridgeTests(unittest.TestCase):
         with self.assertRaises(BridgeRequestError):
             self.bridge._search_results({**query, "limit": ["101"]})
 
+    def test_indexer_passes_page_bounds_to_validation(self):
+        results = [{"edition": number} for number in range(10)]
+        self.bridge.search_callback = Mock(return_value=results)
+        self.bridge.validate_page = Mock(return_value=[results[5]])
+        page = self.bridge._search_results({"t": ["search"], "q": ["x"], "offset": ["4"], "limit": ["1"]})
+        self.assertEqual(page, [results[5]])
+        self.bridge.validate_page.assert_called_once_with(results, 4, 1)
+
     def test_active_job_cannot_be_removed_and_cleanup_runs_after_completion(self):
         removal_attempts = []
         cleanup_states = []
@@ -789,14 +797,18 @@ class IndexerBridgeTests(unittest.TestCase):
         self.bridge._retry_cleanup()
         self.assertEqual(self.bridge.store.pending_cleanup(), {})
 
-    def test_system_exit_during_download_does_not_kill_worker(self):
+    def test_worker_preserves_staging_until_recovery_is_removed(self):
         failed = threading.Event()
         success = threading.Event()
+        staging_audio = self.work_path / "staging" / "track.flac"
 
         def download(release, completed):
             if release["deezer_album_id"] == "44":
+                staging_audio.parent.mkdir(parents=True, exist_ok=True)
+                staging_audio.touch()
                 failed.set()
                 raise SystemExit(1)
+            self.assertTrue(staging_audio.exists())
             completed()
             success.set()
             return True
@@ -809,9 +821,16 @@ class IndexerBridgeTests(unittest.TestCase):
         worker = self.bridge.start_worker()
         try:
             self.assertTrue(failed.wait(2))
-            self.assertTrue(success.wait(2))
+            deadline = time.monotonic() + 2
+            while not self.bridge.store.jobs(("needs_recovery",)) and time.monotonic() < deadline:
+                time.sleep(0.01)
+            self.assertFalse(success.wait(0.1))
             self.assertTrue(worker.is_alive())
-            self.assertEqual(len(self.bridge.store.jobs(("needs_recovery",))), 1)
+            recovery = self.bridge.store.jobs(("needs_recovery",))
+            self.assertEqual(len(recovery), 1)
+            self.assertTrue(staging_audio.exists())
+            self.assertTrue(self.bridge._remove_job(recovery[0]["nzb_id"]))
+            self.assertTrue(success.wait(2))
         finally:
             self.bridge.stop_worker()
             worker.join(2)

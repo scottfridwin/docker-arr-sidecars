@@ -12,6 +12,21 @@ from deemix_downloader.matching import MatchResult, ReleaseCandidate
 
 
 class ServiceSearchTests(unittest.TestCase):
+    def test_result_validation_stops_at_page_end_after_invalid_candidates(self):
+        releases = [{**self.indexer_release(), "album_id": str(i), "album_title": f"Album {i}"} for i in range(1000)]
+        albums = [{"id": i, "title": f"Album {i}", "artist": {"artistName": "Test Artist"}} for i in range(1000)]
+
+        def title(_album, _albums, release):
+            return None if release["album_id"] in {"0", "2"} else release["album_title"]
+
+        with (
+            patch.object(service, "_indexer_artist_albums", return_value=albums),
+            patch.object(service, "_indexer_report_title", side_effect=title) as parse,
+        ):
+            page = service._validate_indexer_results(releases, 1, 2)
+        self.assertEqual([item["album_id"] for item in page], ["3", "4"])
+        self.assertEqual(parse.call_count, 5)
+
     def test_legacy_and_indexer_services_cannot_run_together(self):
         with (
             patch.dict(os.environ, {"SERVICE_INDEXER_ENABLED": "true"}, clear=True),

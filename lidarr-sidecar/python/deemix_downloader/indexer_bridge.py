@@ -422,6 +422,7 @@ class IndexerBridge:
         worker_interval: float = 2,
         retention_days: int = 30,
         maintenance: Callable[[], None] | None = None,
+        validate_page: Callable[[list[dict], int, int], list[dict]] | None = None,
     ):
         if type(retention_days) is not int or retention_days < 0:
             raise ValueError("indexer retention days must be a non-negative integer")
@@ -452,6 +453,7 @@ class IndexerBridge:
         self.worker_interval = worker_interval
         self.retention_days = retention_days
         self.maintenance_callback = maintenance
+        self.validate_page = validate_page
         self._worker_stop = threading.Event()
         self._removal_lock = threading.Lock()
         self.store.recover(self.quota)
@@ -478,7 +480,7 @@ class IndexerBridge:
                 self._retry_cleanup()
                 next_cleanup = time.monotonic() + 30
             row = self.store.next_job()
-            if row is None:
+            if row is None or self.store.jobs(("needs_recovery",)):
                 self._worker_stop.wait(self.worker_interval)
                 continue
             try:
@@ -698,6 +700,8 @@ class IndexerBridge:
         if not 1 <= limit <= 100:
             raise BridgeRequestError("limit must be between 1 and 100")
         results = self.search_callback(artist=artist, album=album, q=q, year=year, request_type=request_type)
+        if self.validate_page is not None:
+            return self.validate_page(results, offset, limit)
         return results[offset : offset + limit]
 
     def _rss(self, results: list[dict[str, Any]]) -> bytes:
@@ -1045,6 +1049,7 @@ def build_bridge_from_environment(
     download: Callable[[dict[str, Any], Callable[[], None]], bool],
     on_import_complete: Callable[[list[str]], set[str]] | None = None,
     maintenance: Callable[[], None] | None = None,
+    validate_page: Callable[[list[dict], int, int], list[dict]] | None = None,
 ) -> IndexerBridge:
     """Build the bridge from required, explicit deployment settings."""
     api_key = os.environ.get("AUDIO_INDEXER_API_KEY", "")
@@ -1071,6 +1076,7 @@ def build_bridge_from_environment(
         on_import_complete=on_import_complete,
         retention_days=int(os.environ.get("AUDIO_INDEXER_RETENTION_DAYS", "30")),
         maintenance=maintenance,
+        validate_page=validate_page,
     )
     bridge.bind_host = host
     bridge.bind_port = port

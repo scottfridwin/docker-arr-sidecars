@@ -218,7 +218,7 @@ def verify_arr_api_access() -> None:
     trace("Exiting verifyArrApiAccess...")
 
 
-def arr_api_request(method: str, path: str, payload: str | None = None) -> None:
+def arr_api_request(method: str, path: str, payload: str | None = None, *, check_tasks: bool = True) -> None:
     if not get_state("arrUrl") or not get_state("arrApiKey") or not get_state("arrApiVersion"):
         debug("Need to retrieve arr connection details in order to perform API requests")
         verify_arr_api_access()
@@ -227,7 +227,7 @@ def arr_api_request(method: str, path: str, payload: str | None = None) -> None:
     arr_api_version = get_state("arrApiVersion")
     full_url = f"{arr_url}/api/{arr_api_version}/{path}"
 
-    if method.upper() != "GET":
+    if check_tasks and method.upper() != "GET":
         arr_task_status_check()
 
     if env("FUNCTIONALTESTDIR"):

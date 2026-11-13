@@ -2,6 +2,7 @@ import os
 import re
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from contextlib import nullcontext
@@ -248,6 +249,93 @@ class ServiceDownloadRetryTests(unittest.TestCase):
                 self.assertFalse(succeeded)
                 completed.assert_not_called()
                 download.assert_not_called()
+
+    def test_completed_audio_remains_in_staging_if_quota_completion_raises(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            config = Config(
+                work_path=root / "work",
+                shared_lidarr_path=root / "shared",
+                download_attempt_threshold=1,
+            )
+            config.work_path.mkdir()
+            config.shared_lidarr_path.mkdir()
+            result = MatchResult(deezer_album_id="42", deezer_track_count=1, lidarr_release_id="3")
+
+            def fake_download(*_args, output_dir, **_kwargs):
+                (output_dir / "track.flac").touch()
+                return True
+
+            with (
+                patch.object(service, "cfg", config),
+                patch.object(download, "cfg", config),
+                patch.object(service, "download_with_deemix", side_effect=fake_download),
+                patch.object(service, "verify_flac", return_value=True),
+                self.assertRaisesRegex(RuntimeError, "quota unavailable"),
+            ):
+                service._download_album(
+                    result,
+                    "Artist",
+                    "1",
+                    "artist",
+                    "Album",
+                    "group",
+                    "2",
+                    "token",
+                    strict_manual_import=True,
+                    on_download_complete=Mock(side_effect=RuntimeError("quota unavailable")),
+                )
+            self.assertTrue((config.staging_dir / "track.flac").is_file())
+
+    def test_search_remains_available_during_manual_import(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            config = Config(work_path=root / "work", shared_lidarr_path=root / "shared", download_attempt_threshold=1)
+            config.work_path.mkdir()
+            config.shared_lidarr_path.mkdir()
+            result = MatchResult(deezer_album_id="42", deezer_track_count=1, lidarr_release_id="3")
+            importing = threading.Event()
+            release_import = threading.Event()
+            searched = threading.Event()
+
+            def fake_download(*_args, output_dir, **_kwargs):
+                (output_dir / "track.flac").touch()
+                return True
+
+            def manual_import(**_kwargs):
+                importing.set()
+                release_import.wait(2)
+                return True, []
+
+            def search():
+                service._indexer_api_get("artist")
+                searched.set()
+
+            with (
+                patch.object(service, "cfg", config),
+                patch.object(download, "cfg", config),
+                patch.object(service, "download_with_deemix", side_effect=fake_download),
+                patch.object(service, "verify_flac", return_value=True),
+                patch.object(service, "_tag_and_enrich"),
+                patch.object(service, "manual_import_release", side_effect=manual_import),
+                patch.object(service, "request_response", return_value=[]),
+            ):
+                worker = threading.Thread(
+                    target=service._download_album,
+                    args=(result, "Artist", "1", "artist", "Album", "group", "2", "token"),
+                    kwargs={"strict_manual_import": True},
+                )
+                search_worker = threading.Thread(target=search)
+                worker.start()
+                try:
+                    self.assertTrue(importing.wait(2))
+                    search_worker.start()
+                    self.assertTrue(searched.wait(0.5))
+                finally:
+                    release_import.set()
+                    worker.join(2)
+                    if search_worker.ident is not None:
+                        search_worker.join(2)
 
     def test_indexer_does_not_modify_priority_file(self):
         with tempfile.TemporaryDirectory() as temp_dir:
