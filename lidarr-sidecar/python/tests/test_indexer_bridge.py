@@ -13,9 +13,10 @@ import urllib.request
 import xml.etree.ElementTree as ET
 from contextlib import closing
 from datetime import date, timedelta
+from http import HTTPStatus
 from http.server import ThreadingHTTPServer
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -51,6 +52,18 @@ class IndexerBridgeTests(unittest.TestCase):
             download=download or fake_download,
             worker_interval=0.01,
         )
+
+    def test_client_disconnect_during_response_is_handled(self):
+        handler = object.__new__(self.bridge.handler())
+        handler.send_response = Mock()
+        handler.send_header = Mock()
+        handler.end_headers = Mock()
+        handler.wfile = Mock()
+        handler.wfile.write.side_effect = BrokenPipeError
+
+        handler._respond(HTTPStatus.OK, b"response", "application/rss+xml")
+
+        handler.send_response.assert_called_once_with(HTTPStatus.OK)
 
     @staticmethod
     def release():

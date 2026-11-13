@@ -61,6 +61,10 @@ The integration was exercised against isolated Lidarr 3.1.6.5079 instances using
 
 Lidarr supplies a `drone` download ID with NZBGet `append`; the bridge persists and echoes it in `listgroups` and `history` so Lidarr can correlate the client item. Live validation confirmed a quota-waiting item appears in both the NZBGet-compatible queue and Lidarr's `/api/v1/queue`, with the same download ID and a “waiting for daily download quota” title. The real Deezer download path and other Lidarr versions have not been tested.
 
+MusicBrainz requests are serialized within the sidecar process, honor numeric or HTTP-date `Retry-After` values, and share a 60-second budget per Newznab search. If MusicBrainz remains unavailable past that budget, the bridge returns a service-unavailable response instead of waiting until Lidarr disconnects or treating the failure as an empty search. This rate limit is process-local; separate sidecar processes do not coordinate with one another.
+
+On 2026-11-13, an isolated Lidarr 3.1.6.5079 manual search for Olivia Rodrigo's `SOUR` returned one result from the configured Newznab indexer in under one second using cached metadata. The Lidarr queue remained empty and the test import directory had no files. This verified search delivery only; it did not grab or download anything, and no Deezer token was used.
+
 ### Setup and migration
 
 1. Stop the old wanted-list poller before enabling the indexer. `SERVICE_DEEMIXDOWNLOADER_ENABLED` and `SERVICE_INDEXER_ENABLED` both default to `false`; leave the old poller disabled while using the new flow. Its `daily_download_state` writer does not coordinate with the new quota database.

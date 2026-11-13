@@ -6,7 +6,13 @@
 from __future__ import annotations
 
 import json
+import threading
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
+from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 
 import requests
@@ -18,7 +24,30 @@ MB_USER_AGENT = "docker-arr-sidecars/1.0.0 (https://github.com/scottfridwin/dock
 
 _session: requests.Session | None = None
 _last_request_time: float = 0.0
+_retry_not_before: float = 0.0
 _MIN_REQUEST_INTERVAL: float = 1.1  # MusicBrainz rate limit: 1 req/sec
+_REQUEST_LOCK = threading.Lock()
+_REQUEST_DEADLINE: ContextVar[float | None] = ContextVar("musicbrainz_request_deadline", default=None)
+
+
+class MusicBrainzUnavailable(RuntimeError):
+    """MusicBrainz could not be queried within the active search budget."""
+
+
+@contextmanager
+def request_budget(seconds: float) -> Iterator[None]:
+    """Bound a group of MusicBrainz requests to one overall deadline."""
+    if seconds <= 0:
+        raise ValueError("MusicBrainz request budget must be positive")
+    deadline = time.monotonic() + seconds
+    active_deadline = _REQUEST_DEADLINE.get()
+    if active_deadline is not None:
+        deadline = min(deadline, active_deadline)
+    token = _REQUEST_DEADLINE.set(deadline)
+    try:
+        yield
+    finally:
+        _REQUEST_DEADLINE.reset(token)
 
 
 def _get_session() -> requests.Session:
@@ -34,40 +63,104 @@ def _get_session() -> requests.Session:
     return _session
 
 
+def _remaining_budget() -> float | None:
+    deadline = _REQUEST_DEADLINE.get()
+    return None if deadline is None else deadline - time.monotonic()
+
+
+def _ensure_wait_fits_budget(seconds: float) -> None:
+    remaining = _remaining_budget()
+    if remaining is not None and seconds >= remaining:
+        raise MusicBrainzUnavailable("MusicBrainz retry would exceed the search time budget")
+
+
+def _retry_after_seconds(value: str | None) -> float | None:
+    if not value:
+        return None
+    value = value.strip()
+    if value.isascii() and value.isdecimal():
+        try:
+            return float(int(value))
+        except (ValueError, OverflowError):
+            return None
+    try:
+        retry_at = parsedate_to_datetime(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if retry_at.tzinfo is None:
+        retry_at = retry_at.replace(tzinfo=UTC)
+    return max(0.0, (retry_at - datetime.now(UTC)).total_seconds())
+
+
+def _schedule_retry(seconds: float) -> None:
+    global _retry_not_before
+    with _REQUEST_LOCK:
+        _retry_not_before = max(_retry_not_before, time.monotonic() + seconds)
+
+
+def _request(url: str, *, backoff: float) -> tuple[requests.Response, float | None]:
+    """Serialize requests and apply both the MusicBrainz interval and retry delay."""
+    global _last_request_time, _retry_not_before
+
+    with _REQUEST_LOCK:
+        now = time.monotonic()
+        interval_wait = _MIN_REQUEST_INTERVAL - (now - _last_request_time)
+        retry_wait = _retry_not_before - now
+        wait = max(interval_wait, retry_wait, 0.0)
+        _ensure_wait_fits_budget(wait)
+        if wait:
+            time.sleep(wait)
+
+        remaining = _remaining_budget()
+        if remaining is not None and remaining <= 0:
+            raise MusicBrainzUnavailable("MusicBrainz search exceeded the time budget")
+
+        timeout = min(15.0, remaining / 2) if remaining is not None else 15.0
+        _last_request_time = time.monotonic()
+        try:
+            response = _get_session().get(url, timeout=timeout, allow_redirects=True)
+        except requests.RequestException:
+            _retry_not_before = max(_retry_not_before, time.monotonic() + backoff)
+            raise
+
+        remaining_after_request = _remaining_budget()
+        if remaining_after_request is not None and remaining_after_request <= 0:
+            raise MusicBrainzUnavailable("MusicBrainz request exceeded the search time budget")
+
+        retry_after = _retry_after_seconds(response.headers.get("Retry-After"))
+        if response.status_code in (429, 503) or response.status_code >= 500:
+            delay = backoff if retry_after is None else retry_after
+            _retry_not_before = max(_retry_not_before, time.monotonic() + delay)
+            return response, delay
+
+        return response, None
+
+
 def call_musicbrainz_api(url: str) -> dict | None:
     """
-    Call MusicBrainz API with exponential backoff and rate-limit handling.
+    Call MusicBrainz API with serialized rate limiting and Retry-After handling.
     Returns parsed JSON or None.
     """
-    global _last_request_time
     max_attempts = 10
-    backoff = 5
-
-    # Proactive rate-limit: wait at least 1.1s between requests
-    elapsed = time.time() - _last_request_time
-    if elapsed < _MIN_REQUEST_INTERVAL:
-        time.sleep(_MIN_REQUEST_INTERVAL - elapsed)
+    backoff = 5.0
 
     for attempt in range(1, max_attempts + 1):
-        _last_request_time = time.time()
         log.debug(f"Calling MusicBrainz API ({attempt}/{max_attempts}): {url}")
         try:
-            resp = _get_session().get(url, timeout=15, allow_redirects=True)
-
+            resp, retry_delay = _request(url, backoff=backoff)
             if resp.status_code == 200:
                 try:
                     return resp.json()
                 except ValueError:
                     log.warning("Invalid JSON from MusicBrainz, retrying...")
-            elif resp.status_code in (429, 503):
-                log.warning(f"HTTP {resp.status_code} from MusicBrainz, backing off {backoff}s...")
-                time.sleep(backoff)
-                backoff *= 2
-                continue
-            elif resp.status_code >= 500:
-                log.warning(f"Server error {resp.status_code}, retrying...")
-                time.sleep(backoff)
-                backoff *= 2
+                    retry_delay = backoff
+                    _schedule_retry(retry_delay)
+            elif resp.status_code == 429 or resp.status_code >= 500:
+                delay = backoff if retry_delay is None else retry_delay
+                log.warning(f"HTTP {resp.status_code} from MusicBrainz, retrying in {delay:g}s...")
+                if attempt < max_attempts:
+                    _ensure_wait_fits_budget(delay)
+                backoff = min(backoff * 2, 30.0)
                 continue
             else:
                 log.warning(f"Unexpected HTTP {resp.status_code} from MusicBrainz")
@@ -75,10 +168,13 @@ def call_musicbrainz_api(url: str) -> dict | None:
 
         except requests.RequestException as e:
             log.warning(f"MusicBrainz request failed: {e}, retrying...")
-            time.sleep(backoff)
-            backoff *= 2
+            if attempt < max_attempts:
+                _ensure_wait_fits_budget(backoff)
+            backoff = min(backoff * 2, 30.0)
 
     log.error(f"CallMusicBrainzAPI failed after {max_attempts} attempts")
+    if _REQUEST_DEADLINE.get() is not None:
+        raise MusicBrainzUnavailable("MusicBrainz remained unavailable after retries")
     return None
 
 

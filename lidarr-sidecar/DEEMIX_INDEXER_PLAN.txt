@@ -123,7 +123,7 @@ validation; deployment setup is documented in README.md.
 
 7. Validation performed.
 
-   Shared and Lidarr suites passed (63 and 58 tests), repo-wide Ruff lint and
+   Shared and Lidarr suites passed (63 and 64 tests), repo-wide Ruff lint and
    formatting checks passed, and the Lidarr Docker `test` target built
    successfully. Tests cover Newznab capabilities and stable identities,
    authentication, quota waiting/retry/recovery, staged registration, and
@@ -140,6 +140,14 @@ validation; deployment setup is documented in README.md.
    The queue-correlation fix and existing-job database migration were covered
    by regression tests. The real Deezer download path and other Lidarr versions
    have not been tested; see README.md for setup and operational details.
+
+   Follow-up search-only validation against the isolated Lidarr 3.1.6.5079
+   instance returned one Newznab result for Olivia Rodrigo's SOUR album in under
+   one second with cached metadata. Lidarr's queue remained empty and the test
+   import directory contained no files. MusicBrainz requests are serialized
+   within the sidecar process, honor `Retry-After`, and use a 60-second
+   Newznab-search budget; budget expiry returns service unavailable rather than
+   an empty result. No Deezer token or download was used for this check.
 
 Review decisions
 

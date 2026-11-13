@@ -607,12 +607,15 @@ class IndexerBridge:
                 return
 
             def _respond(self, status: HTTPStatus, body: bytes, content_type: str) -> None:
-                self.send_response(status)
-                self.send_header("Content-Type", content_type)
-                self.send_header("Content-Length", str(len(body)))
-                self.send_header("Cache-Control", "no-store")
-                self.end_headers()
-                self.wfile.write(body)
+                try:
+                    self.send_response(status)
+                    self.send_header("Content-Type", content_type)
+                    self.send_header("Content-Length", str(len(body)))
+                    self.send_header("Cache-Control", "no-store")
+                    self.end_headers()
+                    self.wfile.write(body)
+                except (BrokenPipeError, ConnectionResetError):
+                    log.debug("Indexer client disconnected before the response was written")
 
             def _error(self, status: HTTPStatus, message: str) -> None:
                 root = ET.Element("error", {"code": str(int(status)), "description": message[:300]})

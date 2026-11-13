@@ -35,6 +35,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../.
 from shared.python.arrapi import arr_api_request, verify_arr_api_access
 from shared.python.state import get_state, init_state
 
+from . import musicbrainz_api
 from .config import cfg
 from .download import (
     AUDIO_EXTENSIONS,
@@ -88,6 +89,7 @@ _INSTRUMENTAL_RE = (
     else None
 )
 _LIDARR_API_LOCK = threading.RLock()
+_INDEXER_MUSICBRAINZ_BUDGET_SECONDS = 60.0
 
 
 # ─── Daily download limit ──────────────────────────────────────────────
@@ -477,6 +479,11 @@ def _indexer_match_album(album: dict, year: int | None) -> dict | None:
 
 def search_indexer_releases(*, artist: str, album: str, q: str, year: int | None, request_type: str) -> list[dict]:
     """Resolve Lidarr's actual Newznab text requests against its local library."""
+    with musicbrainz_api.request_budget(_INDEXER_MUSICBRAINZ_BUDGET_SECONDS):
+        return _search_indexer_releases(artist=artist, album=album, q=q, year=year, request_type=request_type)
+
+
+def _search_indexer_releases(*, artist: str, album: str, q: str, year: int | None, request_type: str) -> list[dict]:
     searches: list[tuple[str, str, int | None]] = []
     if artist:
         if album:
