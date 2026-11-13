@@ -130,6 +130,70 @@ class ServiceDownloadRetryTests(unittest.TestCase):
         self.assertEqual(audio_files, [])
         self.assertTrue(failed_marker_exists)
 
+    def test_strict_manual_import_requires_ids_before_download(self):
+        result = MatchResult(deezer_album_id="42", lidarr_release_id="")
+        with patch.object(service, "download_with_deemix") as download:
+            succeeded = service._download_album(
+                result, "Artist", "1", "artist-mbid", "Album", "group-mbid", "2", "token", strict_manual_import=True
+            )
+        self.assertFalse(succeeded)
+        download.assert_not_called()
+
+    def test_strict_manual_import_never_falls_back_to_scan(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            config = Config(
+                work_path=root / "work",
+                data_path=root / "data",
+                shared_lidarr_path=root / "shared",
+                download_attempt_threshold=1,
+                import_strategy="scan",
+                import_manual_fallback_to_scan=True,
+            )
+            config.work_path.mkdir()
+            config.shared_lidarr_path.mkdir()
+            result = MatchResult(
+                deezer_album_id="42",
+                deezer_title="Album",
+                deezer_track_count=1,
+                lidarr_release_id="3",
+                lidarr_release_foreign_id="release-mbid",
+            )
+
+            def fake_download(_album_id, _arl_token, _quality, _deemix_dir, *, output_dir):
+                (output_dir / "track.flac").touch()
+                return True
+
+            with (
+                patch.object(service, "cfg", config),
+                patch.object(download, "cfg", config),
+                patch.object(service, "download_with_deemix", side_effect=fake_download),
+                patch.object(service, "verify_flac", return_value=True),
+                patch.object(service, "_tag_and_enrich"),
+                patch.object(service, "manual_import_release", return_value=(False, ["rejected"])) as manual,
+                patch.object(service, "scan_import_and_verify") as scan,
+                patch.object(service, "notify_lidarr_import") as notify,
+            ):
+                succeeded = service._download_album(
+                    result,
+                    "Artist",
+                    "1",
+                    "artist-mbid",
+                    "Album",
+                    "group-mbid",
+                    "2",
+                    "token",
+                    strict_manual_import=True,
+                )
+
+            self.assertFalse(succeeded)
+            manual.assert_called_once()
+            self.assertEqual(manual.call_args.kwargs["artist_id"], "1")
+            self.assertEqual(manual.call_args.kwargs["album_id"], "2")
+            self.assertEqual(manual.call_args.kwargs["release_id"], "3")
+            scan.assert_not_called()
+            notify.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

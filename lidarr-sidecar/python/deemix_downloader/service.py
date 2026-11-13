@@ -562,12 +562,18 @@ def _download_album(
     album_id: str,
     arl_token: str,
     priority_entry: str = "",
+    *,
+    strict_manual_import: bool = False,
 ) -> bool:
     """Download, tag, and import an album. Returns True on success."""
     deezer_album_id = result.deezer_album_id
     deezer_title = result.deezer_title
     deezer_track_count = result.deezer_track_count
     release_year = result.deezer_year
+
+    if strict_manual_import and not (artist_id and album_id and result.lidarr_release_id):
+        log.error("Cannot force manual import without Lidarr artist, album, and release IDs")
+        return False
 
     # Check previously failed
     if (cfg.failed_dir / deezer_album_id).exists():
@@ -658,7 +664,7 @@ def _download_album(
     # Move and import
     dest = move_to_import(artist_name, album_title, release_year, album_foreign_id)
     import_ok = True
-    if cfg.import_strategy == "manual":
+    if strict_manual_import or cfg.import_strategy == "manual":
         if not (artist_id and album_id and release_lidarr_id):
             log.warning("Manual import strategy requested but missing internal IDs; using scan import")
             if album_id:
@@ -682,7 +688,7 @@ def _download_album(
                 )
                 for rejection in rejections[:20]:
                     log.error(f"  - {rejection}")
-                if cfg.import_manual_fallback_to_scan:
+                if cfg.import_manual_fallback_to_scan and not strict_manual_import:
                     log.warning("Attempting verified DownloadedAlbumsScan fallback")
                     import_ok, scan_errors = scan_import_and_verify(str(dest), album_id)
                     for message in scan_errors:

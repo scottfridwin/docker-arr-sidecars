@@ -22,6 +22,13 @@ independent. No implementation is included in this plan.
    Choose one proven handoff and document its constraints before building on it;
    do not assume a synthetic NZB or URL is sufficient.
 
+   Source investigation at Lidarr commit 28ab333eafa138a72319e4cd149c965e5a5af3b7
+   shows that Newznab music searches use artist/album text rather than
+   MusicBrainz IDs, and Lidarr validates an NZB before submitting it to a Usenet
+   client. A SABnzbd-compatible bridge is a candidate for queue/history
+   visibility; a blackhole offers weaker tracking. These observations are not
+   an end-to-end proof and may differ in the deployed Lidarr version.
+
 2. Separate searching from downloading.
 
    Extract the candidate-building and matching flow in
@@ -72,6 +79,9 @@ independent. No implementation is included in this plan.
    Lidarr-visible completion and failures. Reconcile results/missing history
    and retry markers with interactive searches so a past automatic failure
    does not silently suppress a user's legitimate search or retry.
+   The new workflow must use the manual-import API with the chosen Lidarr artist,
+   album and release IDs; fail rather than silently fall back to a scan when
+   those IDs are unavailable or the forced import is rejected.
 
 6. Integrate and migrate.
 
@@ -103,5 +113,5 @@ Review decisions
   the verified Lidarr client protocol.
 - Confirm whether the legacy priority file and quota exemption should survive
   the move away from standalone polling.
-- Confirm whether backward-compatible scan/manual import modes are required
-  if they conflict with the verified completed-download workflow.
+- Verify that the client workflow can coexist with the required forced manual
+  import without a duplicate automatic import.
