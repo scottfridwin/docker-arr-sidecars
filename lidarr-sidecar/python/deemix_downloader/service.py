@@ -14,6 +14,7 @@ Orchestrates:
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import json
 import os
 import re
@@ -21,15 +22,22 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
+from collections import OrderedDict
+from collections.abc import Callable
 from datetime import date
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
+from urllib.parse import quote_plus
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
 from shared.python.arrapi import verify_arr_api_access
+from shared.python.config import env_bool
 from shared.python.state import init_state
 
+from . import musicbrainz_api
 from .config import cfg
 from .download import (
     AUDIO_EXTENSIONS,
@@ -39,6 +47,7 @@ from .download import (
     consolidate_files,
     download_with_deemix,
     get_file_disc_track_numbers,
+    get_import_path,
     move_to_import,
     prune_cache,
     remove_existing_import_flac_files,
@@ -48,6 +57,7 @@ from .download import (
     tag_mp3_mutagen,
     verify_flac,
 )
+from .indexer_search import AmbiguousAlbumError, matches_search_text, resolve_album
 from .lidarr_api import (
     add_download_client,
     get_album_data,
@@ -56,12 +66,18 @@ from .lidarr_api import (
     get_wanted_albums,
     manual_import_release,
     notify_lidarr_import,
+    remove_lidarr_queue_items,
+    request_response,
     scan_import_and_verify,
 )
 from .logging import log
-from .matching import MatchResult, ReleaseCandidate, find_best_match
+from .matching import MatchResult, ReleaseCandidate, find_all_matches, find_best_match
 from .musicbrainz_api import fetch_musicbrainz_release, fetch_musicbrainz_release_group
+from .quota import DailyDownloadQuota, QuotaStateError
 from .string_utils import calculate_priority, normalize_string, remove_punctuation
+
+if TYPE_CHECKING:
+    from .indexer_bridge import IndexerBridge
 
 # ─── Constants ─────────────────────────────────────────────────────────
 
@@ -81,8 +97,10 @@ _INSTRUMENTAL_RE = (
     if cfg.instrumental_keywords
     else None
 )
-
-
+_INDEXER_VALIDATION_CACHE_TTL = 300
+_INDEXER_VALIDATION_CACHE_SIZE = 16
+_INDEXER_VALIDATION_CACHE: OrderedDict[str, tuple[float, int, list[dict]]] = OrderedDict()
+_INDEXER_VALIDATION_LOCK = threading.Lock()
 # ─── Daily download limit ──────────────────────────────────────────────
 
 
@@ -93,6 +111,9 @@ class DailyLimitTracker:
         self._state_file = cfg.work_path / "daily_download_state"
         self._date: str = ""
         self._count: int = 0
+        snapshot = DailyDownloadQuota(cfg.work_path, cfg.daily_download_limit).snapshot()
+        if snapshot.reserved_ids:
+            raise QuotaStateError("Cannot start legacy downloader with unresolved indexer quota reservations")
         self._load()
 
     def _load(self) -> None:
@@ -123,8 +144,6 @@ class DailyLimitTracker:
         return self._count >= cfg.daily_download_limit
 
     def increment(self) -> None:
-        if cfg.daily_download_limit <= 0:
-            return
         self._load()
         self._count += 1
         self._save()
@@ -229,6 +248,39 @@ def folder_cleaner() -> None:
     _clean(cfg.failed_dir, cfg.retry_failed_days)
 
 
+def clean_abandoned_attempts(bridge: IndexerBridge) -> None:
+    """Clean old staging only when no active or unresolved job can own it."""
+    if not bridge.retention_days:
+        return
+    cutoff = time.time() - bridge.retention_days * 86400
+    with bridge.store.locked():
+        if bridge.store.jobs(("downloading", "downloaded", "needs_recovery")):
+            return
+        candidates = [
+            path for path in cfg.work_path.iterdir() if re.fullmatch(r"deemix-attempt-[a-z0-9_]{8}", path.name)
+        ]
+        if cfg.staging_dir.exists():
+            candidates.append(cfg.staging_dir)
+        for directory in candidates:
+            if directory.is_symlink() or not directory.is_dir():
+                continue
+            if directory.stat().st_mtime >= cutoff:
+                continue
+            if any(path.is_symlink() or path.stat().st_mtime >= cutoff for path in directory.rglob("*")):
+                continue
+            shutil.rmtree(directory)
+            log.info(f"Removed abandoned download staging directory {directory}")
+        for path in cfg.work_path.iterdir():
+            if (
+                re.fullmatch(r"deemix-quota-[a-z0-9_]{8}", path.name)
+                and not path.is_symlink()
+                and path.is_file()
+                and path.stat().st_mtime < cutoff
+            ):
+                path.unlink()
+                log.info(f"Removed abandoned quota temporary file {path}")
+
+
 # ─── State helpers ───────────────────────────────────────────────────────
 
 
@@ -255,12 +307,24 @@ def _get_failed_albums() -> set[str]:
 # ─── Build release candidates from Lidarr album data ────────────────────
 
 
-def _build_candidates(album_data: dict, album_release_year: str) -> list[ReleaseCandidate]:
+def _build_candidates(
+    album_data: dict, album_release_year: str, *, all_deezer_links: bool = False
+) -> list[ReleaseCandidate]:
     """
     Build ReleaseCandidate objects from Lidarr album releases.
     Fetches MusicBrainz data to extract Deezer links.
     """
     candidates: list[ReleaseCandidate] = []
+    group_id = album_data.get("foreignAlbumId")
+    release_ids = [
+        release.get("foreignReleaseId") for release in album_data.get("releases", []) if release.get("foreignReleaseId")
+    ]
+    cached = {release_id: musicbrainz_api.cached_musicbrainz_release(release_id) for release_id in release_ids}
+    group_releases = (
+        musicbrainz_api.fetch_musicbrainz_group_releases(group_id)
+        if group_id and any(data is None for data in cached.values())
+        else {}
+    )
 
     for release_json in album_data.get("releases", []):
         title = release_json.get("title", "")
@@ -276,7 +340,9 @@ def _build_candidates(album_data: dict, album_release_year: str) -> list[Release
         country_priority = calculate_priority(countries_str, cfg.preferred_countries)
 
         # Fetch MusicBrainz release to get Deezer link
-        mb_data = fetch_musicbrainz_release(foreign_release_id)
+        mb_data = cached.get(foreign_release_id) or group_releases.get(foreign_release_id)
+        if mb_data is None:
+            mb_data = fetch_musicbrainz_release(foreign_release_id)
         if mb_data is None:
             continue
 
@@ -284,15 +350,16 @@ def _build_candidates(album_data: dict, album_release_year: str) -> list[Release
         musicbrainz_barcode = str(mb_data.get("barcode", "") or "")
 
         # Extract Deezer album ID from MB relations
-        deezer_album_id = ""
+        deezer_album_ids: list[str] = []
         for rel in mb_data.get("relations", []):
             if rel.get("ended", True):
                 continue
             url = rel.get("url", {}).get("resource", "")
             match = re.search(r"deezer\.com/album/(\d+)", url)
-            if match:
-                deezer_album_id = match.group(1)
-                break
+            if match and match.group(1) not in deezer_album_ids:
+                deezer_album_ids.append(match.group(1))
+                if not all_deezer_links:
+                    break
 
         # Determine year
         release_date = release_json.get("releaseDate", "")
@@ -304,7 +371,7 @@ def _build_candidates(album_data: dict, album_release_year: str) -> list[Release
 
         alternate_titles: list[str] = []
         release_group = mb_data.get("release-group", {})
-        if isinstance(release_group, dict):
+        if deezer_album_ids and isinstance(release_group, dict):
             release_group_id = release_group.get("id", "")
             if release_group_id:
                 log.debug(f"Fetching MusicBrainz aliases for release-group {release_group_id}")
@@ -331,29 +398,377 @@ def _build_candidates(album_data: dict, album_release_year: str) -> list[Release
             _INSTRUMENTAL_RE and (_INSTRUMENTAL_RE.search(title) or _INSTRUMENTAL_RE.search(disambiguation))
         )
 
-        candidates.append(
-            ReleaseCandidate(
-                title=title,
-                disambiguation=disambiguation,
-                release_id=release_id,
-                foreign_id=foreign_release_id,
-                track_count=track_count,
-                deezer_album_id=deezer_album_id,
-                release_status=release_status,
-                year=year,
-                format_priority=format_priority,
-                country_priority=country_priority,
-                contains_commentary=contains_commentary,
-                instrumental=instrumental,
-                alternate_titles=alternate_titles,
-                musicbrainz_barcode=musicbrainz_barcode,
+        for deezer_album_id in deezer_album_ids or [""]:
+            candidates.append(
+                ReleaseCandidate(
+                    title=title,
+                    disambiguation=disambiguation,
+                    release_id=release_id,
+                    foreign_id=foreign_release_id,
+                    track_count=track_count,
+                    deezer_album_id=deezer_album_id,
+                    release_status=release_status,
+                    year=year,
+                    format_priority=format_priority,
+                    country_priority=country_priority,
+                    contains_commentary=contains_commentary,
+                    instrumental=instrumental,
+                    alternate_titles=alternate_titles,
+                    musicbrainz_barcode=musicbrainz_barcode,
+                )
             )
-        )
 
     return candidates
 
 
 # ─── Search and download ─────────────────────────────────────────────────
+
+
+def search_album(album_data: dict, failed_albums: set[str] | None = None) -> MatchResult:
+    """Find a Deezer match without changing download or import state."""
+    album_title = remove_punctuation(normalize_string(album_data.get("title", "")))
+    release_date = album_data.get("releaseDate", "") or ""
+    candidates = _build_candidates(album_data, release_date[:4])
+    return find_best_match(candidates, album_title, failed_albums if failed_albums is not None else set())
+
+
+def _indexer_api_get(path: str) -> Any:
+    response = request_response("GET", path)
+    if isinstance(response, str):
+        try:
+            return json.loads(response)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError("Lidarr returned invalid JSON") from exc
+    return response
+
+
+def _find_indexer_artists(name: str) -> list[dict]:
+    if not name.strip():
+        return []
+    response = _indexer_api_get("artist")
+    if isinstance(response, dict):
+        response = [response]
+    if not isinstance(response, list):
+        raise RuntimeError("Lidarr artist search returned an unexpected response")
+    return [
+        artist
+        for artist in response
+        if isinstance(artist, dict)
+        and isinstance(artist.get("artistName"), str)
+        and matches_search_text(artist["artistName"], name)
+    ]
+
+
+def _warn_missing_artist_link(artist: dict) -> None:
+    name = artist.get("artistName") or "Unknown artist"
+    mbid = artist.get("foreignArtistId")
+    if not mbid:
+        log.warning(f"Cannot check Deezer artist link for {name}: Lidarr has no MusicBrainz artist ID")
+        return
+    try:
+        with musicbrainz_api.request_budget(3):
+            data = musicbrainz_api.fetch_musicbrainz_artist(mbid)
+    except (musicbrainz_api.MusicBrainzUnavailable, ValueError) as exc:
+        log.warning(f"Cannot check Deezer artist link for {name} ({mbid}): {exc}")
+        return
+    if not isinstance(data, dict) or not isinstance(data.get("relations"), list):
+        log.warning(f"Cannot check Deezer artist link for {name} ({mbid}): MusicBrainz metadata unavailable")
+    elif not musicbrainz_api.deezer_artist_links(data):
+        log.warning(
+            f"No Deezer artist link for {name} on https://musicbrainz.org/artist/{mbid}; "
+            "release-level Deezer links can still be searched"
+        )
+
+
+def _indexer_artist_albums(artist: dict) -> list[dict]:
+    artist_id = artist.get("id")
+    if not artist_id:
+        return []
+    response = _indexer_api_get(f"album?artistId={quote_plus(str(artist_id))}&includeArtist=true")
+    if isinstance(response, dict):
+        response = [response]
+    if not isinstance(response, list):
+        raise RuntimeError("Lidarr album search returned an unexpected response")
+    albums = []
+    for album in response:
+        if not isinstance(album, dict):
+            continue
+        album_artist = album.get("artist")
+        if not isinstance(album_artist, dict):
+            album = {**album, "artist": artist}
+        albums.append(album)
+    return albums
+
+
+def _indexer_release_payload(album_data: dict, match: MatchResult) -> dict | None:
+    artist = album_data.get("artist")
+    if not isinstance(artist, dict) or not match.matched:
+        return None
+    release = next(
+        (
+            candidate
+            for candidate in album_data.get("releases", [])
+            if str(candidate.get("id", "")) == str(match.lidarr_release_id)
+        ),
+        None,
+    )
+    if not release or not all((artist.get("id"), album_data.get("id"), release.get("id"))):
+        return None
+    return {
+        "artist_id": str(artist["id"]),
+        "artist_name": str(artist.get("artistName") or ""),
+        "artist_foreign_id": str(artist.get("foreignArtistId") or ""),
+        "album_id": str(album_data["id"]),
+        "album_title": str(album_data.get("title") or ""),
+        "album_foreign_id": str(album_data.get("foreignAlbumId") or ""),
+        "release_id": str(release["id"]),
+        "release_foreign_id": str(match.lidarr_release_foreign_id),
+        "release_title": str(release.get("title") or album_data.get("title") or ""),
+        "deezer_album_id": str(match.deezer_album_id),
+        "deezer_title": str(match.deezer_title),
+        "year": str(match.deezer_year),
+        "track_count": int(match.deezer_track_count),
+    }
+
+
+def _indexer_report_title(album: dict, artist_albums: list[dict], release: dict) -> str | None:
+    artist = album.get("artist") or {}
+    artist_name = artist.get("artistName") or ""
+    album_title = album.get("title") or ""
+    title = " ".join(re.sub(r"[\[\]()]", " ", album_title).split())
+    release_date = album.get("releaseDate") or ""
+    release_year = release_date[:4] if isinstance(release_date, str) else ""
+    if not (len(release_year) == 4 and release_year.isascii() and release_year.isdecimal()):
+        release_year = ""
+    base = f"{artist_name} - {title} ({release_year})" if release_year else f"{artist_name} - {title} [Lidarr]"
+    edition = " ".join(re.sub(r"[\[\]()]", " ", release["deezer_title"]).split())
+    release_title = " ".join(re.sub(r"[\[\]()]", " ", release["release_title"]).split())
+    details = []
+    if edition and edition.casefold() != title.casefold():
+        details.append(edition)
+    if release_title and release_title.casefold() not in (edition.casefold(), title.casefold()):
+        details.append(f"MusicBrainz: {release_title}")
+    if release["track_count"]:
+        details.append(f"{release['track_count']} tracks")
+    if release["year"] and release["year"] != release_year:
+        details.append(f"Deezer year {release['year']}")
+    details.extend((f"Deezer {release['deezer_album_id']}", f"Lidarr release {release['release_id']}"))
+    report_title = f"{base} - {' | '.join(details)}"
+    parsed = _indexer_api_get(f"parse?title={quote_plus(report_title)}")
+    if not isinstance(parsed, dict):
+        raise RuntimeError("Lidarr parse API returned an unexpected response")
+    parsed_info = parsed.get("parsedAlbumInfo") or {}
+    parsed_artist = parsed.get("artist") or {}
+    parsed_albums = parsed.get("albums") or []
+    if (
+        not isinstance(parsed_info, dict)
+        or not isinstance(parsed_artist, dict)
+        or not isinstance(parsed_albums, list)
+        or not isinstance(parsed_info.get("albumTitle"), str)
+        or str(parsed_artist.get("id")) != str(artist.get("id"))
+        or len(parsed_albums) != 1
+        or not isinstance(parsed_albums[0], dict)
+        or str(parsed_albums[0].get("id")) != str(album.get("id"))
+    ):
+        log.warning(f"Not offering {artist_name} - {album_title}: Lidarr cannot map report title to the intended album")
+        return None
+
+    quality = parsed_info.get("quality")
+    quality_info = quality.get("quality") if isinstance(quality, dict) else None
+    if not isinstance(quality_info, dict) or quality_info.get("id") != 0:
+        log.warning(f"Not offering {artist_name} - {album_title}: report title advertises an unverified quality")
+        return None
+
+    parsed_title = parsed_info["albumTitle"]
+    if any(
+        candidate.get("title") == parsed_title and str(candidate.get("id")) != str(album.get("id"))
+        for candidate in artist_albums
+    ):
+        log.warning(f"Not offering {artist_name} - {album_title}: report title conflicts with another Lidarr album")
+        return None
+    return report_title
+
+
+def _validate_indexer_results(results: list[dict], offset: int = 0, limit: int | None = None) -> list[dict]:
+    key = hashlib.sha256(json.dumps(results, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    required = offset + limit if limit is not None else len(results)
+    with _INDEXER_VALIDATION_LOCK:
+        now = time.monotonic()
+        cached = _INDEXER_VALIDATION_CACHE.get(key)
+        if cached is None or cached[0] <= now:
+            validated: list[dict] = []
+            source_index = 0
+        else:
+            _, source_index, previous_results = cached
+            validated = list(previous_results)
+            _INDEXER_VALIDATION_CACHE.move_to_end(key)
+
+        albums_by_artist: dict[str, list[dict]] = {}
+        while source_index < len(results) and len(validated) < required:
+            result = results[source_index]
+            source_index += 1
+            artist_id = result["artist_id"]
+            if artist_id not in albums_by_artist:
+                albums_by_artist[artist_id] = _indexer_artist_albums(
+                    {"id": artist_id, "artistName": result["artist_name"]}
+                )
+            albums = albums_by_artist[artist_id]
+            album = next((candidate for candidate in albums if str(candidate.get("id")) == result["album_id"]), None)
+            if (
+                album is None
+                or album.get("title") != result["album_title"]
+                or (album.get("artist") or {}).get("artistName") != result["artist_name"]
+            ):
+                log.warning(
+                    f"Not offering {result['artist_name']} - {result['album_title']}: "
+                    "Lidarr library changed since the search"
+                )
+                continue
+            report_title = _indexer_report_title(album, albums, result)
+            if report_title is not None:
+                validated.append({**result, "report_title": report_title})
+
+        expires = cached[0] if cached is not None and cached[0] > now else now + _INDEXER_VALIDATION_CACHE_TTL
+        _INDEXER_VALIDATION_CACHE[key] = (expires, source_index, validated)
+        _INDEXER_VALIDATION_CACHE.move_to_end(key)
+        while len(_INDEXER_VALIDATION_CACHE) > _INDEXER_VALIDATION_CACHE_SIZE:
+            _INDEXER_VALIDATION_CACHE.popitem(last=False)
+        return validated[offset:required]
+
+
+def _indexer_match_album(album: dict, year: int | None, artist_albums: list[dict]) -> list[dict]:
+    album_id = album.get("id")
+    if not album_id:
+        return []
+    full_album = get_album_data(str(album_id))
+    if not full_album:
+        return []
+    if year is not None:
+        release_date = full_album.get("releaseDate") or ""
+        if not isinstance(release_date, str) or release_date[:4] != str(year):
+            return []
+    title = remove_punctuation(normalize_string(full_album.get("title", "")))
+    release_date = full_album.get("releaseDate") or ""
+    candidates = _build_candidates(full_album, release_date[:4], all_deezer_links=True)
+    if candidates and not any(candidate.deezer_album_id for candidate in candidates):
+        log.info(
+            f"No Deezer album links in available MusicBrainz release metadata for "
+            f"{(full_album.get('artist') or {}).get('artistName', 'Unknown artist')} - {full_album.get('title', '')} "
+            f"(release group {full_album.get('foreignAlbumId', 'unknown')})"
+        )
+    results = []
+    for match in find_all_matches(candidates, title):
+        payload = _indexer_release_payload(full_album, match)
+        if payload:
+            report_title = _indexer_report_title(full_album, artist_albums, payload)
+            if report_title is not None:
+                payload["report_title"] = report_title
+                results.append(payload)
+    return results
+
+
+def search_indexer_releases(*, artist: str, album: str, q: str, year: int | None, request_type: str) -> list[dict]:
+    """Resolve a background Newznab search, retrying transient MusicBrainz failures."""
+    with musicbrainz_api.retry_transient_indefinitely():
+        return _search_indexer_releases(artist=artist, album=album, q=q, year=year, request_type=request_type)
+
+
+def _indexer_artist_releases(artists: list[dict], year: int | None) -> list[dict]:
+    if len(artists) > 1:
+        raise AmbiguousAlbumError("Artist search matches multiple Lidarr artists")
+    if not artists:
+        return []
+    _warn_missing_artist_link(artists[0])
+    results = []
+    albums = _indexer_artist_albums(artists[0])
+    for candidate in albums:
+        results.extend(_indexer_match_album(candidate, year, albums))
+    return results
+
+
+def _search_indexer_releases(*, artist: str, album: str, q: str, year: int | None, request_type: str) -> list[dict]:
+    searches: list[tuple[str, str, int | None]] = []
+    if artist:
+        if album:
+            searches.append((artist, album, year))
+        else:
+            return _indexer_artist_releases(_find_indexer_artists(artist), year)
+    elif q:
+        words = q.split()
+        artists = _find_indexer_artists(q)
+        if artists:
+            return _indexer_artist_releases(artists, year)
+        if year is None and words and len(words[-1]) == 4 and words[-1].isascii() and words[-1].isdecimal():
+            artist_query = " ".join(words[:-1])
+            artists = _find_indexer_artists(artist_query)
+            if artists:
+                if len(artists) > 1:
+                    raise AmbiguousAlbumError("Artist search matches multiple Lidarr artists")
+                candidates = _indexer_artist_albums(artists[0])
+                selected = resolve_album(candidates, artist_query, words[-1])
+                if selected is not None:
+                    _warn_missing_artist_link(artists[0])
+                    return _indexer_match_album(selected, None, candidates)
+                year = int(words[-1])
+                return _indexer_artist_releases(artists, year)
+            year = int(words.pop())
+        if len(words) == 1:
+            return []
+        for split in range(1, len(words)):
+            searches.append((" ".join(words[:split]), " ".join(words[split:]), year))
+    else:
+        raise ValueError(f"unsupported {request_type} query")
+
+    matches: dict[str, tuple[dict, dict, int | None, list[dict]]] = {}
+    for artist_query, album_query, query_year in searches:
+        artists = _find_indexer_artists(artist_query)
+        if len(artists) > 1:
+            raise AmbiguousAlbumError("Artist and album terms match multiple Lidarr artists")
+        if not artists:
+            continue
+        candidates = _indexer_artist_albums(artists[0])
+        selected = resolve_album(candidates, artist_query, album_query, year=query_year)
+        if selected is None:
+            continue
+        matches[str(selected["id"])] = (artists[0], selected, query_year, candidates)
+    if len(matches) > 1:
+        raise AmbiguousAlbumError("Text search matches multiple Lidarr albums")
+    if not matches:
+        return []
+    matched_artist, selected, query_year, candidates = next(iter(matches.values()))
+    _warn_missing_artist_link(matched_artist)
+    return _indexer_match_album(selected, query_year, candidates)
+
+
+def download_indexer_release(
+    release: dict,
+    on_download_complete: Callable[[], None],
+    arl_token: str,
+) -> bool:
+    """Download a grabbed result and force the exact Lidarr release import."""
+    result = MatchResult(
+        deezer_album_id=release["deezer_album_id"],
+        deezer_title=release["deezer_title"],
+        deezer_year=release["year"],
+        deezer_track_count=release["track_count"],
+        lidarr_release_id=release["release_id"],
+        lidarr_release_foreign_id=release["release_foreign_id"],
+        matched=True,
+    )
+    return _download_album(
+        result,
+        artist_name=release["artist_name"],
+        artist_id=release["artist_id"],
+        artist_foreign_id=release["artist_foreign_id"],
+        album_title=release["album_title"],
+        album_foreign_id=release["album_foreign_id"],
+        album_id=release["album_id"],
+        arl_token=arl_token,
+        strict_manual_import=True,
+        ignore_failure_marker=True,
+        on_download_complete=on_download_complete,
+        staging_owner_id=release.get("bridge_job_id", ""),
+    )
 
 
 def search_and_download(
@@ -376,7 +791,6 @@ def search_and_download(
     album_title = remove_punctuation(normalize_string(album_title_raw))  # For matching comparison
     album_foreign_id = album_data.get("foreignAlbumId", "")
     album_release_date = album_data.get("releaseDate", "") or ""
-    album_release_year = album_release_date[:4] if album_release_date else ""
 
     # Check if not yet released
     if album_release_date:
@@ -397,11 +811,7 @@ def search_and_download(
 
     log.info(f'Searching for album "{album_title}" by "{artist_name}"')
 
-    # Build release candidates
-    candidates = _build_candidates(album_data, album_release_year)
-
-    # Find match
-    result = find_best_match(candidates, album_title, failed_albums)
+    result = search_album(album_data, failed_albums)
 
     # Write result file
     _write_result_file(album_id, artist_name, album_title, album_foreign_id, result)
@@ -417,10 +827,10 @@ def search_and_download(
             album_id,
             arl_token,
             priority_entry=priority_entry,
+            on_download_complete=daily_tracker.increment,
         )
         if success:
             _remove_from_missing_file(album_id)
-            daily_tracker.increment()
     else:
         log.info(f"No match: {result.reason}")
         _upsert_missing_file(album_id, artist_name, album_title, album_foreign_id, result.reason)
@@ -517,11 +927,12 @@ def _download_track_identity(file_path: Path) -> tuple[str, int, int] | tuple[st
     return "filename", file_path.name.casefold()
 
 
-def _merge_download_attempt(attempt_dir: Path) -> int:
-    cfg.staging_dir.mkdir(parents=True, exist_ok=True)
+def _merge_download_attempt(attempt_dir: Path, staging_dir: Path | None = None) -> int:
+    staging_dir = staging_dir or cfg.staging_dir
+    staging_dir.mkdir(parents=True, exist_ok=True)
     known_tracks = {
         _download_track_identity(file_path)
-        for file_path in cfg.staging_dir.rglob("*")
+        for file_path in staging_dir.rglob("*")
         if file_path.is_file() and file_path.suffix.lower() in AUDIO_EXTENSIONS
     }
 
@@ -538,10 +949,10 @@ def _merge_download_attempt(attempt_dir: Path) -> int:
             log.debug(f"Skipping duplicate track from retry: {file_path.name}")
             continue
 
-        destination = cfg.staging_dir / file_path.name
+        destination = staging_dir / file_path.name
         suffix = 2
         while destination.exists():
-            destination = cfg.staging_dir / f"{file_path.stem}_{suffix}{file_path.suffix}"
+            destination = staging_dir / f"{file_path.stem}_{suffix}{file_path.suffix}"
             suffix += 1
         shutil.move(str(file_path), str(destination))
         known_tracks.add(identity)
@@ -559,6 +970,11 @@ def _download_album(
     album_id: str,
     arl_token: str,
     priority_entry: str = "",
+    *,
+    strict_manual_import: bool = False,
+    ignore_failure_marker: bool = False,
+    on_download_complete: Callable[[], None] | None = None,
+    staging_owner_id: str = "",
 ) -> bool:
     """Download, tag, and import an album. Returns True on success."""
     deezer_album_id = result.deezer_album_id
@@ -566,8 +982,16 @@ def _download_album(
     deezer_track_count = result.deezer_track_count
     release_year = result.deezer_year
 
+    if strict_manual_import and not (artist_id and album_id and result.lidarr_release_id):
+        log.error("Cannot force manual import without Lidarr artist, album, and release IDs")
+        return False
+
+    if type(deezer_track_count) is not int or deezer_track_count <= 0:
+        log.error(f'Cannot download "{deezer_title}": Deezer track count is missing or invalid')
+        return False
+
     # Check previously failed
-    if (cfg.failed_dir / deezer_album_id).exists():
+    if not ignore_failure_marker and (cfg.failed_dir / deezer_album_id).exists():
         log.warning(f'Album "{deezer_title}" previously failed, skipping')
         return False
 
@@ -575,11 +999,25 @@ def _download_album(
         log.error(f"Shared Lidarr path not found: {cfg.shared_lidarr_path}")
         return False
 
+    if strict_manual_import:
+        import_path = get_import_path(artist_name, album_title, release_year, album_foreign_id)
+        if import_path.is_dir() and any(
+            path.is_file() and path.suffix.lower() in AUDIO_EXTENSIONS for path in import_path.rglob("*")
+        ):
+            log.error(f"Cannot download: previous staged audio remains in {import_path}; remove it before retrying")
+            return False
+
+    staging_dir = cfg.staging_dir
+    if strict_manual_import and staging_owner_id:
+        if not re.fullmatch(r"[0-9a-f]{32}", staging_owner_id):
+            raise ValueError("Invalid indexer staging owner ID")
+        staging_dir = cfg.staging_dir / "jobs" / staging_owner_id
+
     log.info(f"Downloading: [{deezer_album_id}] {deezer_title} ({release_year})")
 
     attempt_limit = max(1, cfg.download_attempt_threshold)
     qualities = ["flac", "mp3"] if cfg.download_quality_fallback else ["flac"]
-    clean_staging()
+    clean_staging(staging_dir)
     complete = False
 
     for quality_index, quality in enumerate(qualities):
@@ -608,7 +1046,7 @@ def _download_album(
                         f"Deemix reported failure on attempt #{attempt}/{attempt_limit} ({quality}); "
                         "keeping any completed tracks"
                     )
-                collected_count = _merge_download_attempt(Path(temp_dir))
+                collected_count = _merge_download_attempt(Path(temp_dir), staging_dir)
 
             log.debug(f"Collected {collected_count}/{deezer_track_count} distinct tracks ({quality})")
             if collected_count == deezer_track_count:
@@ -629,20 +1067,24 @@ def _download_album(
         log.warning(
             f"Failed to collect all tracks after exhausting {attempt_limit} attempts for each quality, giving up"
         )
-        cfg.failed_dir.mkdir(parents=True, exist_ok=True)
-        (cfg.failed_dir / deezer_album_id).touch()
-        clean_staging()
+        if not strict_manual_import:
+            cfg.failed_dir.mkdir(parents=True, exist_ok=True)
+            (cfg.failed_dir / deezer_album_id).touch()
+        clean_staging(staging_dir)
         return False
 
+    if on_download_complete is not None:
+        on_download_complete()
+
     # Post-processing
-    consolidate_files(cfg.staging_dir)
+    consolidate_files(staging_dir)
     downloaded_timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
     release_foreign_id = result.lidarr_release_foreign_id
     release_lidarr_id = result.lidarr_release_id
 
     _tag_and_enrich(
-        cfg.staging_dir,
+        staging_dir,
         artist_name,
         artist_foreign_id,
         album_title,
@@ -652,10 +1094,22 @@ def _download_album(
         downloaded_timestamp,
     )
 
+    owner_marker = None
+    if strict_manual_import and staging_owner_id:
+        dest = get_import_path(artist_name, album_title, release_year, album_foreign_id)
+        if dest.parent.resolve() != cfg.shared_lidarr_path.resolve() or dest.is_symlink():
+            raise RuntimeError(f"Unsafe indexer import path: {dest}")
+        dest.mkdir(parents=True, exist_ok=True)
+        if any(path.is_file() and path.suffix.lower() in AUDIO_EXTENSIONS for path in dest.rglob("*")):
+            raise RuntimeError(f"Cannot stage download: audio already exists in {dest}")
+        owner_marker = dest / f".deemix-owner-{staging_owner_id}"
+        with owner_marker.open("x", encoding="utf-8"):
+            pass
+
     # Move and import
-    dest = move_to_import(artist_name, album_title, release_year, album_foreign_id)
+    dest = move_to_import(artist_name, album_title, release_year, album_foreign_id, staging_dir=staging_dir)
     import_ok = True
-    if cfg.import_strategy == "manual":
+    if strict_manual_import or cfg.import_strategy == "manual":
         if not (artist_id and album_id and release_lidarr_id):
             log.warning("Manual import strategy requested but missing internal IDs; using scan import")
             if album_id:
@@ -671,6 +1125,7 @@ def _download_album(
                 artist_id=artist_id,
                 album_id=album_id,
                 release_id=release_lidarr_id,
+                strict=strict_manual_import,
             )
             if not import_ok:
                 log.error(
@@ -679,7 +1134,7 @@ def _download_album(
                 )
                 for rejection in rejections[:20]:
                     log.error(f"  - {rejection}")
-                if cfg.import_manual_fallback_to_scan:
+                if cfg.import_manual_fallback_to_scan and not strict_manual_import:
                     log.warning("Attempting verified DownloadedAlbumsScan fallback")
                     import_ok, scan_errors = scan_import_and_verify(str(dest), album_id)
                     for message in scan_errors:
@@ -689,23 +1144,28 @@ def _download_album(
 
     if not import_ok:
         log.error(f'Import FAILED for "{deezer_title}"; leaving files in {dest} for manual review')
-        cfg.failed_dir.mkdir(parents=True, exist_ok=True)
-        (cfg.failed_dir / deezer_album_id).touch()
+        if not strict_manual_import:
+            cfg.failed_dir.mkdir(parents=True, exist_ok=True)
+            (cfg.failed_dir / deezer_album_id).touch()
         return False
 
+    if owner_marker is not None:
+        owner_marker.unlink(missing_ok=True)
+
     # Mark downloaded
-    marker = f"{album_id}--{artist_foreign_id}--{album_foreign_id}"
-    cfg.downloaded_dir.mkdir(parents=True, exist_ok=True)
-    (cfg.downloaded_dir / marker).touch()
+    if not strict_manual_import:
+        marker = f"{album_id}--{artist_foreign_id}--{album_foreign_id}"
+        cfg.downloaded_dir.mkdir(parents=True, exist_ok=True)
+        (cfg.downloaded_dir / marker).touch()
 
     # Remove from priority file (use original entry if from a prefixed source)
     entry_to_remove = priority_entry if priority_entry else album_id
     # Don't remove mb_artist: entries since they represent multiple albums
-    if not entry_to_remove.startswith("mb_artist:"):
+    if not strict_manual_import and not entry_to_remove.startswith("mb_artist:"):
         _remove_from_priority_file(entry_to_remove)
 
     log.info(f'Successfully downloaded "{deezer_title}"')
-    clean_staging()
+    clean_staging(staging_dir)
     return True
 
 
@@ -1238,8 +1698,17 @@ def manual_import_pre_move_hook(import_dir: Path, hook_arg: str) -> bool:
 # ─── Main ─────────────────────────────────────────────────────────────────
 
 
+def _check_download_service_configuration() -> None:
+    if env_bool("SERVICE_DEEMIXDOWNLOADER_ENABLED", True) and env_bool("SERVICE_INDEXER_ENABLED", False):
+        raise RuntimeError(
+            "The legacy DeemixDownloader and Indexer services cannot run together; "
+            "set SERVICE_DEEMIXDOWNLOADER_ENABLED=false when enabling the indexer"
+        )
+
+
 def main() -> None:
     """Main loop for the DeemixDownloader service."""
+    _check_download_service_configuration()
     log.info("Starting DeemixDownloader")
 
     init_state()
@@ -1285,6 +1754,54 @@ def main() -> None:
 
         log.info(f"Sleeping for {cfg.interval}...")
         time.sleep(cfg.interval_seconds)
+
+
+def indexer_main() -> None:
+    """Run the authenticated Newznab indexer and quota-aware grab worker."""
+    _check_download_service_configuration()
+    from .indexer_bridge import build_bridge_from_environment
+
+    log.info("Starting Lidarr Deemix Indexer")
+    init_state()
+    verify_arr_api_access()
+    arl_token = setup_deemix()
+    setup_beets()
+    setup_working_dirs()
+
+    def download(release: dict, on_download_complete: Callable[[], None]) -> bool:
+        token = cfg.deemix_arl_file.read_text(encoding="utf-8").strip().strip('\r\n"')
+        return download_indexer_release(release, on_download_complete, token or arl_token)
+
+    from .indexer_background import BackgroundSearch
+
+    searches = BackgroundSearch(cfg.work_path, search_indexer_releases)
+
+    def search(**query: Any) -> list[dict]:
+        return searches.search(**query)
+
+    def clean_up_imported_queue(download_ids: list[str]) -> set[str]:
+        return remove_lidarr_queue_items(download_ids)
+
+    def configure_indexer(_port: int) -> None:
+        if env_bool("AUTOCONFIG_DEEMIX_INDEXER"):
+            script = Path(__file__).resolve().parents[2] / "services" / "one-time" / "IndexerConfig.py"
+            subprocess.run([sys.executable, str(script), "--bridge-ready"], check=True)
+
+    def maintain_indexer() -> None:
+        prune_cache()
+        folder_cleaner()
+        searches.prune()
+        clean_abandoned_attempts(bridge)
+
+    bridge = build_bridge_from_environment(
+        search, download, clean_up_imported_queue, maintain_indexer, _validate_indexer_results
+    )
+    worker = searches.start()
+    try:
+        bridge.serve(bridge.bind_host, bridge.bind_port, on_listening=configure_indexer, monitored_worker=worker)
+    finally:
+        searches.stop()
+        worker.join(timeout=10)
 
 
 if __name__ == "__main__":

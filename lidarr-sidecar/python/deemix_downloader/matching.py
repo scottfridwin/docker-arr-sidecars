@@ -17,12 +17,17 @@ Sanity checks:
 
 from __future__ import annotations
 
+import re
+from collections.abc import Iterator
 from dataclasses import dataclass
 
 from .config import cfg
-from .deezer_api import get_deezer_album_info
+from .deezer_api import get_deezer_album_info, raise_transient_errors
 from .logging import log
 from .string_utils import levenshtein_distance, normalize_string
+
+_RADIO_RELEASE_SPECIAL = re.compile(r"\bradio release special\b", re.IGNORECASE)
+_DELUXE_ABBREVIATION = re.compile(r"(?<!\w)d\.\s*l\.\s*x\.?(?!\w)", re.IGNORECASE)
 
 
 @dataclass
@@ -88,12 +93,12 @@ def _title_is_reasonable(
     if not deezer_title:
         return True
 
-    norm_deezer = normalize_string(deezer_title).lower()
+    norm_deezer = normalize_string(_DELUXE_ABBREVIATION.sub("deluxe", deezer_title)).lower()
     if not norm_deezer:
         return True
 
     for title in titles_to_compare:
-        norm_lidarr = normalize_string(title).lower()
+        norm_lidarr = normalize_string(_DELUXE_ABBREVIATION.sub("deluxe", title)).lower()
         if not norm_lidarr:
             continue
 
@@ -116,7 +121,7 @@ def _track_count_matches(mb_count: int, deezer_count: int) -> bool:
     linked to must have the same track count. Any difference means the link points
     at a different edition, so the match is rejected rather than imported.
     """
-    if mb_count <= 0 or deezer_count <= 0:
+    if type(mb_count) is not int or type(deezer_count) is not int or mb_count <= 0 or deezer_count <= 0:
         return True
     return mb_count == deezer_count
 
@@ -142,14 +147,12 @@ def _normalize_upc(value: str) -> str:
 def _rank_release(candidate: ReleaseCandidate) -> tuple:
     """
     Sort key for ranking releases. Lower is better.
-    1. Not commentary
-    2. Not instrumental
-    3. Country priority
-    4. Format priority
-    5. Higher track count
+    1. Not instrumental
+    2. Country priority
+    3. Format priority
+    4. Higher track count
     """
     return (
-        int(candidate.contains_commentary),
         int(candidate.instrumental),
         candidate.country_priority,
         candidate.format_priority,
@@ -208,8 +211,73 @@ def find_best_match(
         "track_count_mismatch": 0,
     }
 
-    # Try each candidate in rank order
-    for candidate in official:
+    match = next(_match_candidates(official, lidarr_album_title, failed_albums, reject_counts), None)
+    if match is not None:
+        return match
+
+    summary_parts = [
+        f"redirect gate rejected={reject_counts['redirect_rejected']}",
+        f"upc mismatch={reject_counts['upc_mismatch']}",
+        f"deezer fetch failed={reject_counts['deezer_fetch_failed']}",
+        f"lyric type={reject_counts['lyric_type']}",
+        f"title mismatch={reject_counts['title_mismatch']}",
+        f"track mismatch={reject_counts['track_count_mismatch']}",
+        f"previously failed={reject_counts['previously_failed']}",
+    ]
+    return MatchResult(reason="All Deezer links failed sanity checks: " + ", ".join(summary_parts))
+
+
+def find_all_matches(releases: list[ReleaseCandidate], lidarr_album_title: str) -> list[MatchResult]:
+    """Return each distinct validated release/Deezer pair for Lidarr to choose from."""
+    linked = [candidate for candidate in releases if candidate.deezer_album_id]
+    if cfg.ignore_instrumental:
+        non_instrumental = [candidate for candidate in linked if not candidate.instrumental]
+        if non_instrumental:
+            linked = non_instrumental
+    linked.sort(
+        key=lambda candidate: (
+            candidate.release_status != "Official",
+            cfg.deprioritize_commentary
+            and (
+                candidate.contains_commentary
+                or bool(_RADIO_RELEASE_SPECIAL.search(f"{candidate.title} {candidate.disambiguation}"))
+            ),
+            _rank_release(candidate),
+        )
+    )
+    counts = dict.fromkeys(
+        (
+            "previously_failed",
+            "deezer_fetch_failed",
+            "redirect_rejected",
+            "upc_mismatch",
+            "lyric_type",
+            "title_mismatch",
+            "track_count_mismatch",
+        ),
+        0,
+    )
+    matches = []
+    seen: set[tuple[str, str]] = set()
+    with raise_transient_errors():
+        for match in _match_candidates(linked, lidarr_album_title, set(), counts):
+            if type(match.deezer_track_count) is not int or match.deezer_track_count <= 0:
+                log.warning(f"Skipping Deezer album {match.deezer_album_id}: missing or invalid track count")
+                continue
+            identity = (match.lidarr_release_id, match.deezer_album_id)
+            if identity not in seen:
+                matches.append(match)
+                seen.add(identity)
+    return matches
+
+
+def _match_candidates(
+    candidates: list[ReleaseCandidate],
+    lidarr_album_title: str,
+    failed_albums: set[str],
+    reject_counts: dict[str, int],
+) -> Iterator[MatchResult]:
+    for candidate in candidates:
         deezer_id = candidate.deezer_album_id
 
         # Skip previously failed
@@ -244,6 +312,10 @@ def find_best_match(
 
         deezer_title = album_data.get("title", "")
         deezer_track_count = album_data.get("nb_tracks", 0)
+        if type(deezer_track_count) is not int or deezer_track_count <= 0:
+            log.warning(f"Skipping Deezer album {deezer_id}: missing or invalid track count")
+            reject_counts["track_count_mismatch"] += 1
+            continue
         deezer_explicit = album_data.get("explicit_lyrics", False)
         deezer_release_date = album_data.get("release_date", "")
         deezer_year = deezer_release_date[:4] if deezer_release_date else ""
@@ -267,6 +339,16 @@ def find_best_match(
             reject_counts["lyric_type"] += 1
             continue
 
+        # When both counts are known, reject links to a different-sized edition.
+        if not _track_count_matches(candidate.track_count, deezer_track_count):
+            log.warning(
+                f'Rejecting Deezer link for "{deezer_title}" ({deezer_id}): '
+                f"track-count mismatch (MusicBrainz release={candidate.track_count}, "
+                f"Deezer={deezer_track_count}) - cannot safely force this release"
+            )
+            reject_counts["track_count_mismatch"] += 1
+            continue
+
         # Sanity check: title reasonableness
         search_title = candidate.title or lidarr_album_title
         if not _title_is_reasonable(
@@ -279,18 +361,6 @@ def find_best_match(
                 f'expected "{search_title}" - possible bad MusicBrainz link'
             )
             reject_counts["title_mismatch"] += 1
-            continue
-
-        # Trust MusicBrainz: the linked Deezer album must have the SAME track
-        # count as the release. A mismatch is a bad MusicBrainz<->Deezer link and
-        # is rejected loudly rather than downloading an edition we can't import.
-        if not _track_count_matches(candidate.track_count, deezer_track_count):
-            log.warning(
-                f'Rejecting Deezer link for "{deezer_title}" ({deezer_id}): '
-                f"track-count mismatch (MusicBrainz release={candidate.track_count}, "
-                f"Deezer={deezer_track_count}) - bad MusicBrainz-Deezer link"
-            )
-            reject_counts["track_count_mismatch"] += 1
             continue
 
         # All checks pass
@@ -311,15 +381,4 @@ def find_best_match(
             ),
         )
 
-        return match_result
-
-    summary_parts = [
-        f"redirect gate rejected={reject_counts['redirect_rejected']}",
-        f"upc mismatch={reject_counts['upc_mismatch']}",
-        f"deezer fetch failed={reject_counts['deezer_fetch_failed']}",
-        f"lyric type={reject_counts['lyric_type']}",
-        f"title mismatch={reject_counts['title_mismatch']}",
-        f"track mismatch={reject_counts['track_count_mismatch']}",
-        f"previously failed={reject_counts['previously_failed']}",
-    ]
-    return MatchResult(reason="All Deezer links failed sanity checks: " + ", ".join(summary_parts))
+        yield match_result

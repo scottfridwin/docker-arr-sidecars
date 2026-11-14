@@ -12,7 +12,7 @@ import subprocess
 import time
 from pathlib import Path
 
-from .config import cfg
+from .config import CACHE_LOCK, cfg
 from .logging import log
 from .string_utils import clean_path_string
 
@@ -29,11 +29,12 @@ def setup_working_dirs() -> None:
     cfg.notfound_dir.mkdir(parents=True, exist_ok=True)
 
 
-def clean_staging() -> None:
+def clean_staging(staging_dir: Path | None = None) -> None:
     """Remove all files from staging directory."""
-    if cfg.staging_dir.exists():
-        shutil.rmtree(cfg.staging_dir)
-    cfg.staging_dir.mkdir(parents=True, exist_ok=True)
+    staging_dir = staging_dir or cfg.staging_dir
+    if staging_dir.exists():
+        shutil.rmtree(staging_dir)
+    staging_dir.mkdir(parents=True, exist_ok=True)
 
 
 def prune_cache() -> None:
@@ -50,8 +51,9 @@ def prune_cache() -> None:
             if item.name.startswith(prefix) and item.is_file() and now - item.stat().st_mtime > max_age_secs:
                 item.unlink(missing_ok=True)
 
-    _prune("mb-", cfg.cache_max_age_musicbrainz)
-    _prune("deezer-", cfg.cache_max_age_deezer)
+    with CACHE_LOCK:
+        _prune("mb-", cfg.cache_max_age_musicbrainz)
+        _prune("deezer-", cfg.cache_max_age_deezer)
     # Lidarr cache is handled separately if needed
 
 
@@ -435,6 +437,8 @@ def get_import_path(
     album_title: str,
     release_year: str,
     album_foreign_id: str = "",
+    *,
+    import_root: Path | None = None,
 ) -> Path:
     """Return the shared import folder for an album."""
     artist_clean = clean_path_string(artist_name[:100])
@@ -443,7 +447,7 @@ def get_import_path(
     mbid_part = f" [{album_foreign_id}]" if album_foreign_id else ""
 
     folder_name = f"{artist_clean} - {album_clean}{year_part}{mbid_part}"
-    return cfg.shared_lidarr_path / folder_name
+    return (import_root if import_root is not None else cfg.shared_lidarr_path) / folder_name
 
 
 def remove_existing_import_flac_files(
@@ -473,6 +477,8 @@ def move_to_import(
     album_title: str,
     release_year: str,
     album_foreign_id: str = "",
+    *,
+    staging_dir: Path | None = None,
 ) -> Path:
     """Move staged files to the shared import path. Returns the destination folder.
 
@@ -483,7 +489,7 @@ def move_to_import(
     dest = get_import_path(artist_name, album_title, release_year, album_foreign_id)
     dest.mkdir(parents=True, exist_ok=True)
 
-    for f in cfg.staging_dir.iterdir():
+    for f in (staging_dir or cfg.staging_dir).iterdir():
         if f.is_file() and f.suffix.lower() in AUDIO_EXTENSIONS:
             shutil.move(str(f), str(dest / f.name))
 

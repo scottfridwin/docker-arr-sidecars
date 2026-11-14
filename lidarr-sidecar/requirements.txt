@@ -1,3 +1,4 @@
 requests==2.34.2
+defusedxml==0.7.1
 mutagen==1.48.1
 deemix==3.6.6

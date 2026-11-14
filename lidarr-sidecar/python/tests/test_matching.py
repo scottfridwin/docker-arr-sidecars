@@ -1,16 +1,224 @@
+import json
+import os
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from deemix_downloader import matching, musicbrainz_api
+from deemix_downloader import deezer_api, matching, musicbrainz_api
 from deemix_downloader.config import Config
 
 
 class MatchingTests(unittest.TestCase):
+    def test_expired_deezer_cache_is_refetched(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = Config(work_path=Path(directory), cache_max_age_deezer=1)
+            config.cache_dir.mkdir()
+            cached = config.cache_dir / "deezer-album-10.json"
+            cached.write_text(json.dumps({"id": 10, "title": "stale"}))
+            os.utime(cached, (time.time() - 172800, time.time() - 172800))
+            fresh = {"id": 10, "title": "fresh", "nb_tracks": 1, "tracks": {"data": [{}]}}
+            with (
+                patch.object(deezer_api, "cfg", config),
+                patch.object(deezer_api, "call_deezer_api", return_value=fresh) as request,
+            ):
+                self.assertEqual(deezer_api.get_deezer_album_info(10)["title"], "fresh")
+                request.assert_called_once()
+
+    def test_invalid_deezer_track_count_is_not_cached(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = Config(work_path=Path(directory))
+            album = {"id": 10, "title": "Album", "nb_tracks": None}
+            with (
+                patch.object(deezer_api, "cfg", config),
+                patch.object(deezer_api, "call_deezer_api", return_value=album),
+            ):
+                self.assertEqual(deezer_api.get_deezer_album_info(10), album)
+            self.assertFalse((config.cache_dir / "deezer-album-10.json").exists())
+
+    def test_indexer_transient_deezer_failure_never_returns_partial_matches(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = Config(work_path=Path(directory), deezer_api_retries=1, require_upc_match=False)
+            candidates = [
+                matching.ReleaseCandidate(title="Album", release_id="1", deezer_album_id="10", track_count=1),
+                matching.ReleaseCandidate(title="Album", release_id="2", deezer_album_id="20", track_count=1),
+            ]
+            ok = Mock(status_code=200)
+            ok.json.return_value = {"id": "10", "title": "Album", "nb_tracks": 1, "tracks": {"data": [{}]}}
+            failed = Mock(status_code=503)
+            session = Mock()
+            session.get.side_effect = [ok, failed]
+            with (
+                patch.object(deezer_api, "cfg", config),
+                patch.object(matching, "cfg", config),
+                patch.object(deezer_api, "_get_session", return_value=session),
+                self.assertRaises(deezer_api.DeezerUnavailable),
+            ):
+                matching.find_all_matches(candidates, "Album")
+
+    def test_deezer_service_busy_is_transient(self):
+        config = Config(deezer_api_retries=1)
+        response = Mock(status_code=200)
+        response.json.return_value = {"error": {"code": 700, "message": "Service Busy"}}
+        with (
+            patch.object(deezer_api, "cfg", config),
+            patch.object(deezer_api, "_get_session") as session,
+            deezer_api.raise_transient_errors(),
+            self.assertRaises(deezer_api.DeezerUnavailable),
+        ):
+            session.return_value.get.return_value = response
+            deezer_api.call_deezer_api("https://api.deezer.com/album/10")
+
+    def test_indexer_does_not_offer_unknown_track_count(self):
+        candidate = matching.ReleaseCandidate(title="Album", release_id="1", deezer_album_id="10")
+        for count in (0, None, "1"):
+            album = {"id": "10", "title": "Album", "nb_tracks": count}
+            with (
+                self.subTest(count=count),
+                patch.object(matching, "get_deezer_album_info", return_value=album),
+                patch.object(matching.cfg, "require_upc_match", False),
+            ):
+                self.assertEqual(matching.find_all_matches([candidate], "Album"), [])
+
+    def test_indexer_prefers_regular_edition_over_radio_special_without_hiding_it(self):
+        releases = [
+            matching.ReleaseCandidate(
+                title="Album (Big Machine Radio release special)",
+                release_id="2",
+                deezer_album_id="20",
+                release_status="Official",
+                track_count=20,
+                country_priority=0,
+                contains_commentary=True,
+            ),
+            matching.ReleaseCandidate(
+                title="Album",
+                release_id="1",
+                deezer_album_id="10",
+                release_status="Official",
+                track_count=10,
+                country_priority=1,
+            ),
+        ]
+        albums = {
+            "10": {"id": "10", "title": "Album", "nb_tracks": 10},
+            "20": {"id": "20", "title": "Album (Big Machine Radio release special)", "nb_tracks": 20},
+        }
+        with (
+            patch.object(matching, "get_deezer_album_info", side_effect=albums.get),
+            patch.object(matching.cfg, "require_upc_match", False),
+            patch.object(matching.cfg, "deprioritize_commentary", True),
+        ):
+            matches = matching.find_all_matches(releases, "Album")
+        self.assertEqual([match.lidarr_release_id for match in matches], ["1", "2"])
+        with (
+            patch.object(matching, "get_deezer_album_info", side_effect=albums.get),
+            patch.object(matching.cfg, "require_upc_match", False),
+            patch.object(matching.cfg, "deprioritize_commentary", False),
+        ):
+            matches = matching.find_all_matches(releases, "Album")
+        self.assertEqual([match.lidarr_release_id for match in matches], ["2", "1"])
+
+    def test_track_count_mismatch_is_reported_before_title_mismatch(self):
+        candidate = matching.ReleaseCandidate(
+            title="1989 D.L.X.", track_count=55, deezer_album_id="20", release_status="Official"
+        )
+        album = {"id": "20", "title": "1989 (Deluxe Edition)", "nb_tracks": 19}
+        with (
+            patch.object(matching, "get_deezer_album_info", return_value=album),
+            patch.object(matching.cfg, "require_upc_match", False),
+        ):
+            result = matching.find_best_match([candidate], "1989", set())
+        self.assertFalse(result.matched)
+        self.assertIn("track mismatch=1", result.reason)
+
+    def test_invalid_deezer_track_count_falls_back_to_next_release(self):
+        candidates = [
+            matching.ReleaseCandidate(title="Album", release_id="1", deezer_album_id="10", track_count=1),
+            matching.ReleaseCandidate(title="Album", release_id="2", deezer_album_id="20", track_count=1),
+        ]
+        albums = {
+            "10": {"id": "10", "title": "Album", "nb_tracks": 0},
+            "20": {"id": "20", "title": "Album", "nb_tracks": 1},
+        }
+        with (
+            patch.object(matching, "get_deezer_album_info", side_effect=albums.get),
+            patch.object(matching.cfg, "require_upc_match", False),
+        ):
+            result = matching.find_best_match(candidates, "Album", set())
+        self.assertTrue(result.matched)
+        self.assertEqual(result.lidarr_release_id, "2")
+
+    def test_dotted_deluxe_abbreviation_matches_without_bypassing_other_gates(self):
+        candidate = matching.ReleaseCandidate(
+            title="1989 D.L.X.",
+            track_count=19,
+            deezer_album_id="20",
+            release_status="Official",
+            musicbrainz_barcode="123",
+        )
+        album = {"id": "20", "title": "1989 (Deluxe Edition)", "nb_tracks": 19, "upc": "123"}
+        with (
+            patch.object(matching, "get_deezer_album_info", return_value=album),
+            patch.object(matching.cfg, "require_upc_match", True),
+        ):
+            self.assertTrue(matching.find_best_match([candidate], "1989", set()).matched)
+            album["nb_tracks"] = 55
+            self.assertFalse(matching.find_best_match([candidate], "1989", set()).matched)
+            album["nb_tracks"] = 19
+            album["upc"] = "999"
+            self.assertFalse(matching.find_best_match([candidate], "1989", set()).matched)
+        self.assertFalse(matching._title_is_reasonable("1989 D.L.X.", "Completely Different Album"))
+
+    def test_find_all_matches_keeps_distinct_editions_and_applies_safety_gates(self):
+        releases = [
+            matching.ReleaseCandidate(
+                title="Album",
+                release_id="1",
+                foreign_id="mb1",
+                deezer_album_id="10",
+                release_status="Official",
+                track_count=10,
+                musicbrainz_barcode="123",
+            ),
+            matching.ReleaseCandidate(
+                title="Album",
+                release_id="2",
+                foreign_id="mb2",
+                deezer_album_id="20",
+                release_status="Promotion",
+                track_count=12,
+                musicbrainz_barcode="456",
+                contains_commentary=True,
+            ),
+            matching.ReleaseCandidate(
+                title="Album",
+                release_id="3",
+                foreign_id="mb3",
+                deezer_album_id="30",
+                release_status="Official",
+                track_count=10,
+                musicbrainz_barcode="wrong",
+            ),
+        ]
+        albums = {
+            "10": {"id": "10", "title": "Album", "nb_tracks": 10, "upc": "123"},
+            "20": {"id": "20", "title": "Album Deluxe", "nb_tracks": 12, "upc": "456"},
+            "30": {"id": "30", "title": "Album", "nb_tracks": 10, "upc": "789"},
+        }
+        with (
+            patch.object(matching, "get_deezer_album_info", side_effect=albums.get),
+            patch.object(matching.cfg, "require_upc_match", True),
+            patch.object(matching.cfg, "require_non_redirect_deezer", True),
+            patch.object(matching.cfg, "lyric_type", "prefer-explicit"),
+        ):
+            matches = matching.find_all_matches([*releases, releases[0]], "Album")
+        self.assertEqual([(m.lidarr_release_id, m.deezer_album_id) for m in matches], [("1", "10"), ("2", "20")])
+
     def test_fetch_musicbrainz_release_requests_release_group_data(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             cfg = Config()
