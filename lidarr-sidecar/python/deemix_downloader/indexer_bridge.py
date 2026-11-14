@@ -979,12 +979,14 @@ class IndexerBridge:
                 except BridgeRequestError as exc:
                     self._error(HTTPStatus.BAD_REQUEST, str(exc))
                 except SearchWarming as exc:
-                    self._error(HTTPStatus.SERVICE_UNAVAILABLE, str(exc))
+                    log.warning(f"Indexer search is still warming; returning no reports: {exc}")
+                    self._respond(HTTPStatus.OK, bridge._rss([]), "application/rss+xml; charset=utf-8")
                 except (OSError, RuntimeError, sqlite3.Error) as exc:
                     log.error(f"Indexer search unavailable: {exc}")
                     self._error(HTTPStatus.SERVICE_UNAVAILABLE, "Search upstream is unavailable")
                 except AmbiguousAlbumError as exc:
-                    self._error(HTTPStatus.BAD_REQUEST, str(exc))
+                    log.warning(f"Indexer search is ambiguous; returning no reports: {exc}")
+                    self._respond(HTTPStatus.OK, bridge._rss([]), "application/rss+xml; charset=utf-8")
 
             def do_POST(self) -> None:
                 if urlsplit(self.path).path != "/jsonrpc" or not bridge._basic_authenticated(

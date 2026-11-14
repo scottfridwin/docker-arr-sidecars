@@ -33,9 +33,9 @@ from urllib.parse import quote_plus
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
-from shared.python.arrapi import verify_arr_api_access
+from shared.python.arrapi import get_arr_url, http_request, verify_arr_api_access
 from shared.python.config import env_bool
-from shared.python.state import init_state
+from shared.python.state import get_state, init_state
 
 from . import musicbrainz_api
 from .config import cfg
@@ -442,17 +442,21 @@ def _indexer_api_get(path: str) -> Any:
     return response
 
 
-def _find_indexer_artists(name: str) -> list[dict]:
-    if not name.strip():
-        return []
+def _indexer_artists() -> list[Any]:
     response = _indexer_api_get("artist")
     if isinstance(response, dict):
         response = [response]
     if not isinstance(response, list):
         raise RuntimeError("Lidarr artist search returned an unexpected response")
+    return response
+
+
+def _find_indexer_artists(name: str, artists: list[Any]) -> list[dict]:
+    if not name.strip():
+        return []
     return [
         artist
-        for artist in response
+        for artist in artists
         if isinstance(artist, dict)
         and isinstance(artist.get("artistName"), str)
         and matches_search_text(artist["artistName"], name)
@@ -636,6 +640,53 @@ def _validate_indexer_results(results: list[dict], offset: int = 0, limit: int |
         return validated[offset:required]
 
 
+def _retry_warmed_indexer_search(results: list[dict]) -> None:
+    from .indexer_background import SearchRetryDeferred, SearchRetryRejected
+
+    if not results:
+        log.info("Warmed indexer search has no matches to retry in Lidarr")
+        return
+    try:
+        validated = _validate_indexer_results(results)
+        if not validated:
+            log.info("Warmed indexer search has no valid matches to retry in Lidarr")
+            return
+        commands = _indexer_api_get("command")
+    except (OSError, RuntimeError) as exc:
+        raise SearchRetryDeferred(f"Cannot validate results or inspect Lidarr commands: {exc}") from exc
+    if not isinstance(commands, list):
+        raise SearchRetryDeferred("Lidarr returned an invalid command list")
+    if any(
+        isinstance(command, dict)
+        and str(command.get("name", "")).casefold() in ("albumsearch", "artistsearch")
+        and str(command.get("status", "")).casefold() in ("queued", "started", "pending")
+        for command in commands
+    ):
+        raise SearchRetryDeferred("A Lidarr search command is still active")
+
+    album_ids = set()
+    for result in validated:
+        album_id = str(result.get("album_id", ""))
+        if not album_id.isascii() or not album_id.isdecimal() or int(album_id) <= 0:
+            raise SearchRetryRejected("A matched release has an invalid Lidarr album ID")
+        album_ids.add(int(album_id))
+    version = get_state("arrApiVersion")
+    if not version:
+        raise SearchRetryDeferred("Lidarr API version is unavailable")
+    url = f"{get_arr_url()}/api/{version}/command"
+    payload = json.dumps({"name": "AlbumSearch", "albumIds": sorted(album_ids)})
+    status, body = http_request("POST", url, payload)
+    if status not in (200, 201, 202):
+        raise RuntimeError(f"Lidarr returned HTTP {status} when submitting the search")
+    try:
+        response = json.loads(body)
+    except (ValueError, UnicodeError) as exc:
+        raise RuntimeError("Lidarr returned an invalid search command response") from exc
+    if not isinstance(response, dict) or type(response.get("id")) is not int or response["id"] <= 0:
+        raise RuntimeError("Lidarr did not return a valid search command ID")
+    log.info(f"Submitted automatic Lidarr search retry for {len(album_ids)} album(s), command {response['id']}")
+
+
 def _indexer_match_album(album: dict, year: int | None, artist_albums: list[dict]) -> list[dict]:
     album_id = album.get("id")
     if not album_id:
@@ -688,19 +739,27 @@ def _indexer_artist_releases(artists: list[dict], year: int | None) -> list[dict
 
 def _search_indexer_releases(*, artist: str, album: str, q: str, year: int | None, request_type: str) -> list[dict]:
     searches: list[tuple[str, str, int | None]] = []
+    artist_catalog: list[Any] | None = None
+
+    def find_artists(name: str) -> list[dict]:
+        nonlocal artist_catalog
+        if artist_catalog is None:
+            artist_catalog = _indexer_artists()
+        return _find_indexer_artists(name, artist_catalog)
+
     if artist:
         if album:
             searches.append((artist, album, year))
         else:
-            return _indexer_artist_releases(_find_indexer_artists(artist), year)
+            return _indexer_artist_releases(find_artists(artist), year)
     elif q:
         words = q.split()
-        artists = _find_indexer_artists(q)
+        artists = find_artists(q)
         if artists:
             return _indexer_artist_releases(artists, year)
         if year is None and words and len(words[-1]) == 4 and words[-1].isascii() and words[-1].isdecimal():
             artist_query = " ".join(words[:-1])
-            artists = _find_indexer_artists(artist_query)
+            artists = find_artists(artist_query)
             if artists:
                 if len(artists) > 1:
                     raise AmbiguousAlbumError("Artist search matches multiple Lidarr artists")
@@ -721,7 +780,7 @@ def _search_indexer_releases(*, artist: str, album: str, q: str, year: int | Non
 
     matches: dict[str, tuple[dict, dict, int | None, list[dict]]] = {}
     for artist_query, album_query, query_year in searches:
-        artists = _find_indexer_artists(artist_query)
+        artists = find_artists(artist_query)
         if len(artists) > 1:
             raise AmbiguousAlbumError("Artist and album terms match multiple Lidarr artists")
         if not artists:
@@ -1774,7 +1833,16 @@ def indexer_main() -> None:
 
     from .indexer_background import BackgroundSearch
 
-    searches = BackgroundSearch(cfg.work_path, search_indexer_releases)
+    auto_retry = env_bool("AUDIO_INDEXER_AUTO_RETRY_SEARCHES", False)
+    if auto_retry:
+        log.warning(
+            "Automatic indexer search retries can bypass Lidarr delay profiles and grab interactive-search results"
+        )
+    searches = BackgroundSearch(
+        cfg.work_path,
+        search_indexer_releases,
+        on_warmed=_retry_warmed_indexer_search if auto_retry else None,
+    )
 
     def search(**query: Any) -> list[dict]:
         return searches.search(**query)
