@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+import threading
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -16,7 +17,7 @@ import requests
 from .config import CACHE_LOCK, cfg
 from .logging import log
 
-_session: requests.Session | None = None
+_sessions = threading.local()
 _RAISE_TRANSIENT: ContextVar[bool] = ContextVar("deezer_raise_transient", default=False)
 
 
@@ -34,11 +35,12 @@ def raise_transient_errors() -> Iterator[None]:
 
 
 def _get_session() -> requests.Session:
-    global _session
-    if _session is None:
-        _session = requests.Session()
-        _session.headers.update({"User-Agent": "Mozilla/5.0 (compatible; deemix-sidecar/1.0)"})
-    return _session
+    session = getattr(_sessions, "session", None)
+    if session is None:
+        session = requests.Session()
+        session.headers.update({"User-Agent": "Mozilla/5.0 (compatible; deemix-sidecar/1.0)"})
+        _sessions.session = session
+    return session
 
 
 def call_deezer_api(url: str) -> dict | list | None:

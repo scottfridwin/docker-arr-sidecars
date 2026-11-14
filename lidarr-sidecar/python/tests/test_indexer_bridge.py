@@ -22,13 +22,15 @@ from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from deemix_downloader.indexer_background import SearchWarming
+from deemix_downloader import service
+from deemix_downloader.indexer_background import BackgroundSearch, SearchWarming
 from deemix_downloader.indexer_bridge import (
     BridgeRequestError,
     BridgeStore,
     IndexerBridge,
     build_bridge_from_environment,
 )
+from deemix_downloader.indexer_search import AmbiguousAlbumError
 
 
 class IndexerBridgeTests(unittest.TestCase):
@@ -185,12 +187,97 @@ class IndexerBridgeTests(unittest.TestCase):
         thread.start()
         self.addCleanup(lambda: (server.shutdown(), thread.join(), server.server_close()))
         url = f"http://127.0.0.1:{server.server_port}/api?t=search&q=artist&apikey=" + ("x" * 32)
-        with self.assertRaises(urllib.error.HTTPError) as response:
-            urllib.request.urlopen(url, timeout=3)  # noqa: S310 - loopback-only test server.
-        self.assertEqual(response.exception.code, 503)
-        body = response.exception.read()
-        response.exception.close()
-        self.assertIn(b"Search is warming in the background; retry later", body)
+        with urllib.request.urlopen(url, timeout=3) as response:  # noqa: S310 - loopback-only test server.
+            self.assertEqual(response.status, 200)
+            self.assertEqual(response.headers["Content-Type"], "application/rss+xml; charset=utf-8")
+            body = response.read()
+        rss = ET.fromstring(body)  # noqa: S314 - bridge-generated XML.
+        self.assertEqual(rss.findall("./channel/item"), [])
+
+    def test_cold_search_retries_through_queue_and_quota_reset(self):
+        slow_started = threading.Event()
+        finish_slow = threading.Event()
+        grabbed = threading.Event()
+        commands = []
+
+        def search(**query):
+            if query["q"] == "artist":
+                slow_started.set()
+                if not finish_slow.wait(3):
+                    raise RuntimeError("Timed out waiting to finish test search")
+            return [self.release()]
+
+        background = BackgroundSearch(
+            self.work_path, search, wait_seconds=0, retry_seconds=0.01, on_warmed=service._retry_warmed_indexer_search
+        )
+        self.bridge.search_callback = background.search
+        self.bridge.quota.reserve("previous-download")
+        self.bridge.quota.complete("previous-download")
+        server = ThreadingHTTPServer(("127.0.0.1", 0), self.bridge.handler())
+        server_thread = threading.Thread(target=server.serve_forever)
+        server_thread.start()
+        base_url = f"http://127.0.0.1:{server.server_port}/api?t=search&apikey={'x' * 32}&q="
+
+        def submit_command(method, _url, payload):
+            self.assertEqual(method, "POST")
+            commands.append(json.loads(payload))
+            with urllib.request.urlopen(base_url + "artist+album", timeout=3) as response:  # noqa: S310
+                rss = ET.fromstring(response.read())  # noqa: S314 - bridge-generated XML.
+            item = rss.find("./channel/item")
+            if item is not None:
+                self._submit(item.findtext("guid"))
+                grabbed.set()
+            return 201, json.dumps({"id": len(commands)})
+
+        with (
+            patch.object(service, "_validate_indexer_results", side_effect=lambda results: results),
+            patch.object(service, "_indexer_api_get", return_value=[]),
+            patch.object(service, "get_state", return_value="v1"),
+            patch.object(service, "get_arr_url", return_value="http://127.0.0.1"),
+            patch.object(service, "http_request", side_effect=submit_command),
+        ):
+            worker = background.start()
+            try:
+                with urllib.request.urlopen(base_url + "artist", timeout=3) as response:  # noqa: S310
+                    rss = ET.fromstring(response.read())  # noqa: S314 - bridge-generated XML.
+                self.assertEqual(rss.findall("./channel/item"), [])
+                self.assertTrue(slow_started.wait(2))
+                finish_slow.set()
+                self.assertTrue(grabbed.wait(5))
+                self.assertEqual(
+                    commands,
+                    [
+                        {"name": "AlbumSearch", "albumIds": [22]},
+                        {"name": "AlbumSearch", "albumIds": [22]},
+                    ],
+                )
+                self.bridge._run_job(self.bridge.store.next_job())
+                job = self.bridge.store.jobs(("waiting_quota",))[0]
+                self.assertEqual(self.downloads, [])
+                tomorrow = date.today() + timedelta(days=1)
+                with patch.object(self.bridge.quota, "_today", return_value=tomorrow):
+                    self.bridge._run_job(job)
+                self.assertEqual(len(self.downloads), 1)
+                self.assertEqual(len(self.bridge.store.jobs(("completed",))), 1)
+            finally:
+                finish_slow.set()
+                background.stop()
+                worker.join(3)
+                server.shutdown()
+                server_thread.join(3)
+                server.server_close()
+
+    def test_ambiguous_search_returns_empty_success_response(self):
+        self.bridge.search_callback = Mock(side_effect=AmbiguousAlbumError("ambiguous"))
+        server = ThreadingHTTPServer(("127.0.0.1", 0), self.bridge.handler())
+        thread = threading.Thread(target=server.serve_forever)
+        thread.start()
+        self.addCleanup(lambda: (server.shutdown(), thread.join(), server.server_close()))
+        url = f"http://127.0.0.1:{server.server_port}/api?t=search&q=artist&apikey=" + ("x" * 32)
+        with urllib.request.urlopen(url, timeout=3) as response:  # noqa: S310 - loopback-only test server.
+            self.assertEqual(response.status, 200)
+            rss = ET.fromstring(response.read())  # noqa: S314 - bridge-generated XML.
+        self.assertEqual(rss.findall("./channel/item"), [])
 
     @staticmethod
     def release():

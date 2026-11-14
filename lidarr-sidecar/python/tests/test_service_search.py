@@ -1,3 +1,4 @@
+import json
 import os
 import sys
 import unittest
@@ -8,10 +9,58 @@ from urllib.parse import quote_plus
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from deemix_downloader import service
+from deemix_downloader.indexer_background import SearchRetryDeferred, SearchRetryRejected
 from deemix_downloader.matching import MatchResult, ReleaseCandidate
 
 
 class ServiceSearchTests(unittest.TestCase):
+    def test_warmed_search_submits_distinct_album_ids_to_lidarr(self):
+        results = [
+            {**self.indexer_release(), "album_id": "22"},
+            {**self.indexer_release(), "album_id": "22", "release_id": "13"},
+            {**self.indexer_release(), "album_id": "24"},
+        ]
+        with (
+            patch.object(service, "_validate_indexer_results", return_value=results),
+            patch.object(service, "_indexer_api_get", return_value=[]),
+            patch.object(service, "get_arr_url", return_value="http://lidarr:8686"),
+            patch.object(service, "get_state", return_value="v1"),
+            patch.object(service, "http_request", return_value=(201, b'{"id": 123}')) as request,
+        ):
+            service._retry_warmed_indexer_search(results)
+        method, url, payload = request.call_args.args
+        self.assertEqual((method, url), ("POST", "http://lidarr:8686/api/v1/command"))
+        self.assertEqual(json.loads(payload), {"name": "AlbumSearch", "albumIds": [22, 24]})
+
+    def test_warmed_retry_waits_for_active_search_and_rejects_bad_ids_before_sending(self):
+        result = self.indexer_release()
+        with (
+            patch.object(service, "_validate_indexer_results", return_value=[result]),
+            patch.object(service, "_indexer_api_get", return_value=[{"name": "AlbumSearch", "status": "started"}]),
+            patch.object(service, "http_request") as request,
+            self.assertRaises(SearchRetryDeferred),
+        ):
+            service._retry_warmed_indexer_search([result])
+        request.assert_not_called()
+        with (
+            patch.object(service, "_validate_indexer_results", return_value=[{**result, "album_id": "invalid"}]),
+            patch.object(service, "_indexer_api_get", return_value=[]),
+            patch.object(service, "http_request") as request,
+            self.assertRaises(SearchRetryRejected),
+        ):
+            service._retry_warmed_indexer_search([result])
+        request.assert_not_called()
+
+    def test_warmed_retry_does_not_send_when_no_valid_results_remain(self):
+        with (
+            patch.object(service, "_validate_indexer_results", return_value=[]),
+            patch.object(service, "_indexer_api_get") as commands,
+            patch.object(service, "http_request") as request,
+        ):
+            service._retry_warmed_indexer_search([self.indexer_release()])
+        commands.assert_not_called()
+        request.assert_not_called()
+
     def test_result_validation_reuses_prior_pages(self):
         releases = [{**self.indexer_release(), "album_id": str(i), "album_title": f"Album {i}"} for i in range(250)]
         albums = [{"id": i, "title": f"Album {i}", "artist": {"artistName": "Test Artist"}} for i in range(250)]
@@ -194,6 +243,7 @@ class ServiceSearchTests(unittest.TestCase):
         albums = [{"id": 22}, {"id": 23}]
         release = self.indexer_release()
         with (
+            patch.object(service, "_indexer_artists", return_value=[]),
             patch.object(service, "_find_indexer_artists", return_value=[artist]) as find_artist,
             patch.object(service, "_indexer_artist_albums", return_value=albums) as find_albums,
             patch.object(service, "_indexer_match_album", side_effect=[[release], []]) as match,
@@ -202,7 +252,7 @@ class ServiceSearchTests(unittest.TestCase):
                 artist="", album="", q="Taylor Swift", year=None, request_type="search"
             )
         self.assertEqual(actual, [release])
-        find_artist.assert_called_once_with("Taylor Swift")
+        find_artist.assert_called_once_with("Taylor Swift", [])
         find_albums.assert_called_once_with(artist)
         self.assertEqual(
             match.call_args_list,
@@ -217,10 +267,11 @@ class ServiceSearchTests(unittest.TestCase):
         ):
             with (
                 self.subTest(query=query),
+                patch.object(service, "_indexer_artists", return_value=[]),
                 patch.object(
                     service,
                     "_find_indexer_artists",
-                    side_effect=lambda name, wanted=matching_name: [artist] if name == wanted else [],
+                    side_effect=lambda name, _artists, wanted=matching_name: [artist] if name == wanted else [],
                 ),
                 patch.object(service, "_indexer_artist_albums", return_value=[{"id": 22}]),
                 patch.object(service, "_indexer_match_album", return_value=[self.indexer_release()]) as match,
@@ -233,8 +284,11 @@ class ServiceSearchTests(unittest.TestCase):
         album = {"id": 22, "title": "1989", "artist": artist, "releaseDate": "2014-10-27"}
         release = self.indexer_release()
         with (
+            patch.object(service, "_indexer_artists", return_value=[]),
             patch.object(
-                service, "_find_indexer_artists", side_effect=lambda name: [artist] if name == "Taylor Swift" else []
+                service,
+                "_find_indexer_artists",
+                side_effect=lambda name, _artists: [artist] if name == "Taylor Swift" else [],
             ),
             patch.object(service, "_indexer_artist_albums", return_value=[album]),
             patch.object(service, "_indexer_match_album", return_value=[release]) as match,
@@ -250,8 +304,11 @@ class ServiceSearchTests(unittest.TestCase):
         album = {"id": 22}
         release = self.indexer_release()
         with (
+            patch.object(service, "_indexer_artists", return_value=[]),
             patch.object(
-                service, "_find_indexer_artists", side_effect=lambda name: [artist] if name == "Taylor Swift" else []
+                service,
+                "_find_indexer_artists",
+                side_effect=lambda name, _artists: [artist] if name == "Taylor Swift" else [],
             ),
             patch.object(service, "_indexer_artist_albums", return_value=[album]),
             patch.object(service, "resolve_album", return_value=album) as resolve,
@@ -265,6 +322,7 @@ class ServiceSearchTests(unittest.TestCase):
 
     def test_text_artist_search_rejects_duplicate_artist_names(self):
         with (
+            patch.object(service, "_indexer_artists", return_value=[]),
             patch.object(service, "_find_indexer_artists", return_value=[{"id": 1}, {"id": 2}]),
             self.assertRaises(service.AmbiguousAlbumError),
         ):
@@ -291,6 +349,21 @@ class ServiceSearchTests(unittest.TestCase):
             self.assertRaises(service.AmbiguousAlbumError),
         ):
             service.search_indexer_releases(artist="", album="", q="Struts", year=None, request_type="search")
+
+    def test_text_search_fetches_artist_catalog_once_for_all_boundaries(self):
+        artist = {"id": 11, "artistName": "The Artist"}
+        album = {"id": 22, "title": "Long Album Title", "artist": artist}
+        with (
+            patch.object(service, "_indexer_api_get", return_value=[artist]) as api,
+            patch.object(service, "_indexer_artist_albums", return_value=[album]),
+            patch.object(service, "_warn_missing_artist_link"),
+            patch.object(service, "_indexer_match_album", return_value=[self.indexer_release()]),
+        ):
+            result = service.search_indexer_releases(
+                artist="", album="", q="The Artist Long Album Title", year=None, request_type="search"
+            )
+        self.assertEqual(len(result), 1)
+        api.assert_called_once_with("artist")
 
     def test_artist_link_warning_does_not_block_linked_release(self):
         artist = {"artistName": "Artist", "foreignArtistId": "00000000-0000-0000-0000-000000000001"}
