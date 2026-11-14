@@ -333,7 +333,16 @@ class BridgeStore:
     def next_job(self) -> sqlite3.Row | None:
         with self._lock, self._connection() as connection:
             return connection.execute(
-                "SELECT * FROM jobs WHERE status IN ('queued', 'waiting_quota') ORDER BY nzb_id LIMIT 1"
+                "SELECT jobs.* FROM jobs JOIN releases AS queued ON queued.token=jobs.token "
+                "WHERE jobs.status IN ('queued', 'waiting_quota') AND NOT EXISTS ("
+                "SELECT 1 FROM jobs AS recovery JOIN releases AS blocked ON blocked.token=recovery.token "
+                "WHERE recovery.status='needs_recovery' AND ("
+                "CAST(json_extract(blocked.payload, '$.album_id') AS TEXT) = "
+                "CAST(json_extract(queued.payload, '$.album_id') AS TEXT) OR ("
+                "json_extract(blocked.payload, '$.album_foreign_id') != '' AND "
+                "json_extract(blocked.payload, '$.album_foreign_id') = "
+                "json_extract(queued.payload, '$.album_foreign_id')))) "
+                "ORDER BY jobs.nzb_id LIMIT 1"
             ).fetchone()
 
     def claim_job(self, job_id: str) -> bool:
@@ -472,6 +481,7 @@ class IndexerBridge:
     def _worker_loop(self) -> None:
         next_cleanup = 0.0
         next_maintenance = 0.0
+        quota_unavailable = False
         while not self._worker_stop.is_set():
             if time.monotonic() >= next_maintenance:
                 try:
@@ -482,14 +492,24 @@ class IndexerBridge:
             if time.monotonic() >= next_cleanup:
                 self._retry_cleanup()
                 next_cleanup = time.monotonic() + 30
+            if quota_unavailable:
+                try:
+                    self.quota.snapshot()
+                except QuotaStateError:
+                    self._worker_stop.wait(self.worker_interval)
+                    continue
+                log.info("Quota state is available again; resuming queued downloads")
+                quota_unavailable = False
             row = self.store.next_job()
-            if row is None or self.store.jobs(("needs_recovery",)):
+            if row is None:
                 self._worker_stop.wait(self.worker_interval)
                 continue
             try:
                 self._run_job(row)
             except (Exception, SystemExit) as exc:  # noqa: BLE001 - record a visible job failure and keep the worker alive
                 log.error(f"Indexer job {row['id']} failed unexpectedly: {exc}")
+                if isinstance(exc, QuotaStateError):
+                    quota_unavailable = True
                 current = self.store.get_job(row["id"])
                 if current and current["status"] not in _TERMINAL_STATES:
                     self.store.set_job(row["id"], "needs_recovery", f"Unexpected worker error: {exc}")

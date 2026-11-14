@@ -31,6 +31,7 @@ from deemix_downloader.indexer_bridge import (
     build_bridge_from_environment,
 )
 from deemix_downloader.indexer_search import AmbiguousAlbumError
+from deemix_downloader.quota import QuotaStateError
 
 
 class IndexerBridgeTests(unittest.TestCase):
@@ -958,9 +959,10 @@ class IndexerBridgeTests(unittest.TestCase):
         self.bridge._retry_cleanup()
         self.assertEqual(self.bridge.store.pending_cleanup(), {})
 
-    def test_worker_preserves_staging_until_recovery_is_removed(self):
+    def test_worker_skips_recovery_album_but_downloads_other_albums(self):
         failed = threading.Event()
-        success = threading.Event()
+        other_finished = threading.Event()
+        same_finished = threading.Event()
         staging_audio = self.work_path / "staging" / "track.flac"
 
         def download(release, completed):
@@ -971,30 +973,135 @@ class IndexerBridgeTests(unittest.TestCase):
                 raise SystemExit(1)
             self.assertTrue(staging_audio.exists())
             completed()
-            success.set()
+            if release["deezer_album_id"] == "45":
+                same_finished.set()
+            else:
+                other_finished.set()
             return True
 
         self.bridge = self.make_bridge(limit=0, download=download)
         first = self.bridge.store.register_release(self.release())
         second = self.bridge.store.register_release({**self.release(), "deezer_album_id": "45"})
+        third = self.bridge.store.register_release(
+            {
+                **self.release(),
+                "album_id": "23",
+                "album_foreign_id": "other-group",
+                "album_title": "Another Album",
+                "deezer_album_id": "46",
+            }
+        )
         self._submit(first["token"], "first")
         self._submit(second["token"], "second")
+        self._submit(third["token"], "third")
         worker = self.bridge.start_worker()
         try:
             self.assertTrue(failed.wait(2))
-            deadline = time.monotonic() + 2
-            while not self.bridge.store.jobs(("needs_recovery",)) and time.monotonic() < deadline:
-                time.sleep(0.01)
-            self.assertFalse(success.wait(0.1))
+            self.assertTrue(other_finished.wait(2))
+            self.assertFalse(same_finished.is_set())
             self.assertTrue(worker.is_alive())
             recovery = self.bridge.store.jobs(("needs_recovery",))
             self.assertEqual(len(recovery), 1)
             self.assertTrue(staging_audio.exists())
+            self.assertEqual(self.bridge.quota.snapshot().reserved_ids, (f"{recovery[0]['id']}:1",))
             self.assertTrue(self.bridge._remove_job(recovery[0]["nzb_id"]))
-            self.assertTrue(success.wait(2))
+            self.assertTrue(same_finished.wait(2))
         finally:
             self.bridge.stop_worker()
             worker.join(2)
+
+    def test_recovery_blocks_other_lidarr_album_for_same_musicbrainz_group(self):
+        recovery = self.bridge.store.register_release(self.release())
+        same_group = self.bridge.store.register_release({**self.release(), "album_id": "23", "deezer_album_id": "45"})
+        unrelated = self.bridge.store.register_release(
+            {
+                **self.release(),
+                "album_id": "24",
+                "album_foreign_id": "another-group",
+                "deezer_album_id": "46",
+            }
+        )
+        self._submit(recovery["token"], "recovery")
+        first = self.bridge.store.next_job()
+        self.bridge.store.set_job(first["id"], "needs_recovery")
+        blocked_id = self._submit(same_group["token"], "same-group")
+        next_id = self._submit(unrelated["token"], "unrelated")
+        self.assertEqual(self.bridge.store.next_job()["nzb_id"], next_id)
+        self.bridge._run_job(self.bridge.store.next_job())
+        self.assertIsNone(self.bridge.store.next_job())
+        self.assertEqual(self.bridge.store.get_job_by_nzb_id(blocked_id)["status"], "queued")
+
+    def test_unresolved_reservation_still_limits_unrelated_downloads(self):
+        self.bridge = self.make_bridge(limit=1)
+        recovery = self.bridge.store.register_release(self.release())
+        other = self.bridge.store.register_release(
+            {
+                **self.release(),
+                "album_id": "23",
+                "album_foreign_id": "other-group",
+                "deezer_album_id": "45",
+            }
+        )
+        self._submit(recovery["token"], "recovery")
+        first = self.bridge.store.next_job()
+        self.bridge.quota.reserve(f"{first['id']}:1")
+        self.bridge.store.set_job(first["id"], "needs_recovery")
+        self._submit(other["token"], "other")
+        self.bridge._run_job(self.bridge.store.next_job())
+        self.assertEqual(len(self.bridge.store.jobs(("waiting_quota",))), 1)
+        self.assertEqual(self.downloads, [])
+
+    def test_quota_outage_does_not_turn_the_whole_queue_into_recovery_jobs(self):
+        outage_observed = threading.Event()
+        restore_quota = threading.Event()
+        downloaded = threading.Event()
+
+        def download(_release, completed):
+            completed()
+            downloaded.set()
+            return True
+
+        self.bridge = self.make_bridge(limit=0, download=download)
+        first = self.bridge.store.register_release(self.release())
+        second = self.bridge.store.register_release(
+            {
+                **self.release(),
+                "album_id": "23",
+                "album_foreign_id": "other-group",
+                "deezer_album_id": "45",
+            }
+        )
+        self._submit(first["token"], "first")
+        self._submit(second["token"], "second")
+        reserve = self.bridge.quota.reserve
+        snapshot = self.bridge.quota.snapshot
+
+        def reserve_during_outage(job_id):
+            if not restore_quota.is_set():
+                raise QuotaStateError("quota unavailable")
+            return reserve(job_id)
+
+        def snapshot_during_outage():
+            if not restore_quota.is_set():
+                outage_observed.set()
+                raise QuotaStateError("quota unavailable")
+            return snapshot()
+
+        with (
+            patch.object(self.bridge.quota, "reserve", side_effect=reserve_during_outage),
+            patch.object(self.bridge.quota, "snapshot", side_effect=snapshot_during_outage),
+        ):
+            worker = self.bridge.start_worker()
+            try:
+                self.assertTrue(outage_observed.wait(2))
+                self.assertEqual(len(self.bridge.store.jobs(("needs_recovery",))), 1)
+                self.assertEqual(len(self.bridge.store.jobs(("queued",))), 1)
+                self.assertFalse(downloaded.is_set())
+                restore_quota.set()
+                self.assertTrue(downloaded.wait(2))
+            finally:
+                self.bridge.stop_worker()
+                worker.join(2)
 
     def test_unexpected_download_error_keeps_quota_reserved_for_recovery(self):
         def unexpected(_release, _completed):
