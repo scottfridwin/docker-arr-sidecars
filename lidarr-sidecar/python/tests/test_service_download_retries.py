@@ -447,6 +447,53 @@ class ServiceDownloadRetryTests(unittest.TestCase):
                 )
                 self.assertTrue(recovery_audio.exists())
 
+    def test_quality_fallback_preserves_another_jobs_recovery_staging(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            config = Config(
+                work_path=root / "work",
+                data_path=root / "data",
+                shared_lidarr_path=root / "shared",
+                download_attempt_threshold=1,
+                download_quality_fallback=True,
+            )
+            config.work_path.mkdir()
+            config.shared_lidarr_path.mkdir()
+            recovery_audio = config.staging_dir / "jobs" / ("a" * 32) / "track.flac"
+            recovery_audio.parent.mkdir(parents=True)
+            recovery_audio.write_bytes(b"recovery")
+            result = MatchResult(
+                deezer_album_id="42", deezer_title="Album", deezer_track_count=1, lidarr_release_id="3"
+            )
+
+            def fake_download(_album_id, _arl_token, quality, _deemix_dir, *, output_dir):
+                if quality == "mp3":
+                    (output_dir / "track.mp3").touch()
+                return True
+
+            with (
+                patch.object(service, "cfg", config),
+                patch.object(download, "cfg", config),
+                patch.object(service, "download_with_deemix", side_effect=fake_download),
+                patch.object(service, "_tag_and_enrich"),
+                patch.object(service, "manual_import_release", return_value=(True, [])),
+            ):
+                self.assertTrue(
+                    service._download_album(
+                        result,
+                        "Artist",
+                        "1",
+                        "artist-mbid",
+                        "Other Album",
+                        "other-group",
+                        "2",
+                        "token",
+                        strict_manual_import=True,
+                        staging_owner_id="b" * 32,
+                    )
+                )
+            self.assertEqual(recovery_audio.read_bytes(), b"recovery")
+
     def test_strict_manual_import_never_falls_back_to_scan(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

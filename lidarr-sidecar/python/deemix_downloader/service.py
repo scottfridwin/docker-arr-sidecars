@@ -1088,7 +1088,7 @@ def _download_album(
                 release_year,
                 album_foreign_id,
             )
-            clean_staging()
+            clean_staging(staging_dir)
 
         for attempt in range(1, attempt_limit + 1):
             log.debug(f"Download attempt #{attempt}/{attempt_limit} ({quality})")
