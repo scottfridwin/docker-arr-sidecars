@@ -106,6 +106,66 @@ class IndexerBridgeTests(unittest.TestCase):
         ):
             build_bridge_from_environment(Mock(), Mock())
 
+    def test_credentials_can_be_loaded_from_secret_files(self):
+        api_file = self.work_path / "api-key"
+        password_file = self.work_path / "password"
+        api_file.write_text("k" * 32 + "\n", encoding="utf-8")
+        password_file.write_text("p" * 16 + "\r\n", encoding="utf-8")
+        environment = {
+            "AUDIO_INDEXER_PUBLIC_URL": "http://localhost:9797",
+            "AUDIO_INDEXER_API_KEY_FILE": str(api_file),
+            "AUDIO_INDEXER_CLIENT_PASSWORD_FILE": str(password_file),
+            "AUDIO_WORK_PATH": str(self.work_path),
+            "AUDIO_SHARED_LIDARR_PATH": str(self.work_path / "import"),
+        }
+        with patch.dict(os.environ, environment, clear=True):
+            bridge = build_bridge_from_environment(Mock(), Mock())
+        self.assertEqual(bridge.api_key, "k" * 32)
+        self.assertEqual(bridge.client_password, "p" * 16)
+        self.assertTrue(bridge._authenticated({"apikey": ["k" * 32]}))
+        credentials = base64.b64encode(f"lidarr-sidecar:{'p' * 16}".encode()).decode()
+        self.assertTrue(bridge._basic_authenticated(f"Basic {credentials}"))
+
+    def test_invalid_secret_file_configuration_fails_closed(self):
+        api_file = self.work_path / "api-key"
+        password_file = self.work_path / "password"
+        api_file.write_text("k" * 32, encoding="utf-8")
+        password_file.write_text("p" * 16, encoding="utf-8")
+        environment = {
+            "AUDIO_INDEXER_PUBLIC_URL": "http://localhost:9797",
+            "AUDIO_INDEXER_API_KEY_FILE": str(api_file),
+            "AUDIO_INDEXER_CLIENT_PASSWORD_FILE": str(password_file),
+            "AUDIO_WORK_PATH": str(self.work_path),
+            "AUDIO_SHARED_LIDARR_PATH": str(self.work_path / "import"),
+        }
+        cases = [
+            ({"AUDIO_INDEXER_API_KEY": "k" * 32}, "Set either AUDIO_INDEXER_API_KEY"),
+            ({"AUDIO_INDEXER_CLIENT_PASSWORD": "p" * 16}, "Set either AUDIO_INDEXER_CLIENT_PASSWORD"),
+            (
+                {"AUDIO_INDEXER_API_KEY_FILE": str(self.work_path / "missing")},
+                "Could not read AUDIO_INDEXER_API_KEY_FILE",
+            ),
+            (
+                {"AUDIO_INDEXER_CLIENT_PASSWORD_FILE": str(self.work_path)},
+                "Could not read AUDIO_INDEXER_CLIENT_PASSWORD_FILE",
+            ),
+        ]
+        for overrides, message in cases:
+            with (
+                self.subTest(overrides=overrides),
+                patch.dict(os.environ, {**environment, **overrides}, clear=True),
+                self.assertRaisesRegex(ValueError, message),
+            ):
+                build_bridge_from_environment(Mock(), Mock())
+
+        for path, valid in ((api_file, b"k" * 32), (password_file, b"p" * 16)):
+            for content in (b"", b"short", b"\xff"):
+                with self.subTest(path=path, content=content), patch.dict(os.environ, environment, clear=True):
+                    path.write_bytes(content)
+                    with self.assertRaises(ValueError):
+                        build_bridge_from_environment(Mock(), Mock())
+                    path.write_bytes(valid)
+
     def test_server_stops_if_download_worker_dies(self):
         worker = threading.Thread(target=lambda: None)
         worker.start()

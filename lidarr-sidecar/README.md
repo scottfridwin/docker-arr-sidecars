@@ -104,13 +104,34 @@ Some matching editions are radio specials; review the selected edition or config
 ### Setup and migration
 
 1. Stop the old wanted-list poller before enabling the indexer. Set `SERVICE_DEEMIXDOWNLOADER_ENABLED=false` and `SERVICE_INDEXER_ENABLED=true`; the legacy poller defaults to `true` and the indexer to `false`. Both services refuse to run together because the legacy `daily_download_state` writer does not coordinate with the new quota database.
-2. Set `AUDIO_INDEXER_API_KEY` to a random secret of at least 32 characters and `AUDIO_INDEXER_CLIENT_PASSWORD` to a separate random secret of at least 16 characters. For example, generate values with `openssl rand -hex 32` and `openssl rand -hex 24`. Set `AUDIO_INDEXER_PUBLIC_URL` to the HTTP(S) URL reachable from Lidarr, with no path, query, or fragment. Set `SERVICE_INDEXER_ENABLED=true`.
+2. Set `AUDIO_INDEXER_API_KEY` to a random secret of at least 32 characters and `AUDIO_INDEXER_CLIENT_PASSWORD` to a separate random secret of at least 16 characters. Alternatively, mount secret files and set `AUDIO_INDEXER_API_KEY_FILE` and `AUDIO_INDEXER_CLIENT_PASSWORD_FILE` to their paths. For example, generate values with `openssl rand -hex 32` and `openssl rand -hex 24`. Set `AUDIO_INDEXER_PUBLIC_URL` to the HTTP(S) URL reachable from Lidarr, with no path, query, or fragment. Set `SERVICE_INDEXER_ENABLED=true`.
 3. Keep the Lidarr config XML mounted read-only and provide an ARL token file as for the existing downloader. Mount `AUDIO_WORK_PATH` and `AUDIO_DATA_PATH` persistently and writable. Mount `AUDIO_SHARED_LIDARR_PATH` at the same path in both containers; the sidecar stages and tags files there before forced manual import.
 4. Either set `AUTOCONFIG_DEEMIX_INDEXER=true` to idempotently create/update the dedicated download client and Newznab indexer on startup, or add them manually. Auto-configuration runs after the bridge starts listening and before its download worker starts. It uses the names in `AUDIO_INDEXER_CLIENT_NAME` and `AUDIO_INDEXER_NAME`; a configuration failure stops the indexer service and marks the container unhealthy.
 5. Add a **Download Client / NZBGet** pointing at `AUDIO_INDEXER_CLIENT_HOST` and port (`AUDIO_INDEXER_CLIENT_PORT`, defaulting to `AUDIO_INDEXER_PORT`, which defaults to `9797`), with `AUDIO_INDEXER_CLIENT_USERNAME` and `AUDIO_INDEXER_CLIENT_PASSWORD`. Set the music category to `Music` and leave “Add Paused” disabled. The NZBGet version/schema handshake was verified against Lidarr 3.1.6.5079.
 6. Add an **Indexer / Newznab** with the public URL, API path `/api`, and `AUDIO_INDEXER_API_KEY`. Select audio categories (3000, 3010, 3030, 3040). Enable interactive and automatic search; disable RSS; set its `downloadClientId` to the NZBGet client created above. This binding prevents synthetic NZBs from being sent to a normal Usenet client.
 7. Ensure the indexer URL and NZBGet client address are reachable from Lidarr over a private network. The bridge uses HTTP; do not expose it directly to the Internet. Use a trusted network or a TLS-terminating reverse proxy, and preserve the configured public URL when using a proxy.
 8. Test the indexer and client in Lidarr before enabling automatic searches. Do not configure this indexer to use an ordinary Usenet client: its synthetic NZBs are only meaningful to the sidecar bridge.
+
+For Docker Compose file-backed secrets, a minimal sidecar configuration is:
+
+```yaml
+secrets:
+  lidarr_indexer_api_key:
+    file: /path/to/lidarr_indexer_api_key
+  lidarr_indexer_client_password:
+    file: /path/to/lidarr_indexer_client_password
+
+services:
+  lidarr-sidecar:
+    secrets:
+      - lidarr_indexer_api_key
+      - lidarr_indexer_client_password
+    environment:
+      - AUDIO_INDEXER_API_KEY_FILE=/run/secrets/lidarr_indexer_api_key
+      - AUDIO_INDEXER_CLIENT_PASSWORD_FILE=/run/secrets/lidarr_indexer_client_password
+```
+
+Ensure both files are readable by the sidecar's configured user. Set either a credential or its `_FILE` setting, not both. Files must be UTF-8; trailing newlines are removed. A missing, unreadable, invalid, or too-short secret prevents startup. Restart the sidecar after changing a secret so the bridge and Lidarr configuration use the same credentials. Auto-configuration also stores the credentials in Lidarr. Docker Compose file-backed secrets are host files, so protect their permissions and backups.
 
 The bridge keeps a grab queued while it downloads and runs Lidarr's forced Manual Import API with the chosen artist, album, and release IDs. It only reports success after that command completes and Lidarr registers track files, preventing the download client's normal completed-download scan from racing the forced import. The client history uses a unique, empty output path after manual import so it cannot rescan the shared staging root.
 
@@ -135,12 +156,14 @@ The indexer's strict importer downloads the full album before allowing Lidarr to
 - `SERVICE_INDEXER_ENABLED` (default: `false`)
 - `SERVICE_DEEMIXDOWNLOADER_ENABLED` (default: `true`; legacy wanted-list poller, must be disabled when using the indexer)
 - `AUDIO_INDEXER_API_KEY` (required; minimum 32 characters)
+- `AUDIO_INDEXER_API_KEY_FILE` (alternative to `AUDIO_INDEXER_API_KEY`)
 - `AUDIO_INDEXER_PUBLIC_URL` (required; reachable from Lidarr, no URL path/query/fragment)
 - `AUDIO_INDEXER_BIND` (default: `0.0.0.0`)
 - `AUDIO_INDEXER_PORT` (default: `9797`)
 - `AUDIO_INDEXER_RETENTION_DAYS` (default: `30`; `0` disables age-based job, handoff and abandoned-staging cleanup)
 - `AUDIO_INDEXER_CLIENT_USERNAME` (default: `lidarr-sidecar`)
 - `AUDIO_INDEXER_CLIENT_PASSWORD` (required; minimum 16 characters)
+- `AUDIO_INDEXER_CLIENT_PASSWORD_FILE` (alternative to `AUDIO_INDEXER_CLIENT_PASSWORD`)
 - `AUDIO_INDEXER_CLIENT_HOST` (default: `lidarr-sidecar`)
 - `AUDIO_INDEXER_CLIENT_PORT` (default: `AUDIO_INDEXER_PORT`)
 - `AUDIO_INDEXER_CLIENT_USE_SSL` (default: `false`)
