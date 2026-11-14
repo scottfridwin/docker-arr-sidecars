@@ -29,6 +29,8 @@ from urllib.parse import parse_qs, urlsplit
 from defusedxml import ElementTree as SafeET
 from defusedxml.common import DefusedXmlException
 
+from shared.python.config import env_or_file
+
 from .download import AUDIO_EXTENSIONS, get_import_path
 from .indexer_background import SearchWarming
 from .indexer_search import AmbiguousAlbumError
@@ -1064,12 +1066,12 @@ def build_bridge_from_environment(
     validate_page: Callable[[list[dict], int, int], list[dict]] | None = None,
 ) -> IndexerBridge:
     """Build the bridge from required, explicit deployment settings."""
-    api_key = os.environ.get("AUDIO_INDEXER_API_KEY", "")
+    api_key = env_or_file("AUDIO_INDEXER_API_KEY")
     public_url = os.environ.get("AUDIO_INDEXER_PUBLIC_URL", "")
     client_username = os.environ.get("AUDIO_INDEXER_CLIENT_USERNAME", "lidarr-sidecar")
-    client_password = os.environ.get("AUDIO_INDEXER_CLIENT_PASSWORD", "")
+    client_password = env_or_file("AUDIO_INDEXER_CLIENT_PASSWORD")
     if not client_password:
-        raise ValueError("AUDIO_INDEXER_CLIENT_PASSWORD must be configured")
+        raise ValueError("AUDIO_INDEXER_CLIENT_PASSWORD or AUDIO_INDEXER_CLIENT_PASSWORD_FILE must be configured")
     # Lidarr must reach the bridge over its private container network.
     host = os.environ.get("AUDIO_INDEXER_BIND", "0.0.0.0")  # noqa: S104
     port = int(os.environ.get("AUDIO_INDEXER_PORT", "9797"))

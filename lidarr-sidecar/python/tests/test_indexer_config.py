@@ -4,6 +4,7 @@
 import importlib.util
 import os
 import sys
+import tempfile
 import unittest
 from copy import deepcopy
 from pathlib import Path
@@ -123,6 +124,40 @@ class IndexerConfigTests(unittest.TestCase):
             indexer_config.run_one_time()
         request.assert_not_called()
         verify.assert_not_called()
+
+    def test_auto_configuration_uses_secret_file_credentials(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            api_file = Path(temporary) / "api-key"
+            password_file = Path(temporary) / "password"
+            api_file.write_text("k" * 32 + "\n", encoding="utf-8")
+            password_file.write_text("p" * 16 + "\n", encoding="utf-8")
+            environment = {
+                "AUTOCONFIG_DEEMIX_INDEXER": "true",
+                "SERVICE_INDEXER_ENABLED": "true",
+                "SERVICE_DEEMIXDOWNLOADER_ENABLED": "false",
+                "AUDIO_INDEXER_API_KEY_FILE": str(api_file),
+                "AUDIO_INDEXER_CLIENT_PASSWORD_FILE": str(password_file),
+                "AUDIO_INDEXER_PUBLIC_URL": "http://sidecar:9797",
+            }
+            schema = {
+                "implementation": "test",
+                "implementationName": "test",
+                "configContract": "test",
+                "protocol": "Usenet",
+                "fields": [{"name": name} for name in ("password", "apiKey")],
+            }
+            with (
+                patch.dict(os.environ, environment, clear=True),
+                patch.object(indexer_config, "_schema", return_value=schema),
+                patch.object(indexer_config, "_upsert", return_value={"id": 41}) as upsert,
+                patch.object(indexer_config, "verify_arr_api_access"),
+                patch.object(indexer_config, "init_state"),
+            ):
+                indexer_config.main()
+            client_fields = {field["name"]: field["value"] for field in upsert.call_args_list[0].args[1]["fields"]}
+            indexer_fields = {field["name"]: field["value"] for field in upsert.call_args_list[1].args[1]["fields"]}
+            self.assertEqual(client_fields["password"], "p" * 16)
+            self.assertEqual(indexer_fields["apiKey"], "k" * 32)
 
 
 if __name__ == "__main__":

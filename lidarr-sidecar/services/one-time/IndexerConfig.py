@@ -11,7 +11,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../.
 os.environ.setdefault("SCRIPT_NAME", "IndexerConfig")
 
 from shared.python.arrapi import arr_api_request, verify_arr_api_access
-from shared.python.config import env, env_bool
+from shared.python.config import env, env_bool, env_or_file
 from shared.python.logging_utils import fatal, info
 from shared.python.state import get_state, init_state
 
@@ -86,8 +86,8 @@ def main() -> None:
     if not env_bool("SERVICE_INDEXER_ENABLED") or env_bool("SERVICE_DEEMIXDOWNLOADER_ENABLED", True):
         fatal("Deemix indexer auto-configuration requires the indexer enabled and the legacy downloader disabled")
 
-    api_key = env("AUDIO_INDEXER_API_KEY")
-    client_password = env("AUDIO_INDEXER_CLIENT_PASSWORD")
+    api_key = env_or_file("AUDIO_INDEXER_API_KEY")
+    client_password = env_or_file("AUDIO_INDEXER_CLIENT_PASSWORD")
     public_url = env("AUDIO_INDEXER_PUBLIC_URL").rstrip("/")
     if len(api_key) < 32 or len(client_password) < 16 or not public_url:
         fatal("Deemix indexer auto-configuration requires its URL, API key, and download-client password")
