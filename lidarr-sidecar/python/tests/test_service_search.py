@@ -311,7 +311,7 @@ class ServiceSearchTests(unittest.TestCase):
                 side_effect=lambda name, _artists: [artist] if name == "Taylor Swift" else [],
             ),
             patch.object(service, "_indexer_artist_albums", return_value=[album]),
-            patch.object(service, "resolve_album", return_value=album) as resolve,
+            patch.object(service, "resolve_albums", return_value=[album]) as resolve,
             patch.object(service, "_indexer_match_album", return_value=[release]),
         ):
             actual = service.search_indexer_releases(
@@ -320,13 +320,115 @@ class ServiceSearchTests(unittest.TestCase):
         self.assertEqual(actual, [release])
         resolve.assert_called_once_with([album], "Taylor Swift", "The Life of a Showgirl", year=2025)
 
-    def test_text_artist_search_rejects_duplicate_artist_names(self):
+    def test_duplicate_artist_names_resolve_album_from_its_owner(self):
+        first = {"id": 1, "artistName": "Alice Cooper"}
+        second = {"id": 2, "artistName": "Alice Cooper"}
+        album = {"id": 10, "title": "Paranormal", "artist": first}
+        release = self.indexer_release()
         with (
-            patch.object(service, "_indexer_artists", return_value=[]),
-            patch.object(service, "_find_indexer_artists", return_value=[{"id": 1}, {"id": 2}]),
-            self.assertRaises(service.AmbiguousAlbumError),
+            patch.object(service, "_indexer_artists", return_value=[first, second]),
+            patch.object(service, "_indexer_artist_albums", side_effect=lambda a: [album] if a["id"] == 1 else []),
+            patch.object(service, "_warn_missing_artist_link"),
+            patch.object(service, "_indexer_match_album", return_value=[release]) as match,
         ):
-            service.search_indexer_releases(artist="", album="", q="Taylor Swift", year=None, request_type="search")
+            actual = service.search_indexer_releases(
+                artist="", album="", q="Alice Cooper Paranormal", year=None, request_type="search"
+            )
+        self.assertEqual(actual, [release])
+        match.assert_called_once_with(album, None, [album])
+
+    def test_duplicate_artist_search_only_offers_unambiguous_albums_by_default(self):
+        first = {"id": 1, "artistName": "Alice Cooper"}
+        second = {"id": 2, "artistName": "Alice Cooper"}
+        albums = {
+            1: [
+                {"id": 10, "title": "Paranormal", "artist": first},
+                {"id": 11, "title": "Shared", "artist": first},
+            ],
+            2: [{"id": 20, "title": "Shared", "artist": second}],
+        }
+        with (
+            patch.object(service, "_indexer_artists", return_value=[first, second]),
+            patch.object(service, "_indexer_artist_albums", side_effect=lambda artist: albums[artist["id"]]),
+            patch.object(service, "_warn_missing_artist_link"),
+            patch.object(service, "_indexer_match_album", side_effect=lambda album, *_: [{"id": album["id"]}]),
+            patch.dict(os.environ, {"AUDIO_INDEXER_ALLOW_AMBIGUOUS_RESULTS": "false"}),
+        ):
+            self.assertEqual(
+                service.search_indexer_releases(
+                    artist="", album="", q="Alice Cooper", year=None, request_type="search"
+                ),
+                [{"id": 10}],
+            )
+            with patch.dict(os.environ, {"AUDIO_INDEXER_ALLOW_AMBIGUOUS_RESULTS": "true"}):
+                self.assertEqual(
+                    service.search_indexer_releases(
+                        artist="", album="", q="Alice Cooper", year=None, request_type="search"
+                    ),
+                    [{"id": 10}, {"id": 11}, {"id": 20}],
+                )
+
+    def test_duplicate_artist_numeric_album_takes_precedence_over_year(self):
+        first = {"id": 1, "artistName": "Taylor Swift"}
+        second = {"id": 2, "artistName": "Taylor Swift"}
+        album = {"id": 10, "title": "1989", "artist": first}
+        with (
+            patch.object(service, "_indexer_artists", return_value=[first, second]),
+            patch.object(service, "_indexer_artist_albums", side_effect=lambda a: [album] if a["id"] == 1 else []),
+            patch.object(service, "_warn_missing_artist_link"),
+            patch.object(service, "_indexer_match_album", return_value=[{"id": 10}]) as match,
+        ):
+            result = service.search_indexer_releases(
+                artist="", album="", q="Taylor Swift 1989", year=None, request_type="search"
+            )
+        self.assertEqual(result, [{"id": 10}])
+        match.assert_called_once_with(album, None, [album])
+
+    def test_duplicate_artist_and_album_names_require_opt_in(self):
+        first = {"id": 1, "artistName": "Alice Cooper"}
+        second = {"id": 2, "artistName": "Alice Cooper"}
+        albums = {
+            1: [{"id": 10, "title": "Shared", "artist": first}],
+            2: [{"id": 20, "title": "Shared", "artist": second}],
+        }
+        with (
+            patch.object(service, "_indexer_artists", return_value=[first, second]),
+            patch.object(service, "_indexer_artist_albums", side_effect=lambda artist: albums[artist["id"]]),
+            patch.object(service, "_warn_missing_artist_link"),
+            patch.object(service, "_indexer_match_album", side_effect=lambda album, *_: [{"id": album["id"]}]),
+            patch.dict(os.environ, {"AUDIO_INDEXER_ALLOW_AMBIGUOUS_RESULTS": "false"}),
+        ):
+            self.assertEqual(
+                service.search_indexer_releases(
+                    artist="", album="", q="Alice Cooper Shared", year=None, request_type="search"
+                ),
+                [],
+            )
+            with patch.dict(os.environ, {"AUDIO_INDEXER_ALLOW_AMBIGUOUS_RESULTS": "true"}):
+                self.assertEqual(
+                    service.search_indexer_releases(
+                        artist="", album="", q="Alice Cooper Shared", year=None, request_type="search"
+                    ),
+                    [{"id": 10}, {"id": 20}],
+                )
+
+    def test_artist_only_cleaned_name_collision_excludes_shared_album(self):
+        first = {"id": 1, "artistName": "The Struts"}
+        second = {"id": 2, "artistName": "Struts"}
+        albums = {
+            1: [{"id": 10, "title": "Shared", "artist": first}],
+            2: [{"id": 20, "title": "Shared", "artist": second}],
+        }
+        with (
+            patch.object(service, "_indexer_artists", return_value=[first, second]),
+            patch.object(service, "_indexer_artist_albums", side_effect=lambda artist: albums[artist["id"]]),
+            patch.object(service, "_warn_missing_artist_link"),
+            patch.object(service, "_indexer_match_album") as match,
+            patch.dict(os.environ, {"AUDIO_INDEXER_ALLOW_AMBIGUOUS_RESULTS": "false"}),
+        ):
+            result = service.search_indexer_releases(artist="", album="", q="Struts", year=None, request_type="search")
+        self.assertEqual(result, [])
+        match.assert_not_called()
 
     def test_struts_search_resolves_cleaned_name_and_refuses_collision(self):
         artist = {"id": 11, "artistName": "The Struts"}
@@ -346,9 +448,12 @@ class ServiceSearchTests(unittest.TestCase):
             )
         with (
             patch.object(service, "_indexer_api_get", return_value=[artist, {"id": 12, "artistName": "Struts"}]),
-            self.assertRaises(service.AmbiguousAlbumError),
+            patch.object(service, "_indexer_artist_albums", return_value=[]),
+            patch.object(service, "_warn_missing_artist_link"),
         ):
-            service.search_indexer_releases(artist="", album="", q="Struts", year=None, request_type="search")
+            self.assertEqual(
+                service.search_indexer_releases(artist="", album="", q="Struts", year=None, request_type="search"), []
+            )
 
     def test_text_search_fetches_artist_catalog_once_for_all_boundaries(self):
         artist = {"id": 11, "artistName": "The Artist"}
@@ -404,7 +509,7 @@ class ServiceSearchTests(unittest.TestCase):
         self.assertEqual(len(results), 1)
         self.assertIn("No Deezer artist link", warning.call_args.args[0])
 
-    def test_ambiguous_artist_album_split_is_rejected_before_fetching_releases(self):
+    def test_ambiguous_artist_album_splits_are_opt_in(self):
         first = {"id": 1, "artistName": "The Band"}
         second = {"id": 2, "artistName": "Band Album"}
         albums = {
@@ -414,11 +519,105 @@ class ServiceSearchTests(unittest.TestCase):
         with (
             patch.object(service, "_indexer_api_get", return_value=[first, second]),
             patch.object(service, "_indexer_artist_albums", side_effect=lambda artist: albums[artist["id"]]),
-            patch.object(service, "_indexer_match_album") as match,
-            self.assertRaises(service.AmbiguousAlbumError),
+            patch.object(service, "_warn_missing_artist_link"),
+            patch.object(service, "_indexer_match_album", side_effect=lambda album, *_: [{"id": album["id"]}]) as match,
+            patch.dict(os.environ, {"AUDIO_INDEXER_ALLOW_AMBIGUOUS_RESULTS": "false"}),
         ):
-            service.search_indexer_releases(artist="", album="", q="Band Album Live", year=None, request_type="search")
-        match.assert_not_called()
+            self.assertEqual(
+                service.search_indexer_releases(
+                    artist="", album="", q="Band Album Live", year=None, request_type="search"
+                ),
+                [],
+            )
+            match.assert_not_called()
+            with patch.dict(os.environ, {"AUDIO_INDEXER_ALLOW_AMBIGUOUS_RESULTS": "true"}):
+                self.assertEqual(
+                    service.search_indexer_releases(
+                        artist="", album="", q="Band Album Live", year=None, request_type="search"
+                    ),
+                    [{"id": 10}, {"id": 20}],
+                )
+
+    def test_duplicate_artist_parse_failure_checks_original_error_and_probes_title(self):
+        artist = {"id": 11, "artistName": "Alice Cooper", "foreignArtistId": "singer-mbid"}
+        duplicate = {"id": 12, "artistName": "Alice Cooper", "foreignArtistId": "band-mbid"}
+        album = {"id": 22, "title": "Paranormal", "releaseDate": "2017-01-01", "artist": artist}
+        error = {
+            "description": "NzbDrone.Core.Music.MultipleArtistsFoundException: duplicates",
+            "message": "[singer-mbid][Alice Cooper], [band-mbid][Alice Cooper]",
+        }
+        probe = {
+            "parsedAlbumInfo": {
+                "albumTitle": "Paranormal",
+                "quality": {"quality": {"id": 0}},
+            }
+        }
+
+        def request(_method, path):
+            if "SidecarProbe" not in path:
+                return 500, json.dumps(error).encode()
+            from urllib.parse import parse_qs, urlsplit
+
+            title = parse_qs(urlsplit(path).query)["title"][0]
+            return 200, json.dumps(
+                {"parsedAlbumInfo": {**probe["parsedAlbumInfo"], "artistName": title.split(" - ")[0]}}
+            ).encode()
+
+        with (
+            patch.object(service, "_indexer_artists", return_value=[artist, duplicate]),
+            patch.object(service, "get_state", return_value="v1"),
+            patch.object(service, "get_arr_url", return_value="http://lidarr"),
+            patch.object(service, "http_request", side_effect=request) as http,
+        ):
+            title = service._indexer_report_title(album, [album], self.indexer_release())
+            self.assertIsNone(
+                service._indexer_report_title(album, [album, {"id": 23, "title": "Paranormal"}], self.indexer_release())
+            )
+            probe["parsedAlbumInfo"]["albumTitle"] = "Different Album"
+            self.assertIsNone(service._indexer_report_title(album, [album], self.indexer_release()))
+            probe["parsedAlbumInfo"]["albumTitle"] = "Paranormal"
+            probe["parsedAlbumInfo"]["quality"] = {"quality": {"id": 1}}
+            self.assertIsNone(service._indexer_report_title(album, [album], self.indexer_release()))
+        self.assertTrue(title.startswith("Alice Cooper - Paranormal (2017)"))
+        self.assertEqual(http.call_count, 8)
+
+    def test_duplicate_artist_probe_does_not_hide_unrelated_parse_failures(self):
+        album = {"id": 22, "title": "Paranormal", "artist": {"id": 11, "artistName": "Alice Cooper"}}
+        with (
+            patch.object(service, "get_state", return_value="v1"),
+            patch.object(service, "get_arr_url", return_value="http://lidarr"),
+            patch.object(service, "http_request", return_value=(500, b'{"description": "other error"}')),
+            self.assertRaisesRegex(RuntimeError, "HTTP 500"),
+        ):
+            service._indexer_report_title(album, [album], self.indexer_release())
+
+    def test_duplicate_artist_probe_rejects_mismatched_error_and_failed_probe(self):
+        artist = {"id": 11, "artistName": "Alice Cooper", "foreignArtistId": "singer"}
+        duplicate = {"id": 12, "artistName": "Alice Cooper", "foreignArtistId": "band"}
+        album = {"id": 22, "title": "Paranormal", "artist": artist}
+        error = {
+            "description": "NzbDrone.Core.Music.MultipleArtistsFoundException: duplicates",
+            "message": "[different][Alice Cooper], [band][Alice Cooper]",
+        }
+        with (
+            patch.object(service, "_indexer_artists", return_value=[artist, duplicate]),
+            patch.object(service, "get_state", return_value="v1"),
+            patch.object(service, "get_arr_url", return_value="http://lidarr"),
+            patch.object(service, "http_request", return_value=(500, json.dumps(error).encode())) as http,
+            self.assertRaisesRegex(RuntimeError, "HTTP 500"),
+        ):
+            service._indexer_report_title(album, [album], self.indexer_release())
+        self.assertEqual(http.call_count, 1)
+
+        error["message"] = "[singer][Alice Cooper], [band][Alice Cooper]"
+        with (
+            patch.object(service, "_indexer_artists", return_value=[artist, duplicate]),
+            patch.object(service, "get_state", return_value="v1"),
+            patch.object(service, "get_arr_url", return_value="http://lidarr"),
+            patch.object(service, "http_request", side_effect=[(500, json.dumps(error).encode()), (200, b"{}")]),
+            self.assertRaisesRegex(RuntimeError, "invalid duplicate artist validation response"),
+        ):
+            service._indexer_report_title(album, [album], self.indexer_release())
 
     def test_report_title_preserves_parenthesized_album_name_and_uses_album_year(self):
         album = {

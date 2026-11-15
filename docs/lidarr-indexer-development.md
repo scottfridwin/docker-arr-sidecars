@@ -9,10 +9,16 @@ The earlier implementation plan and additional history are in
 
 - The bridge advertises raw Newznab text searches, but also accepts older cleaned Lidarr queries. Text-only
   resolution checks local artist names and artist/album boundaries; a four-digit album title takes precedence over
-  treating the final token as a year. Ambiguous matches are not offered.
+  treating the final token as a year. Multiple artists with the same name are checked for matching albums.
+  Queries do not carry artist or album IDs; ambiguous matches are excluded unless
+  `AUDIO_INDEXER_ALLOW_AMBIGUOUS_RESULTS` is enabled, which risks incorrect automatic grabs.
 - Each eligible MusicBrainz release/Deezer album pair retains its release identity through the synthetic NZB and
   forced import. The bridge checks report titles through Lidarr's parse API against the intended artist and album,
-  including cached results, and omits titles that conflict or imply a specific quality.
+  including cached results, and omits titles that conflict or imply a specific quality. Lidarr's parse endpoint
+  fails on duplicate artist names even when a search has a known artist. For that specific error, the bridge checks
+  the artists in the error against its library and probes the same title with a synthetic unique artist name to
+  validate the parsed album title and quality. This is not a direct parse of the original title. Same-artist
+  album-title conflicts remain excluded even when ambiguous results are enabled.
 - Release-group browse responses are paged and cached. The bridge checks every eligible linked edition, reuses
   complete release caches and fetches releases individually when absent from the browse response. Newznab responses
   support offset/limit pagination; Lidarr 3.1.6 limits an indexer query to 1,000 reports.
@@ -50,3 +56,8 @@ and current implementation before relying on historical observations.
 The current retry path has been tested with a simulated Lidarr search and grab, including quota exhaustion and a
 simulated day reset. An isolated Lidarr 3.1.6.5079 instance also accepted the `AlbumSearch` command payload; the
 complete retry-to-grab path has not been validated against a real Lidarr instance.
+
+The duplicate-artist fallback has focused simulated tests. An isolated Lidarr 3.1.6.5079 instance with two
+same-named artists and one matching album validated sidecar text resolution and the real original and synthetic
+parser requests. Release matching was simulated; the complete search-to-grab path has not been validated against
+a real Lidarr instance.
