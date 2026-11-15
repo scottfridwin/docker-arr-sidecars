@@ -51,7 +51,7 @@ The legacy DeemixDownloader service turns Lidarr wanted albums into validated De
 
 The opt-in Indexer service implements the Newznab search protocol and the NZBGet JSON-RPC download-client protocol supported by Lidarr 3.1.6. It does not connect to a Usenet server and does not provide real NZB content: the NZB is a validated, opaque handoff for a release already matched by the sidecar.
 
-Searches resolve artist and album names against Lidarr's library and offer eligible MusicBrainz release/Deezer album pairs. Ambiguous local matches are rejected. Each release needs a Deezer album link and must pass the configured redirect, UPC, lyric-type, title and track-count gates. A missing Deezer artist link produces a warning but does not prevent album discovery. Searches are independent of the download quota and legacy download/failure markers.
+Searches resolve artist and album names against Lidarr's library and offer eligible MusicBrainz release/Deezer album pairs. When artists share a name, an album that belongs to only one of them can still be found. Each release needs a Deezer album link and must pass the configured redirect, UPC, lyric-type, title and track-count gates. A missing Deezer artist link produces a warning but does not prevent album discovery. Searches are independent of the download quota and legacy download/failure markers.
 
 Results identify the edition, track count, Deezer ID and Lidarr release ID. Review editions or configure Lidarr custom formats to control selection: ranking preferences do not hide other eligible editions, including radio specials, and Lidarr's decision criteria take precedence. Instrumental exclusion falls back to instrumental releases if no other release is available. Conservative title and identity checks can exclude valid matches; exclusions are logged. The advertised size and age are placeholders, and quality is unknown until download.
 
@@ -59,7 +59,9 @@ Lidarr's Newznab indexer configuration must have RSS disabled, while interactive
 
 ### Search behavior
 
-Searches run in a persistent, deduplicated background queue with two workers. Slow searches can still delay later searches when both workers are busy. The indexer waits up to 10 seconds for a result; if it is still running, it returns an empty RSS response and logs that the search is warming, avoiding an HTTP error that could make Lidarr disable the indexer. Ambiguous searches are also logged and returned as empty RSS responses. Once the sidecar logs a warming search as completed, retry it manually in Lidarr, or opt in to automatic retries below. Searches that never reached the sidecar must also be retried. Other upstream or bridge failures still return HTTP errors and may make Lidarr temporarily disable the indexer. Completed search responses are reused for five minutes, including across sidecar restarts. Pending work resumes after a sidecar restart.
+Searches run in a persistent, deduplicated background queue with two workers. Slow searches can still delay later searches when both workers are busy. The indexer waits up to 10 seconds for a result; if it is still running, it returns an empty RSS response and logs that the search is warming, avoiding an HTTP error that could make Lidarr disable the indexer. Once the sidecar logs a warming search as completed, retry it manually in Lidarr, or opt in to automatic retries below. Searches that never reached the sidecar must also be retried. Other upstream or bridge failures still return HTTP errors and may make Lidarr temporarily disable the indexer. Completed search responses are reused for five minutes, including across sidecar restarts. Pending work resumes after a sidecar restart.
+
+Lidarr's Newznab text searches do not include the artist or album ID, so some searches cannot distinguish multiple library albums. By default, the sidecar logs and excludes these ambiguous matches. Set `AUDIO_INDEXER_ALLOW_AMBIGUOUS_RESULTS=true` to offer multiple matching candidates instead. **Lidarr may automatically grab a release for the wrong artist or album**, especially with automatic retries enabled. Conservative report-title validation can still exclude candidates, including identically titled albums under the same artist.
 
 Set `AUDIO_INDEXER_AUTO_RETRY_SEARCHES=true` to reissue warmed searches with matching albums through Lidarr after they complete. **Lidarr treats these as user-invoked searches, which can bypass delay profiles and automatically grab releases even when the original search was interactive.** The sidecar waits for active Lidarr search commands to finish before submitting a retry. If submission is interrupted or its outcome is uncertain, it logs an error and does not automatically resubmit; inspect Lidarr before retrying manually. The option defaults to `false`.
 
@@ -132,6 +134,7 @@ Metadata cache and legacy marker expiry use their existing `AUDIO_CACHE_MAX_AGE_
 - `AUDIO_INDEXER_PORT` (default: `9797`)
 - `AUDIO_INDEXER_RETENTION_DAYS` (default: `30`; `0` disables age-based job, handoff and abandoned-staging cleanup)
 - `AUDIO_INDEXER_AUTO_RETRY_SEARCHES` (default: `false`; may automatically grab releases and bypass delay profiles)
+- `AUDIO_INDEXER_ALLOW_AMBIGUOUS_RESULTS` (default: `false`; may cause a grab for the wrong artist or album)
 - `AUDIO_INDEXER_CLIENT_USERNAME` (default: `lidarr-sidecar`)
 - `AUDIO_INDEXER_CLIENT_PASSWORD` (required; minimum 16 characters)
 - `AUDIO_INDEXER_CLIENT_PASSWORD_FILE` (alternative to `AUDIO_INDEXER_CLIENT_PASSWORD`)

@@ -39,10 +39,10 @@ def matches_search_text(name: str, query: str) -> bool:
     return _search_key(title) == query_key
 
 
-def resolve_album(
+def resolve_albums(
     albums: Iterable[dict[str, Any]], artist: str, album: str, *, year: int | None = None
-) -> dict[str, Any] | None:
-    """Resolve a raw artist/album query; refuse ambiguous or incomplete matches.
+) -> list[dict[str, Any]]:
+    """Find all local albums matching a raw artist/album query.
 
     The caller must advertise a raw audio search engine to Lidarr and provide
     albums from the complete local library, not just the wanted list.
@@ -50,7 +50,7 @@ def resolve_album(
     artist_key = _search_key(artist)
     album_key = _album_search_key(album)
     if not artist_key or not album_key:
-        return None
+        return []
 
     matches = []
     for candidate in albums:
@@ -75,6 +75,14 @@ def resolve_album(
                 continue
         matches.append(candidate)
 
+    return matches
+
+
+def resolve_album(
+    albums: Iterable[dict[str, Any]], artist: str, album: str, *, year: int | None = None
+) -> dict[str, Any] | None:
+    """Resolve a query only when it identifies a single album."""
+    matches = resolve_albums(albums, artist, album, year=year)
     if len(matches) > 1:
         raise AmbiguousAlbumError("Artist and album terms match multiple Lidarr albums")
     return matches[0] if matches else None

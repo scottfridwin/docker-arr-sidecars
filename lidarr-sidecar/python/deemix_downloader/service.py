@@ -57,7 +57,7 @@ from .download import (
     tag_mp3_mutagen,
     verify_flac,
 )
-from .indexer_search import AmbiguousAlbumError, matches_search_text, resolve_album
+from .indexer_search import matches_search_text, resolve_albums
 from .lidarr_api import (
     add_download_client,
     get_album_data,
@@ -432,7 +432,24 @@ def search_album(album_data: dict, failed_albums: set[str] | None = None) -> Mat
     return find_best_match(candidates, album_title, failed_albums if failed_albums is not None else set())
 
 
+class _IndexerParseError(RuntimeError):
+    def __init__(self, status: int, body: bytes):
+        super().__init__(f"Lidarr parse API returned HTTP {status}")
+        self.status = status
+        self.body = body
+
+
 def _indexer_api_get(path: str) -> Any:
+    if path.startswith("parse?"):
+        if not get_state("arrUrl") or not get_state("arrApiKey") or not get_state("arrApiVersion"):
+            verify_arr_api_access()
+        status, response = http_request("GET", f"{get_arr_url()}/api/{get_state('arrApiVersion')}/{path}")
+        if status != 200:
+            raise _IndexerParseError(status, response)
+        try:
+            return json.loads(response)
+        except (ValueError, UnicodeError) as exc:
+            raise RuntimeError("Lidarr parse API returned invalid JSON") from exc
     response = request_response("GET", path)
     if isinstance(response, str):
         try:
@@ -558,7 +575,16 @@ def _indexer_report_title(album: dict, artist_albums: list[dict], release: dict)
         details.append(f"Deezer year {release['year']}")
     details.extend((f"Deezer {release['deezer_album_id']}", f"Lidarr release {release['release_id']}"))
     report_title = f"{base} - {' | '.join(details)}"
-    parsed = _indexer_api_get(f"parse?title={quote_plus(report_title)}")
+    try:
+        parsed = _indexer_api_get(f"parse?title={quote_plus(report_title)}")
+    except _IndexerParseError as exc:
+        parsed_info = _parse_duplicate_artist_title(report_title, artist_name, artist, exc)
+        if parsed_info is None:
+            raise
+        parsed = {"parsedAlbumInfo": parsed_info}
+        duplicate_artist = True
+    else:
+        duplicate_artist = False
     if not isinstance(parsed, dict):
         raise RuntimeError("Lidarr parse API returned an unexpected response")
     parsed_info = parsed.get("parsedAlbumInfo") or {}
@@ -569,10 +595,15 @@ def _indexer_report_title(album: dict, artist_albums: list[dict], release: dict)
         or not isinstance(parsed_artist, dict)
         or not isinstance(parsed_albums, list)
         or not isinstance(parsed_info.get("albumTitle"), str)
-        or str(parsed_artist.get("id")) != str(artist.get("id"))
-        or len(parsed_albums) != 1
-        or not isinstance(parsed_albums[0], dict)
-        or str(parsed_albums[0].get("id")) != str(album.get("id"))
+        or (
+            not duplicate_artist
+            and (
+                str(parsed_artist.get("id")) != str(artist.get("id"))
+                or len(parsed_albums) != 1
+                or not isinstance(parsed_albums[0], dict)
+                or str(parsed_albums[0].get("id")) != str(album.get("id"))
+            )
+        )
     ):
         log.warning(f"Not offering {artist_name} - {album_title}: Lidarr cannot map report title to the intended album")
         return None
@@ -584,6 +615,9 @@ def _indexer_report_title(album: dict, artist_albums: list[dict], release: dict)
         return None
 
     parsed_title = parsed_info["albumTitle"]
+    if duplicate_artist and not matches_search_text(title, parsed_title):
+        log.warning(f"Not offering {artist_name} - {album_title}: Lidarr parsed a different album title")
+        return None
     if any(
         candidate.get("title") == parsed_title and str(candidate.get("id")) != str(album.get("id"))
         for candidate in artist_albums
@@ -591,6 +625,50 @@ def _indexer_report_title(album: dict, artist_albums: list[dict], release: dict)
         log.warning(f"Not offering {artist_name} - {album_title}: report title conflicts with another Lidarr album")
         return None
     return report_title
+
+
+def _parse_duplicate_artist_title(
+    report_title: str, artist_name: str, artist: dict, error_response: _IndexerParseError
+) -> dict | None:
+    if error_response.status != 500:
+        return None
+    try:
+        error = json.loads(error_response.body)
+    except (ValueError, UnicodeError):
+        return None
+    if not isinstance(error, dict) or not str(error.get("description", "")).startswith(
+        "NzbDrone.Core.Music.MultipleArtistsFoundException:"
+    ):
+        return None
+    artists = _indexer_artists()
+    duplicates = _find_indexer_artists(artist_name, artists)
+    if len(duplicates) < 2 or not any(str(item.get("id")) == str(artist.get("id")) for item in duplicates):
+        return None
+    artist_mbid = artist.get("foreignArtistId")
+    message = error.get("message")
+    if not isinstance(artist_mbid, str) or not artist_mbid or not isinstance(message, str):
+        return None
+    if (
+        f"[{artist_mbid}]" not in message
+        or sum(f"[{item.get('foreignArtistId')}]" in message for item in duplicates if item.get("foreignArtistId")) < 2
+    ):
+        return None
+    probe_artist = f"{artist_name} SidecarProbe{hashlib.sha256(report_title.encode()).hexdigest()[:12]}"
+    if _find_indexer_artists(probe_artist, artists):
+        raise RuntimeError("Cannot safely validate a duplicate artist report")
+    probe_title = report_title.replace(f"{artist_name} - ", f"{probe_artist} - ", 1)
+    if probe_title == report_title:
+        raise RuntimeError("Cannot construct a duplicate artist validation title")
+    probe = _indexer_api_get(f"parse?title={quote_plus(probe_title)}")
+    if not isinstance(probe, dict) or not isinstance(probe.get("parsedAlbumInfo"), dict):
+        raise RuntimeError("Lidarr returned an invalid duplicate artist validation response")
+    parsed_info = probe["parsedAlbumInfo"]
+    if parsed_info.get("artistName") != probe_artist:
+        raise RuntimeError("Lidarr could not validate the duplicate artist report title")
+    log.warning(
+        f"Lidarr cannot independently parse duplicate artist {artist_name}; using search context to identify the artist"
+    )
+    return parsed_info
 
 
 def _validate_indexer_results(results: list[dict], offset: int = 0, limit: int | None = None) -> list[dict]:
@@ -725,15 +803,36 @@ def search_indexer_releases(*, artist: str, album: str, q: str, year: int | None
 
 
 def _indexer_artist_releases(artists: list[dict], year: int | None) -> list[dict]:
-    if len(artists) > 1:
-        raise AmbiguousAlbumError("Artist search matches multiple Lidarr artists")
     if not artists:
         return []
-    _warn_missing_artist_link(artists[0])
+    if len(artists) == 1:
+        _warn_missing_artist_link(artists[0])
+        albums = _indexer_artist_albums(artists[0])
+        return [result for album in albums for result in _indexer_match_album(album, year, albums)]
+    albums_by_artist = [(artist, _indexer_artist_albums(artist)) for artist in artists]
+    allow_ambiguous = env_bool("AUDIO_INDEXER_ALLOW_AMBIGUOUS_RESULTS", False)
     results = []
-    albums = _indexer_artist_albums(artists[0])
-    for candidate in albums:
-        results.extend(_indexer_match_album(candidate, year, albums))
+    for artist, albums in albums_by_artist:
+        _warn_missing_artist_link(artist)
+        for candidate in albums:
+            title = candidate.get("title")
+            name = artist.get("artistName")
+            if not isinstance(title, str) or not isinstance(name, str):
+                continue
+            disambiguation = candidate.get("disambiguation") or ""
+            if isinstance(disambiguation, str) and disambiguation.strip():
+                title = f"{title} {disambiguation}"
+            matching = [
+                match
+                for other_artist, other_albums in albums_by_artist
+                for match in resolve_albums(other_albums, other_artist.get("artistName") or "", title, year=year)
+            ]
+            if len(matching) > 1 and not allow_ambiguous:
+                log.warning(f"Not offering {name} - {title}: multiple albums match and search IDs are unavailable")
+                continue
+            if len(matching) > 1:
+                log.warning(f"Offering ambiguous {name} - {title}; Lidarr may grab a different album than requested")
+            results.extend(_indexer_match_album(candidate, year, albums))
     return results
 
 
@@ -761,16 +860,19 @@ def _search_indexer_releases(*, artist: str, album: str, q: str, year: int | Non
             artist_query = " ".join(words[:-1])
             artists = find_artists(artist_query)
             if artists:
-                if len(artists) > 1:
-                    raise AmbiguousAlbumError("Artist search matches multiple Lidarr artists")
-                candidates = _indexer_artist_albums(artists[0])
-                selected = resolve_album(candidates, artist_query, words[-1])
-                if selected is not None:
-                    _warn_missing_artist_link(artists[0])
-                    return _indexer_match_album(selected, None, candidates)
-                year = int(words[-1])
-                return _indexer_artist_releases(artists, year)
-            year = int(words.pop())
+                numeric_title_match = False
+                for artist in artists:
+                    candidates = _indexer_artist_albums(artist)
+                    if resolve_albums(candidates, artist_query, words[-1]):
+                        numeric_title_match = True
+                if numeric_title_match:
+                    searches.append((artist_query, words[-1], None))
+                    words = []
+                else:
+                    year = int(words[-1])
+                    return _indexer_artist_releases(artists, year)
+            else:
+                year = int(words.pop())
         if len(words) == 1:
             return []
         for split in range(1, len(words)):
@@ -781,22 +883,22 @@ def _search_indexer_releases(*, artist: str, album: str, q: str, year: int | Non
     matches: dict[str, tuple[dict, dict, int | None, list[dict]]] = {}
     for artist_query, album_query, query_year in searches:
         artists = find_artists(artist_query)
-        if len(artists) > 1:
-            raise AmbiguousAlbumError("Artist and album terms match multiple Lidarr artists")
-        if not artists:
-            continue
-        candidates = _indexer_artist_albums(artists[0])
-        selected = resolve_album(candidates, artist_query, album_query, year=query_year)
-        if selected is None:
-            continue
-        matches[str(selected["id"])] = (artists[0], selected, query_year, candidates)
-    if len(matches) > 1:
-        raise AmbiguousAlbumError("Text search matches multiple Lidarr albums")
+        for artist in artists:
+            candidates = _indexer_artist_albums(artist)
+            for selected in resolve_albums(candidates, artist_query, album_query, year=query_year):
+                matches[str(selected["id"])] = (artist, selected, query_year, candidates)
+    if len(matches) > 1 and not env_bool("AUDIO_INDEXER_ALLOW_AMBIGUOUS_RESULTS", False):
+        log.warning("Not offering matching albums: multiple albums match and search IDs are unavailable")
+        return []
     if not matches:
         return []
-    matched_artist, selected, query_year, candidates = next(iter(matches.values()))
-    _warn_missing_artist_link(matched_artist)
-    return _indexer_match_album(selected, query_year, candidates)
+    if len(matches) > 1:
+        log.warning("Offering multiple indistinguishable albums; Lidarr may grab a different album than requested")
+    results = []
+    for matched_artist, selected, query_year, candidates in matches.values():
+        _warn_missing_artist_link(matched_artist)
+        results.extend(_indexer_match_album(selected, query_year, candidates))
+    return results
 
 
 def download_indexer_release(
