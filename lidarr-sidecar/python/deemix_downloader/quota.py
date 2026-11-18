@@ -43,7 +43,7 @@ import sqlite3
 import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
 
@@ -53,7 +53,12 @@ _SCHEMA = {
     "metadata": "CREATE TABLE metadata (version INTEGER NOT NULL)",
     "legacy": "CREATE TABLE legacy (day TEXT PRIMARY KEY, count INTEGER NOT NULL)",
     "jobs": "CREATE TABLE jobs (id TEXT PRIMARY KEY, status TEXT NOT NULL, day TEXT)",
+    "overrides": (
+        "CREATE TABLE overrides (id TEXT PRIMARY KEY, actor TEXT NOT NULL, reason TEXT NOT NULL, "
+        "granted_at TEXT NOT NULL, consumed_at TEXT)"
+    ),
 }
+_SCHEMA_V1 = {name: definition for name, definition in _SCHEMA.items() if name != "overrides"}
 
 
 class QuotaStateError(RuntimeError):
@@ -163,9 +168,10 @@ class DailyDownloadQuota:
                         connection.execute("PRAGMA synchronous=FULL")
                         with connection:
                             connection.execute(_SCHEMA["metadata"])
-                            connection.execute("INSERT INTO metadata VALUES (1)")
+                            connection.execute("INSERT INTO metadata VALUES (2)")
                             connection.execute(_SCHEMA["legacy"])
                             connection.execute(_SCHEMA["jobs"])
+                            connection.execute(_SCHEMA["overrides"])
                             if legacy is not None:
                                 connection.execute("INSERT INTO legacy VALUES (?, ?)", legacy)
                     finally:
@@ -182,6 +188,7 @@ class DailyDownloadQuota:
             try:
                 with connection:
                     connection.execute("BEGIN IMMEDIATE")
+                    self._migrate(connection)
                     self._validate(connection)
             finally:
                 connection.close()
@@ -195,13 +202,22 @@ class DailyDownloadQuota:
         finally:
             os.close(fd)
 
+    def _migrate(self, connection: sqlite3.Connection) -> None:
+        schema = dict(connection.execute("SELECT name, sql FROM sqlite_master WHERE type = 'table'").fetchall())
+        version = connection.execute("SELECT version FROM metadata").fetchall()
+        if version == [(1,)] and schema == _SCHEMA_V1:
+            connection.execute(_SCHEMA["overrides"])
+            connection.execute("UPDATE metadata SET version=2")
+        elif version != [(2,)] or schema != _SCHEMA:
+            raise ValueError("invalid quota schema or version")
+
     def _validate(self, connection: sqlite3.Connection) -> None:
         if connection.execute("PRAGMA integrity_check").fetchall() != [("ok",)]:
             raise ValueError("database integrity check failed")
         schema = connection.execute("SELECT name, sql FROM sqlite_master WHERE type = 'table'").fetchall()
         if dict(schema) != _SCHEMA:
             raise ValueError("invalid quota schema")
-        if connection.execute("SELECT version FROM metadata").fetchall() != [(1,)]:
+        if connection.execute("SELECT version FROM metadata").fetchall() != [(2,)]:
             raise ValueError("invalid quota schema version")
         legacy = connection.execute("SELECT day, count FROM legacy").fetchall()
         for day, count in legacy:
@@ -219,6 +235,16 @@ class DailyDownloadQuota:
                 self._parse_day(day)
             elif day is not None:
                 raise ValueError("unexpected completion day")
+        for job_id, actor, reason, granted_at, consumed_at in connection.execute(
+            "SELECT id, actor, reason, granted_at, consumed_at FROM overrides"
+        ):
+            if not all(isinstance(value, str) and value.strip() for value in (job_id, actor, reason, granted_at)):
+                raise ValueError("invalid quota override")
+            datetime.fromisoformat(granted_at)
+            if consumed_at is not None:
+                if not isinstance(consumed_at, str) or not consumed_at.strip():
+                    raise ValueError("invalid quota override consumption time")
+                datetime.fromisoformat(consumed_at)
 
     @staticmethod
     def _check_id(job_id: str) -> None:
@@ -300,7 +326,9 @@ class DailyDownloadQuota:
     def reserve(self, job_id: str) -> ReservationResult:
         """Atomically reserve capacity or return an existing/terminal result.
 
-        ``FULL`` creates no record, so the same ID can be retried later.
+        ``FULL`` creates no record unless this attempt has a one-time operator
+        override. The override is consumed in the same transaction as the
+        reservation.
         """
         self._check_id(job_id)
 
@@ -308,12 +336,50 @@ class DailyDownloadQuota:
             existing = connection.execute("SELECT status FROM jobs WHERE id = ?", (job_id,)).fetchone()
             if existing:
                 return ReservationResult(existing[0])
-            if self._snapshot(connection).full:
+            override = connection.execute(
+                "SELECT 1 FROM overrides WHERE id = ? AND consumed_at IS NULL", (job_id,)
+            ).fetchone()
+            if self._snapshot(connection).full and not override:
                 return ReservationResult.FULL
             connection.execute("INSERT INTO jobs VALUES (?, 'reserved', NULL)", (job_id,))
+            if override:
+                connection.execute(
+                    "UPDATE overrides SET consumed_at = ? WHERE id = ? AND consumed_at IS NULL",
+                    (datetime.now(UTC).isoformat(), job_id),
+                )
             return ReservationResult.RESERVED
 
         return self._run(reserve_transaction)
+
+    def grant_override(self, job_id: str, actor: str, reason: str) -> None:
+        """Grant one auditable, single-attempt reservation beyond today's limit."""
+        self._check_id(job_id)
+        if not isinstance(actor, str) or not actor.strip() or len(actor) > 128:
+            raise ValueError("actor must contain 1 to 128 characters")
+        if not isinstance(reason, str) or not reason.strip() or len(reason) > 500:
+            raise ValueError("reason must contain 1 to 500 characters")
+
+        def grant_transaction(connection):
+            if not self._snapshot(connection).full:
+                raise QuotaTransitionError("daily download quota is not currently full")
+            if connection.execute("SELECT 1 FROM jobs WHERE id = ?", (job_id,)).fetchone():
+                raise QuotaTransitionError("quota attempt has already started or finished")
+            if connection.execute("SELECT 1 FROM overrides WHERE id = ?", (job_id,)).fetchone():
+                raise QuotaTransitionError("quota attempt already has an override")
+            connection.execute(
+                "INSERT INTO overrides VALUES (?, ?, ?, ?, NULL)",
+                (job_id, actor.strip(), reason.strip(), datetime.now(UTC).isoformat()),
+            )
+
+        self._run(grant_transaction)
+
+    def pending_overrides(self) -> frozenset[str]:
+        """Return attempt IDs with an unused operator override."""
+
+        def pending_transaction(connection):
+            return frozenset(row[0] for row in connection.execute("SELECT id FROM overrides WHERE consumed_at IS NULL"))
+
+        return self._run(pending_transaction)
 
     def _finish(self, job_id: str, target: str) -> None:
         self._check_id(job_id)
@@ -366,6 +432,7 @@ class DailyDownloadQuota:
                 if any(status == "reserved" or (status == "completed" and day >= today) for _, status, day in rows):
                     continue
                 connection.executemany("DELETE FROM jobs WHERE id=?", [(row[0],) for row in rows])
+                connection.execute("DELETE FROM overrides WHERE substr(id, 1, ?) = ?", (len(prefix), prefix))
                 eligible.add(job_id)
             cutoff = (self._today() - timedelta(days=retention_days)).isoformat()
             connection.execute("DELETE FROM legacy WHERE day < ?", (cutoff,))

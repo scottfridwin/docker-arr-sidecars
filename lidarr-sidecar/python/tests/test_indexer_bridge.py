@@ -23,6 +23,7 @@ from unittest.mock import Mock, patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from deemix_downloader import service
+from deemix_downloader.indexer_admin import grant_quota_override, list_waiting_jobs
 from deemix_downloader.indexer_background import BackgroundSearch, SearchWarming
 from deemix_downloader.indexer_bridge import (
     BridgeRequestError,
@@ -793,6 +794,51 @@ class IndexerBridgeTests(unittest.TestCase):
             self.bridge._run_job(job)
             self.assertEqual(self.bridge.quota.snapshot().completed, 1)
         self.assertEqual(self.bridge.store.jobs(("completed",))[0]["status"], "completed")
+
+    def test_operator_override_promotes_only_the_selected_waiting_attempt(self):
+        self.bridge.quota.reserve("already-downloading")
+        self.bridge.quota.complete("already-downloading")
+        first_release = self.bridge.store.register_release(self.release())
+        second_release = self.bridge.store.register_release(
+            {
+                **self.release(),
+                "album_id": "23",
+                "album_title": "Second Album",
+                "report_title": "Test Artist - Second Album (2001)",
+            }
+        )
+        first_nzb_id = self._submit(first_release["token"], "first-download-id")
+        second_nzb_id = self._submit(second_release["token"], "second-download-id")
+        first_job = self.bridge.store.get_job_by_nzb_id(first_nzb_id)
+        second_job = self.bridge.store.get_job_by_nzb_id(second_nzb_id)
+
+        self.bridge._run_job(first_job)
+        self.bridge._run_job(second_job)
+        self.assertEqual(
+            list_waiting_jobs(self.work_path, 1),
+            [
+                (first_nzb_id, "Test Artist - Test Album"),
+                (second_nzb_id, "Test Artist - Second Album"),
+            ],
+        )
+
+        message = grant_quota_override(self.work_path, 1, second_nzb_id, "operator", "urgent album")
+
+        self.assertIn(f"NZB ID {second_nzb_id}", message)
+        prioritized = self.bridge.store.next_job(self.bridge.quota.pending_overrides())
+        self.assertEqual(prioritized["nzb_id"], second_nzb_id)
+        self.bridge._run_job(prioritized)
+        self.assertEqual(self.bridge.store.get_job_by_nzb_id(second_nzb_id)["status"], "completed")
+        self.assertEqual(self.bridge.store.get_job_by_nzb_id(first_nzb_id)["status"], "waiting_quota")
+        self.assertEqual(self.bridge.quota.snapshot().completed, 2)
+
+        with closing(sqlite3.connect(self.bridge.quota._db)) as connection:
+            audit = connection.execute(
+                "SELECT actor, reason, consumed_at FROM overrides WHERE id=?",
+                (f"{second_job['id']}:{second_job['attempt']}",),
+            ).fetchone()
+        self.assertEqual(audit[:2], ("operator", "urgent album"))
+        self.assertIsNotNone(audit[2])
 
     def test_quota_is_counted_before_import_and_retained_when_import_fails(self):
         def failed_import(_release, completed):

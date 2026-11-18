@@ -165,6 +165,54 @@ class DailyDownloadQuotaTests(unittest.TestCase):
             list(executor.map(lambda _: quota.complete("same"), range(30)))
         self.assertEqual(quota.snapshot().completed, 1)
 
+    def test_operator_override_allows_one_extra_attempt_and_keeps_quota_full(self):
+        quota = self.quota()
+        quota.reserve("ordinary")
+        quota.complete("ordinary")
+        quota.grant_override("priority:1", "operator", "urgent album")
+
+        self.assertEqual(quota.pending_overrides(), frozenset({"priority:1"}))
+        self.assertEqual(quota.reserve("priority:1"), ReservationResult.RESERVED)
+        self.assertEqual(quota.pending_overrides(), frozenset())
+        quota.complete("priority:1")
+
+        self.assertEqual(quota.snapshot().completed, 2)
+        self.assertTrue(quota.snapshot().full)
+        self.assertEqual(quota.reserve("another"), ReservationResult.FULL)
+        with self.assertRaises(QuotaTransitionError):
+            quota.grant_override("priority:1", "operator", "duplicate")
+
+    def test_operator_override_requires_a_full_quota_and_unstarted_attempt(self):
+        quota = self.quota()
+        with self.assertRaisesRegex(QuotaTransitionError, "not currently full"):
+            quota.grant_override("priority:1", "operator", "urgent album")
+        self.assertEqual(quota.pending_overrides(), frozenset())
+
+        quota.reserve("ordinary")
+        with self.assertRaises(QuotaTransitionError):
+            quota.grant_override("ordinary", "operator", "already started")
+
+    def test_existing_quota_database_migrates_to_override_schema(self):
+        marker = self.path / "daily_download_quota.lock"
+        marker.write_bytes(b"ready")
+        database = self.path / "daily_download_quota.sqlite3"
+        with closing(sqlite3.connect(database)) as connection, connection:
+            connection.execute("CREATE TABLE metadata (version INTEGER NOT NULL)")
+            connection.execute("INSERT INTO metadata VALUES (1)")
+            connection.execute("CREATE TABLE legacy (day TEXT PRIMARY KEY, count INTEGER NOT NULL)")
+            connection.execute("CREATE TABLE jobs (id TEXT PRIMARY KEY, status TEXT NOT NULL, day TEXT)")
+            connection.execute("INSERT INTO jobs VALUES ('existing', 'completed', ?)", (DAY.isoformat(),))
+
+        quota = self.quota()
+
+        self.assertEqual(quota.snapshot().completed, 1)
+        self.assertEqual(quota.reserve("new"), ReservationResult.FULL)
+        with closing(sqlite3.connect(database)) as connection:
+            self.assertEqual(connection.execute("SELECT version FROM metadata").fetchone(), (2,))
+            self.assertIsNotNone(
+                connection.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='overrides'").fetchone()
+            )
+
     def test_migration_of_current_and_old_legacy_state(self):
         legacy = self.path / "daily_download_state"
         legacy.write_text(f"{DAY.isoformat()} 2\n", encoding="utf-8")
