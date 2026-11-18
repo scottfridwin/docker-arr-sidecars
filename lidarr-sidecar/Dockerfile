@@ -26,7 +26,7 @@ COPY lidarr-sidecar/ /app/
 COPY shared/python /app/shared/python/
 
 WORKDIR /app
-ENV PYTHONPATH=/app
+ENV PYTHONPATH=/app/python:/app
 
 # General settings
 ENV UMASK=0002
@@ -145,7 +145,8 @@ CMD ["python3", "/app/shared/python/entrypoint.py"]
 FROM runtime AS test
 COPY --chown=1000:1000 . /src
 WORKDIR /src
-RUN PYTHONPATH=/src python3 -m unittest discover -s shared/python/tests -p 'test_*.py' \
+RUN python3 -m deemix_downloader.indexer_admin --help >/dev/null \
+    && PYTHONPATH=/src python3 -m unittest discover -s shared/python/tests -p 'test_*.py' \
     && PYTHONPATH=/src python3 -m unittest discover -s lidarr-sidecar/python/tests -p 'test_*.py'
 
 FROM runtime

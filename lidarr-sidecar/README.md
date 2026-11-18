@@ -114,13 +114,15 @@ On startup and when used, the quota reconciles the legacy `daily_download_state`
 For a single urgent album, use the sidecar's local operator command rather than changing the configured daily limit or editing SQLite state. List quota-waiting jobs to find the NZB ID:
 
 ```sh
-docker exec <sidecar-container> python3 -m deemix_downloader.indexer_admin list-waiting
+docker exec -e PYTHONPATH=/app/python:/app <sidecar-container> \
+  python3 -m deemix_downloader.indexer_admin list-waiting
 ```
 
 Grant that specific waiting attempt an exception, including an operator name and reason:
 
 ```sh
-docker exec <sidecar-container> python3 -m deemix_downloader.indexer_admin grant-quota-override \
+docker exec -e PYTHONPATH=/app/python:/app <sidecar-container> \
+  python3 -m deemix_downloader.indexer_admin grant-quota-override \
   --nzb-id 123 --operator "your-name" --reason "urgent priority album"
 ```
 
