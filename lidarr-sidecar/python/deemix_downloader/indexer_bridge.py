@@ -330,9 +330,9 @@ class BridgeStore:
             raise RuntimeError("indexer job has no associated release")
         return {"token": row["token"], "attempt": row["attempt"], **json.loads(row["payload"])}
 
-    def next_job(self) -> sqlite3.Row | None:
+    def next_job(self, priority_attempts: frozenset[str] = frozenset()) -> sqlite3.Row | None:
         with self._lock, self._connection() as connection:
-            return connection.execute(
+            rows = connection.execute(
                 "SELECT jobs.* FROM jobs JOIN releases AS queued ON queued.token=jobs.token "
                 "WHERE jobs.status IN ('queued', 'waiting_quota') AND NOT EXISTS ("
                 "SELECT 1 FROM jobs AS recovery JOIN releases AS blocked ON blocked.token=recovery.token "
@@ -342,8 +342,16 @@ class BridgeStore:
                 "json_extract(blocked.payload, '$.album_foreign_id') != '' AND "
                 "json_extract(blocked.payload, '$.album_foreign_id') = "
                 "json_extract(queued.payload, '$.album_foreign_id')))) "
-                "ORDER BY jobs.nzb_id LIMIT 1"
-            ).fetchone()
+                "ORDER BY jobs.nzb_id"
+            ).fetchall()
+        return next(
+            (row for row in rows if f"{row['id']}:{row['attempt']}" in priority_attempts),
+            rows[0] if rows else None,
+        )
+
+    def has_waiting_quota_job(self) -> bool:
+        with self._lock, self._connection() as connection:
+            return connection.execute("SELECT 1 FROM jobs WHERE status='waiting_quota' LIMIT 1").fetchone() is not None
 
     def claim_job(self, job_id: str) -> bool:
         with self._lock, self._connection() as connection:
@@ -500,7 +508,16 @@ class IndexerBridge:
                     continue
                 log.info("Quota state is available again; resuming queued downloads")
                 quota_unavailable = False
-            row = self.store.next_job()
+            priority_attempts = frozenset()
+            if self.store.has_waiting_quota_job():
+                try:
+                    priority_attempts = self.quota.pending_overrides()
+                except QuotaStateError as exc:
+                    log.error(f"Cannot read quota overrides; downloads remain paused: {exc}")
+                    quota_unavailable = True
+                    self._worker_stop.wait(self.worker_interval)
+                    continue
+            row = self.store.next_job(priority_attempts)
             if row is None:
                 self._worker_stop.wait(self.worker_interval)
                 continue
