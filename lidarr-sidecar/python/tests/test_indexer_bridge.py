@@ -813,12 +813,11 @@ class IndexerBridgeTests(unittest.TestCase):
         second_job = self.bridge.store.get_job_by_nzb_id(second_nzb_id)
 
         self.bridge._run_job(first_job)
-        self.bridge._run_job(second_job)
         self.assertEqual(
             list_waiting_jobs(self.work_path, 1),
             [
-                (first_nzb_id, "Test Artist - Test Album"),
-                (second_nzb_id, "Test Artist - Second Album"),
+                (first_nzb_id, "waiting_quota", "Test Artist - Test Album"),
+                (second_nzb_id, "queued", "Test Artist - Second Album"),
             ],
         )
 

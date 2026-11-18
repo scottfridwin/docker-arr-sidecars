@@ -33,14 +33,15 @@ def _open_state(work_path: Path, limit: int) -> tuple[BridgeStore, DailyDownload
     return BridgeStore(work_path / "indexer_jobs.sqlite3"), DailyDownloadQuota(work_path, limit)
 
 
-def list_waiting_jobs(work_path: Path, limit: int) -> list[tuple[int, str]]:
-    """Return queued items currently waiting for the daily quota."""
-    store, _quota = _open_state(work_path, limit)
+def list_waiting_jobs(work_path: Path, limit: int) -> list[tuple[int, str, str]]:
+    """Return jobs blocked by the quota, including queued jobs when the quota is full."""
+    store, quota = _open_state(work_path, limit)
+    statuses = ("queued", "waiting_quota") if quota.snapshot().full else ("waiting_quota",)
     results = []
-    for row in store.jobs(("waiting_quota",)):
+    for row in store.jobs(statuses):
         payload = json.loads(row["payload"])
         title = f"{payload['artist_name']} - {payload['album_title']}".replace("\r", " ").replace("\n", " ")
-        results.append((row["nzb_id"], title))
+        results.append((row["nzb_id"], row["status"], title))
     return results
 
 
@@ -51,13 +52,13 @@ def grant_quota_override(
     actor: str,
     reason: str,
 ) -> str:
-    """Grant an unused quota exception for one waiting job attempt."""
+    """Grant an unused quota exception for one queued job attempt."""
     if nzb_id <= 0:
         raise ValueError("NZB ID must be a positive integer")
     store, quota = _open_state(work_path, limit)
     job = store.get_job_by_nzb_id(nzb_id)
-    if not job or job["status"] != "waiting_quota":
-        raise ValueError(f"NZB ID {nzb_id} is not waiting for quota")
+    if not job or job["status"] not in ("queued", "waiting_quota"):
+        raise ValueError(f"NZB ID {nzb_id} is not queued or waiting for quota")
     if not quota.snapshot().full:
         raise ValueError("daily download quota is not currently full")
     release = store.get_release_for_job(job["id"])
@@ -69,8 +70,8 @@ def grant_quota_override(
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Manage waiting Lidarr indexer downloads.")
     commands = parser.add_subparsers(dest="command", required=True)
-    commands.add_parser("list-waiting", help="list NZB IDs currently waiting for daily quota")
-    grant = commands.add_parser("grant-quota-override", help="allow one waiting attempt beyond today's quota")
+    commands.add_parser("list-waiting", help="list NZB IDs waiting or queued behind the daily quota")
+    grant = commands.add_parser("grant-quota-override", help="allow one queued attempt beyond today's quota")
     grant.add_argument("--nzb-id", type=int, required=True, help="NZB ID from list-waiting")
     grant.add_argument("--operator", required=True, help="operator name recorded in the quota audit")
     grant.add_argument("--reason", required=True, help="short reason for the one-time exception")
@@ -88,8 +89,9 @@ def main(argv: list[str] | None = None) -> int:
             if not jobs:
                 print("No jobs are waiting for quota.")
             else:
-                for nzb_id, title in jobs:
-                    print(f"{nzb_id}\t{title}")
+                print("NZB ID\tStatus\tAlbum")
+                for nzb_id, status, title in jobs:
+                    print(f"{nzb_id}\t{status}\t{title}")
             return 0
         message = grant_quota_override(work_path, limit, args.nzb_id, args.operator, args.reason)
         print(message)

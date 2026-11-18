@@ -111,14 +111,14 @@ On startup and when used, the quota reconciles the legacy `daily_download_state`
 
 #### Manual one-time quota override
 
-For a single urgent album, use the sidecar's local operator command rather than changing the configured daily limit or editing SQLite state. List quota-waiting jobs to find the NZB ID:
+For a single urgent album, use the sidecar's local operator command rather than changing the configured daily limit or editing SQLite state. List queued and quota-waiting jobs to find the sidecar NZB ID. When the limit is full, the worker may leave later items in `queued` behind its first quota-waiting item; they are still eligible for an explicit override.
 
 ```sh
 docker exec -e PYTHONPATH=/app/python:/app <sidecar-container> \
   python3 -m deemix_downloader.indexer_admin list-waiting
 ```
 
-Grant that specific waiting attempt an exception, including an operator name and reason:
+Grant that specific queued or quota-waiting attempt an exception, including an operator name and reason:
 
 ```sh
 docker exec -e PYTHONPATH=/app/python:/app <sidecar-container> \
@@ -126,7 +126,7 @@ docker exec -e PYTHONPATH=/app/python:/app <sidecar-container> \
   --nzb-id 123 --operator "your-name" --reason "urgent priority album"
 ```
 
-The command refuses jobs that are not waiting for quota or when the quota is no longer full. The exception is bound to that download attempt, recorded with the supplied operator, reason, and timestamps, consumed atomically with its reservation, and promoted ahead of other quota-waiting jobs. It permits one extra download; that download still counts, so the remaining queue stays paused until the next local midnight. A retry is a new attempt and needs a new grant. The operator name is self-reported; running the command requires access to the sidecar container.
+The command refuses jobs that are not queued or waiting for quota, or when the quota is no longer full. Its output includes the status (`queued` or `waiting_quota`). The exception is bound to that download attempt, recorded with the supplied operator, reason, and timestamps, consumed atomically with its reservation, and promoted ahead of other queued jobs. It permits one extra download; that download still counts, so the remaining queue stays paused until the next local midnight. A retry is a new attempt and needs a new grant. The operator name is self-reported; running the command requires access to the sidecar container.
 
 Queued and quota-waiting jobs may be removed; removal is refused while downloading or importing because the bridge cannot safely cancel the operation. Interrupted or uncertain downloads and unsuccessful imports appear in the queue as “needs manual recovery” and are not automatically retried. To retry, remove the item in Lidarr with **Remove from Download Client** enabled and blocklisting disabled. The bridge conservatively charges any unresolved reservation to the removal day before clearing the item; an already completed download is not charged twice. With a limit of one, the retry may therefore wait until the next local day. If quota state is unavailable, removal fails rather than releasing an uncertain reservation. Do not edit or delete the quota database.
 
