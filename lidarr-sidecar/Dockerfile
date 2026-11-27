@@ -1,5 +1,5 @@
 # ===== Final Stage =====
-FROM debian:13.7-slim@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2 AS runtime
+FROM debian:13.8-slim@sha256:8aa5a7bf5a1955bddbe7d74fcdd0b91ab30e74362a8b73af672b0481b35b44a0 AS runtime
 
 LABEL org.opencontainers.image.description="Lidarr sidecar - automated Deezer downloads via MusicBrainz links"
 LABEL org.opencontainers.image.licenses="GPL-3.0-only"
